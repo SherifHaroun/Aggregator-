@@ -1,0 +1,33 @@
+import { resolveAverageAgeForCustomerType, type PlanConfigurationDto } from '@aggregator/shared';
+import type { PlanConfiguration } from '@prisma/client';
+import { toIso, toNumber } from '../../lib/decimal.js';
+import {
+  toPlanOptionDto,
+  type PlanOptionWithRelations,
+} from '../plan-options/plan-options.mapper.js';
+
+export function toPlanConfigurationDto(
+  configuration: PlanConfiguration & { options?: PlanOptionWithRelations[] },
+): PlanConfigurationDto {
+  return {
+    id: configuration.id,
+    planId: configuration.planId,
+    customerType: configuration.customerType,
+    geographicalCoverage: configuration.geographicalCoverage,
+    currency: configuration.currency,
+    annualPrice: toNumber(configuration.annualPrice),
+    annualLimit: toNumber(configuration.annualLimit),
+    deductible: toNumber(configuration.deductible),
+    coPayment: toNumber(configuration.coPayment),
+    /**
+     * Derived, never stored. For SME this yields the standard average age and
+     * its label straight from the centralized business rule, so the number
+     * exists in exactly one place in the codebase.
+     */
+    averageAge: resolveAverageAgeForCustomerType(configuration.customerType),
+    isActive: configuration.isActive,
+    createdAt: toIso(configuration.createdAt),
+    updatedAt: toIso(configuration.updatedAt),
+    ...(configuration.options ? { options: configuration.options.map(toPlanOptionDto) } : {}),
+  };
+}

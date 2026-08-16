@@ -1,0 +1,32 @@
+{
+  "name": "insurance-aggregator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Internal insurance aggregator — employee-managed insurance database and comparison tool.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build:shared": "npm run build -w @aggregator/shared",
+    "dev": "npm run build:shared && concurrently -n shared,api,web -c gray,cyan,magenta \"npm:dev:shared\" \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:shared": "npm run dev -w @aggregator/shared",
+    "dev:api": "npm run dev -w @aggregator/api",
+    "dev:web": "npm run dev -w @aggregator/web",
+    "build": "npm run build -w @aggregator/shared && npm run build -w @aggregator/api && npm run build -w @aggregator/web",
+    "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
+    "test": "npm run build:shared && npm run test --workspaces --if-present",
+    "prisma:generate": "npm run prisma:generate -w @aggregator/api",
+    "prisma:migrate": "npm run prisma:migrate -w @aggregator/api",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

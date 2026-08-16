@@ -1,0 +1,53 @@
+@import 'tailwindcss';
+
+/**
+ * Design tokens — the single source of truth for the visual language.
+ * Components reference these token names (bg-surface, text-muted, ...) instead
+ * of raw colours, so a rebrand is a change to this block only.
+ */
+@theme {
+  --color-canvas: oklch(0.985 0.003 250);
+  --color-surface: oklch(1 0 0);
+  --color-surface-muted: oklch(0.968 0.005 250);
+  --color-border-subtle: oklch(0.918 0.006 250);
+  --color-border-strong: oklch(0.845 0.008 250);
+
+  --color-content: oklch(0.22 0.012 260);
+  --color-content-muted: oklch(0.52 0.014 260);
+  --color-content-subtle: oklch(0.64 0.012 260);
+  --color-content-inverted: oklch(0.99 0 0);
+
+  --color-brand: oklch(0.52 0.15 254);
+  --color-brand-strong: oklch(0.44 0.16 254);
+  --color-brand-soft: oklch(0.96 0.025 254);
+  --color-brand-border: oklch(0.82 0.07 254);
+
+  --color-accent: oklch(0.72 0.14 178);
+  --color-danger: oklch(0.55 0.19 25);
+  --color-danger-soft: oklch(0.96 0.03 25);
+  --color-warning: oklch(0.72 0.15 75);
+  --color-success: oklch(0.6 0.14 155);
+
+  --radius-card: 1rem;
+  --radius-control: 0.625rem;
+
+  --shadow-card: 0 1px 2px oklch(0.2 0.02 260 / 0.04), 0 8px 24px oklch(0.2 0.02 260 / 0.06);
+  --shadow-raised: 0 2px 4px oklch(0.2 0.02 260 / 0.05), 0 16px 40px oklch(0.2 0.02 260 / 0.1);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-content antialiased;
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+      sans-serif;
+  }
+
+  *:focus-visible {
+    @apply outline-brand outline-2 outline-offset-2;
+  }
+}

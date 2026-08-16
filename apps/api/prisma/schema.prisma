@@ -1,0 +1,337 @@
+// Prisma schema for the internal insurance aggregator.
+//
+// ============================================================================
+//  ARCHITECTURAL RULE
+// ============================================================================
+// The database is the single source of truth for all insurance information.
+//
+// No benefit is ever a column. There is deliberately NO `dentalCare`,
+// `maternity` or `outpatientCare` field anywhere in this file. Benefits are
+// rows in `InsuranceOption`, the information each benefit requires is rows in
+// `OptionField`, and the values a plan gives them are rows in
+// `PlanOptionValue`.
+//
+// An employee can therefore invent an entirely new benefit — with entirely new
+// fields — from the website, without a schema change, a migration or a deploy.
+//
+// There is NO seed data and none should ever be added.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// The kinds of information an option field can hold.
+/// SYSTEM CONFIGURATION, not insurance data — mirrored by
+/// `OPTION_FIELD_DATA_TYPES` in @aggregator/shared.
+enum OptionFieldDataType {
+  NUMBER
+  PERCENTAGE
+  CURRENCY
+  TEXT
+  BOOLEAN
+}
+
+/// Who a configuration is priced for.
+/// SYSTEM CONFIGURATION, mirrored by `CUSTOMER_TYPES` in @aggregator/shared.
+/// `src/lib/enum-parity.ts` fails the build if the two ever diverge.
+/// There is deliberately no COUPLE value.
+enum CustomerType {
+  INDIVIDUAL
+  FAMILY
+  SME
+}
+
+/// Where a configuration provides cover.
+/// SYSTEM CONFIGURATION, mirrored by `GEOGRAPHICAL_COVERAGES` in
+/// @aggregator/shared. Exactly LOCAL and INTERNATIONAL — never "Egypt Only"
+/// or "Worldwide".
+enum GeographicalCoverage {
+  LOCAL
+  INTERNATIONAL
+}
+
+// ============================================================================
+//  COMPANIES
+// ============================================================================
+
+/// An insurance company. Plans belong to a company.
+model Company {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  shortName   String?
+  logoUrl     String?
+  description String?
+  website     String?
+  email       String?
+  phone       String?
+  mobile      String?
+  address     String?
+
+  /// Soft delete: deactivated companies keep their history and stay referenced
+  /// by existing plans, but are hidden from selection lists.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plans Plan[]
+
+  @@index([isActive])
+  @@map("companies")
+}
+
+// ============================================================================
+//  INSURANCE TYPES
+// ============================================================================
+
+/// A category of insurance (medical, life, motor, ...) — a record, never a
+/// hardcoded enum, so employees can add new categories from the website.
+///
+/// It scopes the option catalogue: a medical plan can only use options defined
+/// for medical insurance. This is what keeps the design extensible to insurance
+/// types whose benefits look nothing like medical ones.
+model InsuranceType {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  /// Stable machine key, e.g. derived from the name. Unique and immutable.
+  code        String  @unique
+  description String?
+  sortOrder   Int     @default(0)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  plans   Plan[]
+  options InsuranceOption[]
+
+  @@index([isActive])
+  @@map("insurance_types")
+}
+
+// ============================================================================
+//  OPTIONS (the benefit catalogue)
+// ============================================================================
+
+/// A benefit/feature an employee has defined, e.g. outpatient care, dental
+/// care, physiotherapy, telemedicine — or anything invented in the future.
+///
+/// This is the list an employee drags from when building a plan.
+model InsuranceOption {
+  id              String        @id @default(cuid())
+  insuranceTypeId String
+  insuranceType   InsuranceType @relation(fields: [insuranceTypeId], references: [id], onDelete: Restrict)
+
+  name        String
+  description String?
+  /// Display order of the option in the catalogue.
+  sortOrder   Int     @default(0)
+
+  /// Deactivate rather than delete once the option is used by any plan.
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The information THIS option requires. Every option defines its own.
+  fields      OptionField[]
+  planOptions PlanOption[]
+
+  @@unique([insuranceTypeId, name])
+  @@index([insuranceTypeId, isActive])
+  @@map("insurance_options")
+}
+
+/// One piece of information an option requires, defined by an employee.
+///
+/// This is what makes options self-describing: "Maternity Care" may define
+/// coverage percentage, annual limit and waiting period, while "Doctor Visits"
+/// defines maximum visits and coverage percentage. Neither shape is known to
+/// the code.
+model OptionField {
+  id       String          @id @default(cuid())
+  optionId String
+  option   InsuranceOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  /// Employee-facing name, e.g. "Coverage Percentage".
+  label      String
+  /// Stable machine key, unique within the option, e.g. "coverage_percentage".
+  key        String
+  dataType   OptionFieldDataType
+  /// Display unit, e.g. "%", "months", "sessions". Optional.
+  unit       String?
+  helpText   String?
+  /// Whether a plan must supply this value for the option to be complete.
+  isRequired Boolean             @default(false)
+  sortOrder  Int                 @default(0)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  values PlanOptionValue[]
+
+  @@unique([optionId, key])
+  @@unique([optionId, label])
+  @@index([optionId, isActive])
+  @@map("option_fields")
+}
+
+// ============================================================================
+//  PLANS
+// ============================================================================
+
+/// The insurance PRODUCT a company offers, independent of who buys it and
+/// where it applies.
+///
+/// A plan carries only what is true of the product itself. Anything that can
+/// differ between customer types or coverage areas — price, limits, benefits —
+/// lives on `PlanConfiguration`, so one product is never split into several
+/// plan records.
+model Plan {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  insuranceTypeId String
+  insuranceType   InsuranceType @relation(fields: [insuranceTypeId], references: [id], onDelete: Restrict)
+
+  name        String
+  /// Company-facing plan code. Unique per company.
+  code        String
+  description String?
+  /// Free-text plan tier/category. The comparison groups results by this, or
+  /// by name, so equivalent plans from different companies line up.
+  category    String?
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  configurations PlanConfiguration[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@index([insuranceTypeId, isActive])
+  /// Supports grouping comparison results by plan tier.
+  @@index([category])
+  @@map("plans")
+}
+
+/// One plan priced and configured for a specific customer type and coverage
+/// area — e.g. the same plan sold to an individual locally versus to an SME
+/// internationally.
+///
+/// This is the row the comparison searches. An employee entering
+/// "Individual + Local" matches configurations directly, and each result still
+/// knows its plan and company through the relation.
+///
+/// Age is deliberately NOT stored here. The SME average age is a business rule
+/// that lives once in `@aggregator/shared`, and age-based pricing has not been
+/// specified — adding it later means new columns here, not a redesign.
+model PlanConfiguration {
+  id     String @id @default(cuid())
+  planId String
+  plan   Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  customerType         CustomerType
+  geographicalCoverage GeographicalCoverage
+
+  /// ISO 4217 code, e.g. "EGP". Set per configuration because a local and an
+  /// international configuration may well be priced in different currencies.
+  currency    String?  @db.VarChar(3)
+  annualPrice Decimal? @db.Decimal(14, 2)
+  annualLimit Decimal? @db.Decimal(14, 2)
+  deductible  Decimal? @db.Decimal(14, 2)
+  coPayment   Decimal? @db.Decimal(5, 2)
+
+  isActive Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  options PlanOption[]
+
+  /// A plan has at most one configuration per customer type and coverage area.
+  @@unique([planId, customerType, geographicalCoverage])
+  /// The comparison's primary lookup: "every active configuration for this
+  /// customer type and coverage area".
+  @@index([customerType, geographicalCoverage, isActive])
+  @@index([planId, isActive])
+  @@map("plan_configurations")
+}
+
+// ============================================================================
+//  PLAN <-> OPTION
+// ============================================================================
+
+/// An option attached to ONE CONFIGURATION — the row created when an employee
+/// drags an option onto a configuration of a plan.
+///
+/// Attaching to the configuration rather than the plan is what lets the same
+/// benefit carry different coverage for Individual+Local than for Family+Local.
+/// Values can never leak between configurations, because each configuration
+/// owns its own `PlanOption` rows and those own their values.
+///
+/// `sortOrder` is the drag-and-drop position within the configuration.
+model PlanOption {
+  id                  String            @id @default(cuid())
+  planConfigurationId String
+  planConfiguration   PlanConfiguration @relation(fields: [planConfigurationId], references: [id], onDelete: Cascade)
+
+  optionId String
+  option   InsuranceOption @relation(fields: [optionId], references: [id], onDelete: Restrict)
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  values PlanOptionValue[]
+
+  /// An option can appear at most once in a configuration.
+  @@unique([planConfigurationId, optionId])
+  @@index([planConfigurationId, sortOrder])
+  @@index([optionId])
+  @@map("plan_options")
+}
+
+/// The value one option field takes inside one specific plan.
+///
+/// Values are stored in typed columns rather than a single stringified column,
+/// so numbers stay sortable and comparable in SQL. Exactly one column is used,
+/// chosen by the field's `dataType`:
+///
+///   NUMBER / PERCENTAGE / CURRENCY -> numberValue
+///   TEXT                           -> textValue
+///   BOOLEAN                        -> booleanValue
+///
+/// This is the row that holds "coverage = 80%" for one option in one plan.
+model PlanOptionValue {
+  id           String     @id @default(cuid())
+  planOptionId String
+  planOption   PlanOption @relation(fields: [planOptionId], references: [id], onDelete: Cascade)
+
+  optionFieldId String
+  optionField   OptionField @relation(fields: [optionFieldId], references: [id], onDelete: Cascade)
+
+  numberValue  Decimal? @db.Decimal(18, 4)
+  textValue    String?
+  booleanValue Boolean?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One value per field per plan-option.
+  @@unique([planOptionId, optionFieldId])
+  @@index([optionFieldId])
+  @@map("plan_option_values")
+}
