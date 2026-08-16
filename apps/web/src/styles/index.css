@@ -6,33 +6,44 @@
  * of raw colours, so a rebrand is a change to this block only.
  */
 @theme {
-  --color-canvas: oklch(0.985 0.003 250);
+  /* Surfaces: a soft lavender-tinted canvas with white cards on top. */
+  --color-canvas: oklch(0.978 0.006 292);
   --color-surface: oklch(1 0 0);
-  --color-surface-muted: oklch(0.968 0.005 250);
-  --color-border-subtle: oklch(0.918 0.006 250);
-  --color-border-strong: oklch(0.845 0.008 250);
+  --color-surface-muted: oklch(0.968 0.008 292);
+  --color-sidebar: oklch(1 0 0);
+  --color-border-subtle: oklch(0.925 0.008 292);
+  --color-border-strong: oklch(0.865 0.012 292);
 
-  --color-content: oklch(0.22 0.012 260);
-  --color-content-muted: oklch(0.52 0.014 260);
-  --color-content-subtle: oklch(0.64 0.012 260);
+  /* Text */
+  --color-content: oklch(0.24 0.03 285);
+  --color-content-muted: oklch(0.53 0.025 285);
+  --color-content-subtle: oklch(0.65 0.02 285);
   --color-content-inverted: oklch(0.99 0 0);
 
-  --color-brand: oklch(0.52 0.15 254);
-  --color-brand-strong: oklch(0.44 0.16 254);
-  --color-brand-soft: oklch(0.96 0.025 254);
-  --color-brand-border: oklch(0.82 0.07 254);
+  /* Brand — violet, matching the Hadbrok identity. */
+  --color-brand: oklch(0.52 0.22 292);
+  --color-brand-strong: oklch(0.45 0.22 292);
+  --color-brand-soft: oklch(0.965 0.025 292);
+  --color-brand-border: oklch(0.85 0.09 292);
 
-  --color-accent: oklch(0.72 0.14 178);
-  --color-danger: oklch(0.55 0.19 25);
-  --color-danger-soft: oklch(0.96 0.03 25);
-  --color-warning: oklch(0.72 0.15 75);
-  --color-success: oklch(0.6 0.14 155);
+  /* Status */
+  --color-accent: oklch(0.7 0.15 200);
+  --color-danger: oklch(0.56 0.2 25);
+  --color-danger-soft: oklch(0.965 0.025 25);
+  --color-warning: oklch(0.74 0.15 75);
+  --color-warning-soft: oklch(0.97 0.04 85);
+  --color-success: oklch(0.62 0.15 155);
+  --color-success-soft: oklch(0.96 0.04 155);
 
+  /* Shape */
   --radius-card: 1rem;
   --radius-control: 0.625rem;
+  --radius-pill: 999px;
 
-  --shadow-card: 0 1px 2px oklch(0.2 0.02 260 / 0.04), 0 8px 24px oklch(0.2 0.02 260 / 0.06);
-  --shadow-raised: 0 2px 4px oklch(0.2 0.02 260 / 0.05), 0 16px 40px oklch(0.2 0.02 260 / 0.1);
+  /* Elevation — soft and violet-tinted rather than flat grey. */
+  --shadow-card: 0 1px 2px oklch(0.3 0.05 292 / 0.04), 0 6px 16px oklch(0.3 0.05 292 / 0.05);
+  --shadow-raised: 0 2px 6px oklch(0.3 0.05 292 / 0.06), 0 18px 40px oklch(0.3 0.05 292 / 0.12);
+  --shadow-brand: 0 6px 16px oklch(0.52 0.22 292 / 0.28);
 }
 
 @layer base {
@@ -45,9 +56,26 @@
     font-family:
       ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
       sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Headings carry the "premium" weight; tightened tracking at large sizes. */
+  h1 {
+    @apply tracking-tight;
   }
 
   *:focus-visible {
     @apply outline-brand outline-2 outline-offset-2;
+  }
+}
+
+@layer utilities {
+  /** The violet gradient used on the sidebar brand mark and hero panels. */
+  .bg-brand-gradient {
+    background-image: linear-gradient(
+      135deg,
+      oklch(0.56 0.22 292) 0%,
+      oklch(0.46 0.23 288) 100%
+    );
   }
 }

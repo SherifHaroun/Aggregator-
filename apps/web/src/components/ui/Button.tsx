@@ -1,19 +1,20 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'soft';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-brand text-content-inverted hover:bg-brand-strong shadow-sm',
+  primary: 'bg-brand text-content-inverted hover:bg-brand-strong shadow-(--shadow-brand)',
   secondary:
     'bg-surface text-content border border-border-subtle hover:border-border-strong hover:bg-surface-muted',
+  soft: 'bg-brand-soft text-brand-strong hover:bg-brand-soft/70',
   ghost: 'text-content-muted hover:text-content hover:bg-surface-muted',
   danger: 'bg-danger text-content-inverted hover:opacity-90',
 };
 
 const SIZES: Record<ButtonSize, string> = {
-  sm: 'h-9 px-3 text-sm',
+  sm: 'h-9 px-3.5 text-sm',
   md: 'h-11 px-5 text-sm',
   lg: 'h-12 px-6 text-base',
 };
@@ -27,8 +28,8 @@ export function buttonClasses(options: {
 }): string {
   const { variant = 'primary', size = 'md', fullWidth = false, className } = options;
   return cn(
-    'inline-flex items-center justify-center gap-2 rounded-(--radius-control) font-medium',
-    'transition-colors duration-150',
+    'inline-flex items-center justify-center gap-2 rounded-(--radius-control) font-semibold',
+    'transition-all duration-150 active:scale-[0.985]',
     'disabled:pointer-events-none disabled:opacity-50',
     VARIANTS[variant],
     SIZES[size],

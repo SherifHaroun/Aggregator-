@@ -1,49 +1,33 @@
 /**
- * Sidebar navigation. Adding a screen means adding an entry here — the layout
- * renders whatever this file describes.
+ * Sidebar navigation.
+ *
+ * Deliberately three items. Insurance types, plans, options, configurations and
+ * option fields are all reached by drilling into a company, so the sidebar stays
+ * short and the employee never has to hunt across parallel screens.
  */
 
+import type { ComponentType, SVGProps } from 'react';
+import { IconAdd, IconBuilding, IconDashboard } from '@/components/ui/icons';
 import { ROUTES } from './routes';
 
 export interface NavItem {
   label: string;
   to: string;
-  /** `false` renders the item as a disabled placeholder for a future screen. */
-  available: boolean;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
+  /** Highlight the item for any deeper URL under it, not just an exact match. */
+  matchPrefix?: string;
 }
 
-export interface NavSection {
-  title: string;
-  items: NavItem[];
-}
-
-export const NAV_SECTIONS: NavSection[] = [
+export const NAV_ITEMS: NavItem[] = [
+  { label: 'Dashboard', to: ROUTES.dashboard, icon: IconDashboard },
+  { label: 'Add Company', to: ROUTES.companies.new, icon: IconAdd },
   {
-    title: 'Overview',
-    items: [{ label: 'Dashboard', to: ROUTES.dashboard, available: true }],
-  },
-  {
-    title: 'Insurance data',
-    items: [
-      { label: 'Companies', to: ROUTES.companies.list, available: true },
-      { label: 'Insurance types', to: ROUTES.insuranceTypes.list, available: true },
-      { label: 'Plans', to: ROUTES.plans.list, available: true },
-      { label: 'Insurance options', to: ROUTES.insuranceOptions.list, available: true },
-    ],
-  },
-  {
-    title: 'Comparison',
-    items: [{ label: 'New comparison', to: ROUTES.comparison.new, available: true }],
-  },
-  {
-    title: 'More',
-    items: [
-      { label: 'Reports', to: '/reports', available: false },
-      { label: 'Settings', to: '/settings', available: false },
-    ],
+    label: 'Companies',
+    to: ROUTES.companies.list,
+    icon: IconBuilding,
+    matchPrefix: ROUTES.companies.list,
   },
 ];
 
-/** Product name shown in the header. */
-export const APP_NAME = 'Insurance Aggregator';
-export const APP_SUBTITLE = 'Internal tool';
+export const APP_NAME = 'Hadbrok';
+export const APP_TAGLINE = 'Insurance Aggregator';

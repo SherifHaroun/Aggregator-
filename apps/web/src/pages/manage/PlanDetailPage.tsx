@@ -1,21 +1,31 @@
+import type { PlanConfigurationDto } from '@aggregator/shared';
 import { useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import {
+  Badge,
   Button,
-  ButtonLink,
   Card,
   CardBody,
   CardHeader,
   ConfirmDialog,
+  DataState,
   EmptyState,
+  IconAdd,
+  IconChevronRight,
+  IconEdit,
+  IconGlobe,
+  IconLayers,
+  IconTrash,
+  IconUsers,
   PageHeader,
-  StatusBadge,
   describeError,
   useToast,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
+import { ConfigurationDialog } from '@/features/company-setup/ConfigurationDialog';
+import { PlanDialog } from '@/features/company-setup/PlanDialog';
 import {
-  useDeletePlan,
+  useCompany,
   useDeletePlanConfiguration,
   usePlan,
 } from '@/features/insurance-data/insurance-data.api';
@@ -24,25 +34,25 @@ import {
   configurationLabel,
   formatMoney,
 } from '@/features/insurance-data/labels';
-import { DataState } from '@/components/ui';
-import type { PlanConfigurationDto } from '@aggregator/shared';
 
 /**
  * A plan and its configurations. Configurations are created individually —
- * never generated automatically — so the plan only ever shows the combinations
- * that genuinely exist for the product.
+ * never generated automatically — so only the combinations this product is
+ * actually sold for exist.
  */
 export function PlanDetailPage() {
-  const { planId } = useParams();
-  const navigate = useNavigate();
+  const { companyId, planId } = useParams();
   const { notify } = useToast();
 
+  const company = useCompany(companyId);
   const plan = usePlan(planId);
-  const deletePlan = useDeletePlan();
   const deleteConfiguration = useDeletePlanConfiguration();
 
-  const [confirmPlanDelete, setConfirmPlanDelete] = useState(false);
-  const [pendingConfiguration, setPendingConfiguration] = useState<PlanConfigurationDto | null>(null);
+  const [editingPlan, setEditingPlan] = useState(false);
+  const [editingConfiguration, setEditingConfiguration] = useState<
+    PlanConfigurationDto | null | undefined
+  >(undefined);
+  const [pendingDelete, setPendingDelete] = useState<PlanConfigurationDto | null>(null);
 
   const configurations = plan.data?.configurations ?? [];
 
@@ -50,26 +60,29 @@ export function PlanDetailPage() {
     <>
       <PageHeader
         title={plan.data?.name ?? 'Plan'}
-        description={plan.data?.description ?? undefined}
+        description="Each configuration below carries its own price and its own benefits."
+        breadcrumbs={[
+          { label: 'Companies', to: ROUTES.companies.list },
+          {
+            label: company.data?.name ?? 'Company',
+            ...(companyId ? { to: ROUTES.companies.detail(companyId) } : {}),
+          },
+          { label: plan.data?.name ?? 'Plan' },
+        ]}
+        media={
+          <span className="bg-brand-soft text-brand flex size-14 items-center justify-center rounded-2xl">
+            <IconLayers className="size-7" />
+          </span>
+        }
         actions={
           plan.data ? (
-            <>
-              <ButtonLink variant="secondary" to={ROUTES.plans.edit(plan.data.id)}>
-                Edit plan
-              </ButtonLink>
-              <Button variant="ghost" onClick={() => setConfirmPlanDelete(true)}>
-                Delete
-              </Button>
-            </>
+            <Button variant="secondary" onClick={() => setEditingPlan(true)}>
+              <IconEdit className="size-4" />
+              Edit plan
+            </Button>
           ) : undefined
         }
       />
-
-      <div className="mb-4">
-        <Link to={ROUTES.plans.list} className="text-content-muted hover:text-content text-sm">
-          ← All plans
-        </Link>
-      </div>
 
       <DataState
         isLoading={plan.isLoading}
@@ -80,11 +93,16 @@ export function PlanDetailPage() {
         empty={{ title: 'Plan not found' }}
       >
         {([current]) => (
-          <div className="space-y-6">
+          <div className="space-y-5">
             <Card>
               <CardHeader
                 title="Plan details"
-                action={<StatusBadge isActive={current!.isActive} />}
+                icon={<IconLayers className="size-5" />}
+                action={
+                  <Badge tone={current!.isActive ? 'success' : 'neutral'}>
+                    {current!.isActive ? 'Active' : 'Inactive'}
+                  </Badge>
+                }
               />
               <CardBody className="grid gap-4 sm:grid-cols-3">
                 <Detail label="Plan code" value={current!.code} />
@@ -93,83 +111,84 @@ export function PlanDetailPage() {
               </CardBody>
             </Card>
 
-            <section>
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-content text-lg font-semibold">Configurations</h2>
-                  <p className="text-content-muted text-sm">
-                    One per customer type and geographical coverage. Price and benefits are set on
-                    each.
-                  </p>
-                </div>
-                <ButtonLink to={ROUTES.planConfigurations.new(current!.id)}>
-                  + Add configuration
-                </ButtonLink>
-              </div>
-
-              {configurations.length === 0 ? (
-                <EmptyState
-                  title="No configurations yet"
-                  description="Add a configuration for each customer type and coverage area this plan is actually sold for."
-                  action={
-                    <ButtonLink to={ROUTES.planConfigurations.new(current!.id)}>
-                      + Add configuration
-                    </ButtonLink>
-                  }
-                />
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                  {configurations.map((configuration) => (
-                    <ConfigurationCard
-                      key={configuration.id}
-                      configuration={configuration}
-                      onDelete={() => setPendingConfiguration(configuration)}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
+            <Card>
+              <CardHeader
+                title="Configurations"
+                description="One per customer type and coverage area."
+                icon={<IconUsers className="size-5" />}
+                action={
+                  <Button size="sm" onClick={() => setEditingConfiguration(null)}>
+                    <IconAdd className="size-4" />
+                    Add configuration
+                  </Button>
+                }
+              />
+              <CardBody>
+                {configurations.length === 0 ? (
+                  <EmptyState
+                    variant="plain"
+                    icon={<IconGlobe className="size-6" />}
+                    title="No configurations yet"
+                    description="Add one for each customer type and coverage area this plan is actually sold for."
+                    action={
+                      <Button onClick={() => setEditingConfiguration(null)}>
+                        <IconAdd className="size-4" />
+                        Add configuration
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                    {configurations.map((configuration) => (
+                      <ConfigurationCard
+                        key={configuration.id}
+                        configuration={configuration}
+                        companyId={companyId!}
+                        planId={planId!}
+                        onEdit={() => setEditingConfiguration(configuration)}
+                        onDelete={() => setPendingDelete(configuration)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </CardBody>
+            </Card>
           </div>
         )}
       </DataState>
 
-      <ConfirmDialog
-        open={confirmPlanDelete}
-        onClose={() => setConfirmPlanDelete(false)}
-        busy={deletePlan.isPending}
-        title={`Delete ${plan.data?.name ?? 'plan'}?`}
-        description="This permanently removes the plan together with all of its configurations, their benefits and values. Deactivate the plan instead if it has been quoted or compared."
-        onConfirm={() => {
-          if (!planId) return;
-          deletePlan.mutate(planId, {
-            onSuccess: () => {
-              notify('The plan was deleted.');
-              navigate(ROUTES.plans.list);
-            },
-            onError: (error) => {
-              notify(describeError(error, 'the plan'), 'error');
-              setConfirmPlanDelete(false);
-            },
-          });
-        }}
-      />
+      {editingPlan && companyId && plan.data ? (
+        <PlanDialog
+          companyId={companyId}
+          plan={plan.data}
+          onClose={() => setEditingPlan(false)}
+        />
+      ) : null}
+
+      {editingConfiguration !== undefined && planId ? (
+        <ConfigurationDialog
+          planId={planId}
+          configuration={editingConfiguration}
+          onClose={() => setEditingConfiguration(undefined)}
+        />
+      ) : null}
 
       <ConfirmDialog
-        open={pendingConfiguration !== null}
-        onClose={() => setPendingConfiguration(null)}
+        open={pendingDelete !== null}
+        onClose={() => setPendingDelete(null)}
         busy={deleteConfiguration.isPending}
         title="Delete this configuration?"
-        description="This permanently removes the configuration together with its benefits and their values. Other configurations of this plan are not affected."
+        description="This permanently removes the configuration with its benefits and their values. Other configurations of this plan are not affected."
         onConfirm={() => {
-          if (!pendingConfiguration) return;
-          deleteConfiguration.mutate(pendingConfiguration.id, {
+          if (!pendingDelete) return;
+          deleteConfiguration.mutate(pendingDelete.id, {
             onSuccess: () => {
               notify('The configuration was deleted.');
-              setPendingConfiguration(null);
+              setPendingDelete(null);
             },
             onError: (error) => {
               notify(describeError(error, 'the configuration'), 'error');
-              setPendingConfiguration(null);
+              setPendingDelete(null);
             },
           });
         }}
@@ -181,51 +200,75 @@ export function PlanDetailPage() {
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="text-content-subtle text-xs tracking-wide uppercase">{label}</p>
-      <p className="text-content mt-1 text-sm font-medium">{value}</p>
+      <p className="text-content-subtle text-xs font-medium tracking-wide uppercase">{label}</p>
+      <p className="text-content mt-1 text-sm font-semibold">{value}</p>
     </div>
   );
 }
 
 function ConfigurationCard({
   configuration,
+  companyId,
+  planId,
+  onEdit,
   onDelete,
 }: {
   configuration: PlanConfigurationDto;
+  companyId: string;
+  planId: string;
+  onEdit: () => void;
   onDelete: () => void;
 }) {
+  const benefits = configuration.options?.length ?? 0;
+
   return (
-    <Card className="flex flex-col p-5">
-      <div className="flex items-start justify-between gap-3">
+    <Card className="hover:border-brand-border flex flex-col p-5 transition-colors">
+      <div className="flex items-start justify-between gap-2">
         <p className="text-content font-semibold">
           {configurationLabel(configuration.customerType, configuration.geographicalCoverage)}
         </p>
-        <StatusBadge isActive={configuration.isActive} />
+        <Badge tone={configuration.isActive ? 'success' : 'neutral'}>
+          {configuration.isActive ? 'Active' : 'Inactive'}
+        </Badge>
       </div>
 
-      <p className="text-content mt-3 text-xl font-semibold">
+      <p className="text-content mt-3 text-2xl font-bold">
         {formatMoney(configuration.annualPrice, configuration.currency)}
       </p>
-      <p className="text-content-muted text-sm">
-        {benefitCountLabel(configuration.options?.length ?? 0)}
-      </p>
+      <p className="text-content-muted text-sm">{benefitCountLabel(benefits)}</p>
 
-      {/* Resolved from the centralized business rule, never entered or stored. */}
+      {/* Resolved from the centralized business rule, never stored. */}
       {configuration.averageAge.label ? (
-        <p className="text-content-subtle mt-1 text-xs">{configuration.averageAge.label}</p>
+        <p className="text-brand-strong bg-brand-soft mt-3 inline-flex w-fit items-center gap-1.5 rounded-(--radius-pill) px-2.5 py-1 text-xs font-semibold">
+          <IconUsers className="size-3.5" />
+          {configuration.averageAge.label}
+        </p>
       ) : null}
 
-      <div className="mt-4 flex items-center justify-end gap-2 pt-2">
+      <div className="mt-auto flex items-center justify-end gap-1 pt-4">
+        <button
+          type="button"
+          onClick={onEdit}
+          aria-label="Edit configuration"
+          className="text-content-muted hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-2"
+        >
+          <IconEdit className="size-4" />
+        </button>
         <button
           type="button"
           onClick={onDelete}
-          className="text-danger hover:bg-danger-soft rounded-(--radius-control) px-2.5 py-1.5 text-sm font-medium"
+          aria-label="Delete configuration"
+          className="text-danger hover:bg-danger-soft rounded-(--radius-control) p-2"
         >
-          Delete
+          <IconTrash className="size-4" />
         </button>
-        <ButtonLink size="sm" variant="secondary" to={ROUTES.planConfigurations.detail(configuration.id)}>
-          Configure
-        </ButtonLink>
+        <Link
+          to={ROUTES.configurations.detail(companyId, planId, configuration.id)}
+          className="text-brand-strong bg-brand-soft hover:bg-brand hover:text-content-inverted ml-1 inline-flex items-center gap-1 rounded-(--radius-control) px-3 py-2 text-sm font-semibold transition-colors"
+        >
+          Benefits
+          <IconChevronRight className="size-4" />
+        </Link>
       </div>
     </Card>
   );

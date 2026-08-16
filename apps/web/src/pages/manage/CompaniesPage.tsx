@@ -1,78 +1,67 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
+  Badge,
   ButtonLink,
-  ConfirmDialog,
+  Card,
+  CompanyLogo,
   DataState,
-  DataTable,
+  IconAdd,
+  IconBuilding,
+  IconChevronRight,
+  Input,
   PageHeader,
-  RowAction,
-  StatusBadge,
-  describeError,
-  useToast,
-  type Column,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
-import { useCompanies, useDeleteCompany, useSaveCompany } from '@/features/insurance-data/insurance-data.api';
+import { useCompanies, usePlans } from '@/features/insurance-data/insurance-data.api';
 import type { CompanyDto } from '@aggregator/shared';
 
+/**
+ * The list of companies, and the way into every other management screen:
+ * picking a company opens its full structure.
+ */
 export function CompaniesPage() {
-  const navigate = useNavigate();
-  const { notify } = useToast();
   const companies = useCompanies();
-  const deleteCompany = useDeleteCompany();
-  const [pendingDelete, setPendingDelete] = useState<CompanyDto | null>(null);
+  const plans = usePlans();
+  const [search, setSearch] = useState('');
 
-  const columns: Column<CompanyDto>[] = [
-    {
-      key: 'name',
-      header: 'Company',
-      render: (company) => (
-        <div className="flex items-center gap-3">
-          {company.logoUrl ? (
-            <img
-              src={company.logoUrl}
-              alt=""
-              className="bg-surface-muted size-8 shrink-0 rounded object-contain"
-            />
-          ) : (
-            <span
-              aria-hidden="true"
-              className="bg-surface-muted text-content-subtle flex size-8 shrink-0 items-center justify-center rounded text-xs font-semibold"
-            >
-              {company.name.slice(0, 2).toUpperCase()}
-            </span>
-          )}
-          <span className="text-content font-medium">{company.name}</span>
-        </div>
-      ),
-    },
-    {
-      key: 'shortName',
-      header: 'Short name',
-      render: (company) => company.shortName ?? '—',
-      hideOnMobile: true,
-    },
-    {
-      key: 'contact',
-      header: 'Contact',
-      render: (company) => company.email ?? company.phone ?? '—',
-      hideOnMobile: true,
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (company) => <StatusBadge isActive={company.isActive} />,
-    },
-  ];
+  /** Plans per company, so each card can show how much is set up. */
+  const planCount = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const plan of plans.data ?? []) {
+      counts.set(plan.companyId, (counts.get(plan.companyId) ?? 0) + 1);
+    }
+    return counts;
+  }, [plans.data]);
+
+  const visible = (companies.data ?? []).filter((company) =>
+    company.name.toLowerCase().includes(search.trim().toLowerCase()),
+  );
 
   return (
     <>
       <PageHeader
         title="Companies"
-        description="Insurance companies whose plans are stored in the system."
-        actions={<ButtonLink to={ROUTES.companies.new}>+ Add company</ButtonLink>}
+        description="Every insurance company in the system. Open one to manage its plans and benefits."
+        actions={
+          <ButtonLink to={ROUTES.companies.new}>
+            <IconAdd className="size-4" />
+            Add company
+          </ButtonLink>
+        }
       />
+
+      {(companies.data?.length ?? 0) > 0 ? (
+        <div className="mb-5 max-w-sm">
+          <Input
+            type="search"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search companies…"
+            aria-label="Search companies"
+          />
+        </div>
+      ) : null}
 
       <DataState
         isLoading={companies.isLoading}
@@ -84,85 +73,67 @@ export function CompaniesPage() {
           title: 'No insurance companies yet',
           description:
             'Add your first insurance company to start building the insurance database.',
-          action: <ButtonLink to={ROUTES.companies.new}>+ Add company</ButtonLink>,
+          action: (
+            <ButtonLink to={ROUTES.companies.new}>
+              <IconAdd className="size-4" />
+              Add company
+            </ButtonLink>
+          ),
         }}
       >
-        {(items) => (
-          <DataTable
-            columns={columns}
-            items={items}
-            getRowKey={(company) => company.id}
-            actions={(company) => (
-              <CompanyRowActions
-                company={company}
-                onEdit={() => navigate(ROUTES.companies.edit(company.id))}
-                onDelete={() => setPendingDelete(company)}
-              />
-            )}
-          />
-        )}
+        {() =>
+          visible.length === 0 ? (
+            <Card className="px-6 py-12 text-center">
+              <p className="text-content font-semibold">No companies match “{search}”</p>
+              <p className="text-content-muted mt-1 text-sm">Try a different search term.</p>
+            </Card>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {visible.map((company) => (
+                <CompanyCard
+                  key={company.id}
+                  company={company}
+                  plans={planCount.get(company.id) ?? 0}
+                />
+              ))}
+            </div>
+          )
+        }
       </DataState>
-
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        onClose={() => setPendingDelete(null)}
-        busy={deleteCompany.isPending}
-        title={`Delete ${pendingDelete?.name ?? 'company'}?`}
-        description="This permanently removes the company. If it already has plans, the system will refuse — deactivate it instead so existing plans keep working."
-        onConfirm={() => {
-          if (!pendingDelete) return;
-          deleteCompany.mutate(pendingDelete.id, {
-            onSuccess: () => {
-              notify(`${pendingDelete.name} was deleted.`);
-              setPendingDelete(null);
-            },
-            onError: (error) => {
-              notify(describeError(error, 'the company'), 'error');
-              setPendingDelete(null);
-            },
-          });
-        }}
-      />
     </>
   );
 }
 
-/** Edit, activate/deactivate and delete for one row. */
-function CompanyRowActions({
-  company,
-  onEdit,
-  onDelete,
-}: {
-  company: CompanyDto;
-  onEdit: () => void;
-  onDelete: () => void;
-}) {
-  const { notify } = useToast();
-  const save = useSaveCompany(company.id);
-
+function CompanyCard({ company, plans }: { company: CompanyDto; plans: number }) {
   return (
-    <div className="flex justify-end gap-1">
-      <RowAction onClick={onEdit}>Edit</RowAction>
-      <RowAction
-        disabled={save.isPending}
-        onClick={() =>
-          save.mutate(
-            { isActive: !company.isActive },
-            {
-              onSuccess: () =>
-                notify(
-                  `${company.name} is now ${company.isActive ? 'inactive' : 'active'}.`,
-                ),
-              onError: (error) => notify(describeError(error, 'the company'), 'error'),
-            },
-          )
-        }
-      >
-        {company.isActive ? 'Deactivate' : 'Activate'}
-      </RowAction>
-      <RowAction tone="danger" onClick={onDelete}>
-        Delete
-      </RowAction>
-    </div>
+    <Link
+      to={ROUTES.companies.detail(company.id)}
+      className="group block rounded-(--radius-card) focus-visible:outline-2"
+    >
+      <Card className="hover:border-brand-border h-full p-5 transition-all group-hover:shadow-(--shadow-raised)">
+        <div className="flex items-start gap-4">
+          <CompanyLogo name={company.name} logoUrl={company.logoUrl} />
+          <div className="min-w-0 flex-1">
+            <p className="text-content truncate font-semibold">{company.name}</p>
+            <p className="text-content-subtle mt-0.5 text-sm">
+              {plans === 0 ? 'No plans yet' : `${plans} ${plans === 1 ? 'plan' : 'plans'}`}
+            </p>
+          </div>
+          <IconChevronRight className="text-content-subtle group-hover:text-brand mt-1 size-4 shrink-0 transition-colors" />
+        </div>
+
+        <div className="mt-4 flex items-center gap-2">
+          <Badge tone={company.isActive ? 'success' : 'neutral'}>
+            {company.isActive ? 'Active' : 'Inactive'}
+          </Badge>
+          {plans === 0 ? (
+            <Badge tone="warning">
+              <IconBuilding className="size-3.5" />
+              Setup pending
+            </Badge>
+          ) : null}
+        </div>
+      </Card>
+    </Link>
   );
 }

@@ -1,41 +1,40 @@
-import { useEffect } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import {
-  Button,
-  Callout,
+  Badge,
   Card,
   CardBody,
-  CardHeader,
   DataState,
-  Field,
-  Input,
-  InputWithSuffix,
+  IconGlobe,
+  IconUsers,
   PageHeader,
-  StatusToggle,
-  useToast,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
 import {
+  useCompany,
   useInsuranceOptions,
   usePlan,
   usePlanConfiguration,
-  useSavePlanConfiguration,
 } from '@/features/insurance-data/insurance-data.api';
-import { configurationLabel } from '@/features/insurance-data/labels';
-import { useRecordForm } from '@/features/insurance-data/useRecordForm';
+import {
+  configurationLabel,
+  coverageLabel,
+  customerTypeLabel,
+  formatMoney,
+} from '@/features/insurance-data/labels';
 import { ConfigurationOptionsBoard } from '@/features/plan-configuration/ConfigurationOptionsBoard';
 
 /**
- * Everything about one configuration: its pricing, and the benefits attached to
- * it with their values.
+ * The benefits of one configuration.
  *
  * Values edited here belong to THIS configuration only — a sibling
  * configuration of the same plan keeps its own.
  */
 export function PlanConfigurationDetailPage() {
-  const { configurationId } = useParams();
+  const { companyId, planId, configurationId } = useParams();
+
   const configuration = usePlanConfiguration(configurationId);
-  const plan = usePlan(configuration.data?.planId);
+  const company = useCompany(companyId);
+  const plan = usePlan(planId);
 
   // Only benefits defined for this plan's insurance type can be attached.
   const options = useInsuranceOptions({
@@ -54,19 +53,20 @@ export function PlanConfigurationDetailPage() {
               )
             : 'Configuration'
         }
-        description={plan.data ? plan.data.name : undefined}
+        description="Drag benefits in, reorder them, and set the values that apply here."
+        breadcrumbs={[
+          { label: 'Companies', to: ROUTES.companies.list },
+          {
+            label: company.data?.name ?? 'Company',
+            ...(companyId ? { to: ROUTES.companies.detail(companyId) } : {}),
+          },
+          {
+            label: plan.data?.name ?? 'Plan',
+            ...(companyId && planId ? { to: ROUTES.plans.detail(companyId, planId) } : {}),
+          },
+          { label: 'Benefits' },
+        ]}
       />
-
-      {plan.data ? (
-        <div className="mb-4">
-          <Link
-            to={ROUTES.plans.detail(plan.data.id)}
-            className="text-content-muted hover:text-content text-sm"
-          >
-            ← {plan.data.name}
-          </Link>
-        </div>
-      ) : null}
 
       <DataState
         isLoading={configuration.isLoading}
@@ -77,22 +77,59 @@ export function PlanConfigurationDetailPage() {
         empty={{ title: 'Configuration not found' }}
       >
         {([current]) => (
-          <div className="space-y-6">
-            <PricingCard configuration={current!} />
+          <div className="space-y-5">
+            <Card>
+              <CardBody className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                <Summary
+                  icon={<IconUsers className="size-4" />}
+                  label="Customer type"
+                  value={customerTypeLabel(current!.customerType)}
+                />
+                <Summary
+                  icon={<IconGlobe className="size-4" />}
+                  label="Coverage"
+                  value={coverageLabel(current!.geographicalCoverage)}
+                />
+                <div>
+                  <p className="text-content-subtle text-xs font-medium tracking-wide uppercase">
+                    Annual price
+                  </p>
+                  <p className="text-content mt-1 text-lg font-bold">
+                    {formatMoney(current!.annualPrice, current!.currency)}
+                  </p>
+                </div>
+                <div className="flex flex-col items-start gap-2">
+                  <p className="text-content-subtle text-xs font-medium tracking-wide uppercase">
+                    Status
+                  </p>
+                  <Badge tone={current!.isActive ? 'success' : 'neutral'}>
+                    {current!.isActive ? 'Active' : 'Inactive'}
+                  </Badge>
+                </div>
 
-            <section>
-              <h2 className="text-content mb-1 text-lg font-semibold">Benefits</h2>
-              <p className="text-content-muted mb-4 text-sm">
-                Drag benefits onto this configuration, reorder them, and set their values. These
-                values apply to this configuration only.
-              </p>
+                {/* Resolved from the centralized business rule, never stored. */}
+                {current!.averageAge.label ? (
+                  <div className="border-brand-border bg-brand-soft flex items-center gap-2 rounded-(--radius-control) border px-3 py-2 sm:col-span-2 lg:col-span-4">
+                    <IconUsers className="text-brand size-4 shrink-0" />
+                    <p className="text-content text-sm font-semibold">
+                      {current!.averageAge.label}
+                    </p>
+                    <p className="text-content-muted text-xs">
+                      Fixed by business rule for this customer type.
+                    </p>
+                  </div>
+                ) : null}
+              </CardBody>
+            </Card>
 
+            {plan.data ? (
               <ConfigurationOptionsBoard
                 configurationId={current!.id}
+                insuranceTypeId={plan.data.insuranceTypeId}
                 attached={current!.options ?? []}
                 available={options.data ?? []}
               />
-            </section>
+            ) : null}
           </div>
         )}
       </DataState>
@@ -100,156 +137,22 @@ export function PlanConfigurationDetailPage() {
   );
 }
 
-/** Editable pricing for the configuration. */
-function PricingCard({
-  configuration,
+function Summary({
+  icon,
+  label,
+  value,
 }: {
-  configuration: NonNullable<ReturnType<typeof usePlanConfiguration>['data']>;
+  icon: React.ReactNode;
+  label: string;
+  value: string;
 }) {
-  const { notify } = useToast();
-  const save = useSavePlanConfiguration(configuration.id);
-
-  const form = useRecordForm({
-    currency: configuration.currency ?? '',
-    annualPrice: configuration.annualPrice?.toString() ?? '',
-    annualLimit: configuration.annualLimit?.toString() ?? '',
-    deductible: configuration.deductible?.toString() ?? '',
-    coPayment: configuration.coPayment?.toString() ?? '',
-    isActive: configuration.isActive,
-  });
-  const { values, setValue, reset, fieldErrors, formError, applyError } = form;
-
-  useEffect(() => {
-    reset({
-      currency: configuration.currency ?? '',
-      annualPrice: configuration.annualPrice?.toString() ?? '',
-      annualLimit: configuration.annualLimit?.toString() ?? '',
-      deductible: configuration.deductible?.toString() ?? '',
-      coPayment: configuration.coPayment?.toString() ?? '',
-      isActive: configuration.isActive,
-    });
-  }, [configuration, reset]);
-
-  const toNumber = (value: string) => (value.trim() === '' ? null : Number(value));
-
-  function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    save.mutate(
-      {
-        currency: values.currency.trim() === '' ? null : values.currency.trim(),
-        annualPrice: toNumber(values.annualPrice),
-        annualLimit: toNumber(values.annualLimit),
-        deductible: toNumber(values.deductible),
-        coPayment: toNumber(values.coPayment),
-        isActive: values.isActive,
-      },
-      {
-        onSuccess: () => notify('The configuration was saved.'),
-        onError: (error) => applyError(error, 'the configuration'),
-      },
-    );
-  }
-
   return (
-    <Card>
-      <CardHeader title="Pricing" description="Applies to this customer type and coverage area." />
-      <CardBody>
-        {/* Informational, resolved from the centralized business rule. */}
-        {configuration.averageAge.label ? (
-          <Callout className="mb-4" title={configuration.averageAge.label}>
-            This configuration is priced against the standard average age.
-          </Callout>
-        ) : null}
-
-        {formError ? (
-          <Callout tone="danger" className="mb-4" title="Could not save">
-            {formError}
-          </Callout>
-        ) : null}
-
-        <form onSubmit={handleSubmit} noValidate>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Field label="Currency" error={fieldErrors.currency}>
-              {(props) => (
-                <Input
-                  {...props}
-                  maxLength={3}
-                  value={values.currency}
-                  onChange={(event) => setValue('currency', event.target.value.toUpperCase())}
-                />
-              )}
-            </Field>
-            <Field label="Annual price" error={fieldErrors.annualPrice}>
-              {(props) => (
-                <InputWithSuffix
-                  {...props}
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  suffix={values.currency || ''}
-                  value={values.annualPrice}
-                  onChange={(event) => setValue('annualPrice', event.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Annual limit" error={fieldErrors.annualLimit}>
-              {(props) => (
-                <InputWithSuffix
-                  {...props}
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  suffix={values.currency || ''}
-                  value={values.annualLimit}
-                  onChange={(event) => setValue('annualLimit', event.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Deductible" error={fieldErrors.deductible}>
-              {(props) => (
-                <InputWithSuffix
-                  {...props}
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  suffix={values.currency || ''}
-                  value={values.deductible}
-                  onChange={(event) => setValue('deductible', event.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Co-payment" error={fieldErrors.coPayment}>
-              {(props) => (
-                <InputWithSuffix
-                  {...props}
-                  type="number"
-                  min={0}
-                  max={100}
-                  step="0.01"
-                  suffix="%"
-                  value={values.coPayment}
-                  onChange={(event) => setValue('coPayment', event.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Status" error={fieldErrors.isActive}>
-              {(props) => (
-                <StatusToggle
-                  id={props.id}
-                  value={values.isActive}
-                  onChange={(isActive) => setValue('isActive', isActive)}
-                />
-              )}
-            </Field>
-          </div>
-
-          <div className="mt-4 flex justify-end">
-            <Button type="submit" size="sm" disabled={save.isPending}>
-              {save.isPending ? 'Saving…' : 'Save pricing'}
-            </Button>
-          </div>
-        </form>
-      </CardBody>
-    </Card>
+    <div>
+      <p className="text-content-subtle text-xs font-medium tracking-wide uppercase">{label}</p>
+      <p className="text-content mt-1 flex items-center gap-1.5 text-lg font-bold">
+        <span className="text-brand">{icon}</span>
+        {value}
+      </p>
+    </div>
   );
 }

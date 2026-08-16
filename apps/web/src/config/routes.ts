@@ -1,42 +1,41 @@
-/** Every application path in one place. Never hardcode a URL in a component. */
+/**
+ * Every application path in one place. Never hardcode a URL in a component.
+ *
+ * The management experience is a single drill-down:
+ *   Companies -> Company -> Plan -> Configuration
+ * Insurance types, options and option fields are managed inside that flow
+ * rather than from their own top-level screens.
+ */
 
 export const ROUTES = {
   dashboard: '/',
+  companies: {
+    list: '/companies',
+    new: '/companies/new',
+    detail: (companyId: string) => `/companies/${companyId}`,
+  },
+  plans: {
+    detail: (companyId: string, planId: string) => `/companies/${companyId}/plans/${planId}`,
+  },
+  configurations: {
+    detail: (companyId: string, planId: string, configurationId: string) =>
+      `/companies/${companyId}/plans/${planId}/configurations/${configurationId}`,
+  },
   comparison: {
     new: '/comparison/new',
     results: '/comparison/results',
-  },
-  companies: {
-    list: '/manage/companies',
-    new: '/manage/companies/new',
-    edit: (id: string) => `/manage/companies/${id}/edit`,
-  },
-  insuranceTypes: {
-    list: '/manage/insurance-types',
-  },
-  plans: {
-    list: '/manage/plans',
-    new: '/manage/plans/new',
-    detail: (id: string) => `/manage/plans/${id}`,
-    edit: (id: string) => `/manage/plans/${id}/edit`,
-  },
-  planConfigurations: {
-    new: (planId: string) => `/manage/plans/${planId}/configurations/new`,
-    detail: (id: string) => `/manage/configurations/${id}`,
-  },
-  insuranceOptions: {
-    list: '/manage/insurance-options',
-    new: '/manage/insurance-options/new',
-    detail: (id: string) => `/manage/insurance-options/${id}`,
   },
 } as const;
 
 /** Route patterns, for registering routes in the router. */
 export const ROUTE_PATTERNS = {
-  companyEdit: '/manage/companies/:companyId/edit',
-  planDetail: '/manage/plans/:planId',
-  planEdit: '/manage/plans/:planId/edit',
-  planConfigurationNew: '/manage/plans/:planId/configurations/new',
-  planConfigurationDetail: '/manage/configurations/:configurationId',
-  insuranceOptionDetail: '/manage/insurance-options/:optionId',
+  companyDetail: '/companies/:companyId',
+  planDetail: '/companies/:companyId/plans/:planId',
+  configurationDetail: '/companies/:companyId/plans/:planId/configurations/:configurationId',
 } as const;
+
+/**
+ * Query flag set right after a company is created, so the company screen opens
+ * in "set up your plans" mode instead of the normal management view.
+ */
+export const SETUP_FLAG = 'setup';

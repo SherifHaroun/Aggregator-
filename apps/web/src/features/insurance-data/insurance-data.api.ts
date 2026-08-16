@@ -204,6 +204,23 @@ export function useDeletePlan() {
 // Plan configurations
 // ---------------------------------------------------------------------------
 
+/**
+ * Configurations across the whole database, optionally filtered.
+ * Also the query the comparison engine will use.
+ */
+export function usePlanConfigurations(
+  filters: { planId?: string; companyId?: string; isActive?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: [...keys.planConfigurations, 'list', filters],
+    queryFn: () =>
+      api.get<Paginated<PlanConfigurationDto>>(
+        `/plan-configurations${query({ pageSize: LIST_PAGE_SIZE, ...filters })}`,
+      ),
+    select: (page) => page.items,
+  });
+}
+
 export function usePlanConfiguration(id: string | undefined) {
   return useQuery({
     queryKey: [...keys.planConfigurations, id],

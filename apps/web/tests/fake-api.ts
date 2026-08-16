@@ -175,13 +175,30 @@ function route({
       );
     }
     if (method === 'POST' && !first) {
+      const optionId = id('option');
+      // The real API accepts the option's fields in the same request.
+      const inlineFields = (body.fields ?? []) as unknown as {
+        label: string;
+        dataType: OptionFieldDto['dataType'];
+      }[];
       const option: InsuranceOptionDto = {
-        id: id('option'),
+        id: optionId,
         insuranceTypeId: String(body.insuranceTypeId ?? ''),
         name: String(body.name ?? ''),
         description: (body.description as string | null) ?? null,
         sortOrder: store.options.length,
-        fields: [],
+        fields: inlineFields.map((field, index) => ({
+          id: id('field'),
+          optionId,
+          label: field.label,
+          key: field.label.toLowerCase().replace(/\W+/g, '_'),
+          dataType: field.dataType,
+          unit: null,
+          helpText: null,
+          isRequired: false,
+          sortOrder: index,
+          ...meta(),
+        })),
         ...meta(),
       };
       store.options.push(option);
@@ -212,9 +229,29 @@ function route({
     }
   }
 
+  // --- option fields addressed directly ------------------------------------
+  if (resource === 'option-fields' && first) {
+    const owner = store.options.find((option) => option.fields?.some((f) => f.id === first));
+    if (!owner) return fail(404, 'NOT_FOUND', 'The record was not found.');
+    if (method === 'PATCH') {
+      const field = owner.fields!.find((f) => f.id === first)!;
+      Object.assign(field, body);
+      return ok(field);
+    }
+    if (method === 'DELETE') {
+      owner.fields = owner.fields!.filter((f) => f.id !== first);
+      return noContent();
+    }
+  }
+
   // --- plans ---------------------------------------------------------------
   if (resource === 'plans') {
-    if (method === 'GET' && !first) return ok(page(store.plans));
+    if (method === 'GET' && !first) {
+      const companyFilter = search.get('companyId');
+      return ok(
+        page(store.plans.filter((plan) => !companyFilter || plan.companyId === companyFilter)),
+      );
+    }
     if (method === 'POST' && !first) {
       const plan: PlanDto = {
         id: id('plan'),
@@ -243,10 +280,25 @@ function route({
       Object.assign(plan, body);
       return ok(plan);
     }
+    if (method === 'DELETE') {
+      store.plans = store.plans.filter((item) => item.id !== plan.id);
+      store.configurations = store.configurations.filter((c) => c.planId !== plan.id);
+      return noContent();
+    }
   }
 
   // --- plan configurations -------------------------------------------------
   if (resource === 'plan-configurations') {
+    if (method === 'GET' && !first) {
+      const planFilter = search.get('planId');
+      return ok(
+        page(
+          store.configurations
+            .filter((c) => !planFilter || c.planId === planFilter)
+            .map((c) => hydrateConfiguration(store, c)),
+        ),
+      );
+    }
     if (method === 'POST' && !first) {
       const duplicate = store.configurations.some(
         (configuration) =>
@@ -300,6 +352,13 @@ function route({
       };
       store.planOptions.push(planOption);
       return ok(hydratePlanOption(store, planOption), 201);
+    }
+    if (method === 'DELETE' && !second) {
+      store.configurations = store.configurations.filter((item) => item.id !== configuration.id);
+      store.planOptions = store.planOptions.filter(
+        (item) => item.planConfigurationId !== configuration.id,
+      );
+      return noContent();
     }
   }
 
