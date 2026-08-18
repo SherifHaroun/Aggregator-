@@ -159,6 +159,32 @@ describe('empty states', () => {
     expect(await screen.findByText('The insurance database is empty')).toBeInTheDocument();
   });
 
+  /**
+   * A failed request must never read as "no data". The dashboard used to sum
+   * `data?.length ?? 0`, so an unreachable API produced four zeroes and the
+   * headline "The insurance database is empty" — indistinguishable from real
+   * data loss.
+   */
+  it('never claims the database is empty when the request failed', async () => {
+    // Every dashboard query fails, as during the API's boot window.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          ok: false,
+          error: { code: 'API_UNREACHABLE', message: 'The API server is not running.' },
+        }),
+        { status: 503, headers: { 'Content-Type': 'application/json' } },
+      )) as typeof fetch;
+
+    renderApp(ROUTES.dashboard);
+
+    expect(await screen.findByText('Could not load the overview')).toBeInTheDocument();
+    expect(screen.getByText(/cannot reach the server/i)).toBeInTheDocument();
+    expect(screen.queryByText('The insurance database is empty')).not.toBeInTheDocument();
+    // Counts read as unknown rather than a misleading zero.
+    expect(screen.queryByText('0')).not.toBeInTheDocument();
+  });
+
   it('prompts for the first plan on a new company', async () => {
     givenCompany();
     renderApp(ROUTES.companies.detail('company_1'));
@@ -171,14 +197,23 @@ describe('empty states', () => {
 // ---------------------------------------------------------------------------
 
 describe('adding a company', () => {
-  it('asks only for a name and a logo', async () => {
+  it('asks for the company name and nothing else', async () => {
     renderApp(ROUTES.companies.new);
     expect(await screen.findByLabelText(/Company name/i)).toBeInTheDocument();
-    expect(screen.getByText(/Company logo/i)).toBeInTheDocument();
 
-    for (const absent of [/description/i, /website/i, /^email/i, /phone/i, /mobile/i, /address/i]) {
+    for (const absent of [
+      /logo/i,
+      /description/i,
+      /website/i,
+      /^email/i,
+      /phone/i,
+      /mobile/i,
+      /address/i,
+    ]) {
       expect(screen.queryByLabelText(absent)).not.toBeInTheDocument();
     }
+    // One field, one button.
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
   });
 
   it('creates the company and continues straight into plan setup', async () => {
@@ -186,21 +221,23 @@ describe('adding a company', () => {
     renderApp(ROUTES.companies.new);
 
     await user.type(await screen.findByLabelText(/Company name/i), 'Northwind Assurance');
-    await user.click(screen.getByRole('button', { name: /Create & set up plans/i }));
+    await user.click(screen.getByRole('button', { name: /Create company/i }));
 
     await waitFor(() => expect(store.companies).toHaveLength(1));
     expect(store.companies[0]).toMatchObject({ name: 'Northwind Assurance', isActive: true });
 
-    // It lands on the company's own setup screen, not back on a list.
-    expect(await screen.findByText(/set up the plans/i)).toBeInTheDocument();
-    expect(screen.getByText('Insurance plans')).toBeInTheDocument();
+    // It lands on the company's own setup step, not back on a list.
+    expect(
+      await screen.findByText(/Set up plans for Northwind Assurance/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Step 2 of 2/i)).toBeInTheDocument();
   });
 
   it('shows the API validation message on the offending field', async () => {
     const user = userEvent.setup();
     renderApp(ROUTES.companies.new);
 
-    await user.click(await screen.findByRole('button', { name: /Create & set up plans/i }));
+    await user.click(await screen.findByRole('button', { name: /Create company/i }));
 
     expect(await screen.findByText(/Please correct the highlighted fields/i)).toBeInTheDocument();
     expect(await screen.findByText(/String must contain at least 1 character/i)).toBeInTheDocument();
@@ -235,15 +272,15 @@ describe('editing a company', () => {
     const user = userEvent.setup();
     givenCompany('company_1', 'Original Name');
 
-    renderApp(ROUTES.companies.list);
-    await user.click(await screen.findByText('Original Name'));
+    renderApp(ROUTES.companies.detail('company_1'));
+    await user.click(await screen.findByRole('button', { name: /Edit company/i }));
 
     const nameInput = await screen.findByLabelText(/Company name/i);
     await waitFor(() => expect(nameInput).toHaveValue('Original Name'));
 
     await user.clear(nameInput);
     await user.type(nameInput, 'Renamed Company');
-    await user.click(screen.getByRole('button', { name: /Save details/i }));
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
 
     await waitFor(() => expect(store.companies[0]?.name).toBe('Renamed Company'));
   });
@@ -261,11 +298,14 @@ describe('plans', () => {
     renderApp(ROUTES.companies.detail('company_1'));
     await user.click((await screen.findAllByRole('button', { name: /Add plan/i }))[0]!);
 
-    await user.type(await screen.findByLabelText(/Plan name/i), 'Tier One');
-    // No sidebar page for insurance types — one is created from this dialog.
-    await user.selectOptions(screen.getByLabelText(/Insurance type/i), '__new__');
-    await user.type(await screen.findByLabelText(/New insurance type name/i), 'Household Cover');
-    await user.click(screen.getByRole('button', { name: /Save plan/i }));
+    // Scope to the dialog: a real <dialog> makes the page behind it inert, but
+    // jsdom keeps the trigger button queryable.
+    const dialog = within(await screen.findByRole('dialog'));
+    await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
+    // No sidebar page for insurance types — one is created from this form.
+    await user.selectOptions(dialog.getByLabelText(/Insurance type/i), '__new__');
+    await user.type(await dialog.findByLabelText(/New insurance type name/i), 'Household Cover');
+    await user.click(dialog.getByRole('button', { name: /Add plan/i }));
 
     await waitFor(() => expect(store.plans).toHaveLength(1));
     expect(store.insuranceTypes).toHaveLength(1);
@@ -278,16 +318,31 @@ describe('plans', () => {
     });
   });
 
-  it('carries no price field — pricing belongs to configurations', async () => {
+  it('stores the price on the configuration, never on the plan', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
 
     renderApp(ROUTES.companies.detail('company_1'));
     await user.click((await screen.findAllByRole('button', { name: /Add plan/i }))[0]!);
-    await screen.findByLabelText(/Plan name/i);
 
-    expect(screen.queryByLabelText(/Annual price/i)).not.toBeInTheDocument();
+    const dialog = within(await screen.findByRole('dialog'));
+    await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
+    await user.selectOptions(dialog.getByLabelText(/Insurance type/i), 'type_1');
+    await user.type(dialog.getByLabelText(/Currency/i), 'EGP');
+    await user.type(dialog.getByLabelText(/Annual price/i), '7500');
+    await user.click(dialog.getByRole('button', { name: /Add plan/i }));
+
+    await waitFor(() => expect(store.configurations).toHaveLength(1));
+
+    // The product carries no pricing; its configuration does.
+    expect(store.plans[0]).not.toHaveProperty('annualPrice');
+    expect(store.configurations[0]).toMatchObject({
+      planId: store.plans[0]?.id,
+      customerType: 'INDIVIDUAL',
+      geographicalCoverage: 'LOCAL',
+      annualPrice: 7500,
+    });
   });
 });
 

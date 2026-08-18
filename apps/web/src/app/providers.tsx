@@ -11,7 +11,15 @@ const queryClient = new QueryClient({
     queries: {
       staleTime: 30_000,
       refetchOnWindowFocus: false,
-      retry: 1,
+      /**
+       * `npm run dev` starts the API and the web server together, and the API
+       * needs several seconds longer (TypeScript boot plus the first Neon
+       * connection). Queries fired in that window are refused, so retry with
+       * backoff long enough to cover it — otherwise the first page load fails
+       * permanently and the app looks like it has no data.
+       */
+      retry: 3,
+      retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
     },
   },
 });

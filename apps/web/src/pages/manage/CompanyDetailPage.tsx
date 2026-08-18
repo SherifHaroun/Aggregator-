@@ -1,79 +1,67 @@
-import type { PlanDto } from '@aggregator/shared';
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import type { CompanyDto, PlanDto } from '@aggregator/shared';
+import { useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Badge,
   Button,
   Callout,
   Card,
+  CardBody,
+  CardHeader,
   CompanyLogo,
   ConfirmDialog,
   DataState,
+  Dialog,
   EmptyState,
   Field,
   IconAdd,
+  IconBuilding,
   IconChevronRight,
   IconEdit,
   IconLayers,
-  IconPlan,
   IconTrash,
   Input,
   LogoUploader,
   PageHeader,
   StatusToggle,
-  StepCard,
   describeError,
   useToast,
 } from '@/components/ui';
-import { ROUTES, SETUP_FLAG } from '@/config/routes';
-import { PlanDialog } from '@/features/company-setup/PlanDialog';
+import { ROUTES } from '@/config/routes';
+import { PlanSetupForm } from '@/features/company-setup/PlanSetupForm';
 import {
   useCompany,
   useDeleteCompany,
   useDeletePlan,
-  useInsuranceTypes,
   usePlans,
   useSaveCompany,
 } from '@/features/insurance-data/insurance-data.api';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
 
 /**
- * A company's complete structure on one screen: its details, and every plan
- * beneath it. This is where the workflow lands after creation, and the same
- * screen used to edit the company later.
+ * Everything about one company in one place: its details, and every plan
+ * beneath it. Opening a plan continues into its configurations and benefits.
  */
 export function CompanyDetailPage() {
   const { companyId } = useParams();
   const navigate = useNavigate();
   const { notify } = useToast();
-  const [searchParams, setSearchParams] = useSearchParams();
 
   const company = useCompany(companyId);
   const plans = usePlans(companyId ? { companyId } : {});
-  const insuranceTypes = useInsuranceTypes();
   const deleteCompany = useDeleteCompany();
   const deletePlan = useDeletePlan();
 
-  const [editingPlan, setEditingPlan] = useState<PlanDto | null | undefined>(undefined);
+  const [editingCompany, setEditingCompany] = useState(false);
+  const [addingPlan, setAddingPlan] = useState(false);
   const [pendingPlanDelete, setPendingPlanDelete] = useState<PlanDto | null>(null);
   const [confirmCompanyDelete, setConfirmCompanyDelete] = useState(false);
-
-  const isSetup = searchParams.get(SETUP_FLAG) === '1';
-
-  const typeName = useMemo(
-    () => new Map((insuranceTypes.data ?? []).map((type) => [type.id, type.name])),
-    [insuranceTypes.data],
-  );
 
   return (
     <>
       <PageHeader
         title={company.data?.name ?? 'Company'}
-        description={
-          isSetup
-            ? 'Company created. Now set up the insurance plans it offers.'
-            : 'Manage this company and the plans beneath it.'
-        }
+        description="Manage this company and the plans it sells."
         breadcrumbs={[
           { label: 'Companies', to: ROUTES.companies.list },
           { label: company.data?.name ?? 'Company' },
@@ -82,14 +70,6 @@ export function CompanyDetailPage() {
           company.data ? (
             <CompanyLogo name={company.data.name} logoUrl={company.data.logoUrl} size="lg" />
           ) : null
-        }
-        actions={
-          company.data ? (
-            <Button variant="ghost" onClick={() => setConfirmCompanyDelete(true)}>
-              <IconTrash className="size-4" />
-              Delete
-            </Button>
-          ) : undefined
         }
       />
 
@@ -101,80 +81,108 @@ export function CompanyDetailPage() {
         onRetry={() => void company.refetch()}
         empty={{ title: 'Company not found' }}
       >
-        {() => (
+        {([current]) => (
           <div className="space-y-5">
-            {isSetup ? (
-              <Callout title="Step 2 of 2 — set up the plans">
-                Add every plan this company sells. You can configure prices and benefits for each
-                one straight afterwards.{' '}
-                <button
-                  type="button"
-                  className="text-brand-strong font-semibold underline underline-offset-2"
-                  onClick={() => setSearchParams({}, { replace: true })}
-                >
-                  Dismiss
-                </button>
-              </Callout>
-            ) : null}
-
-            <CompanyInfoCard companyId={companyId!} />
-
-            <StepCard
-              step={2}
-              title="Insurance plans"
-              description="The products this company offers. Open one to set its prices and benefits."
-              action={
-                <Button size="sm" onClick={() => setEditingPlan(null)}>
-                  <IconAdd className="size-4" />
-                  Add plan
-                </Button>
-              }
-            >
-              {plans.isLoading ? (
-                <div className="space-y-3">
-                  {[0, 1].map((row) => (
-                    <div key={row} className="bg-surface-muted h-16 animate-pulse rounded-(--radius-control)" />
-                  ))}
-                </div>
-              ) : (plans.data?.length ?? 0) === 0 ? (
-                <EmptyState
-                  variant="plain"
-                  icon={<IconPlan className="size-6" />}
-                  title="No plans yet"
-                  description="Add the first plan this company sells — for example its entry-level tier."
-                  action={
-                    <Button onClick={() => setEditingPlan(null)}>
-                      <IconAdd className="size-4" />
-                      Add plan
+            <Card>
+              <CardHeader
+                title="Company"
+                icon={<IconBuilding className="size-5" />}
+                action={
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => setEditingCompany(true)}>
+                      <IconEdit className="size-4" />
+                      Edit company
                     </Button>
-                  }
-                />
-              ) : (
-                <ul className="space-y-3">
-                  {(plans.data ?? []).map((plan) => (
-                    <li key={plan.id}>
-                      <PlanRow
-                        plan={plan}
-                        companyId={companyId!}
-                        typeName={typeName.get(plan.insuranceTypeId)}
-                        onEdit={() => setEditingPlan(plan)}
-                        onDelete={() => setPendingPlanDelete(plan)}
+                    <Button size="sm" variant="ghost" onClick={() => setConfirmCompanyDelete(true)}>
+                      <IconTrash className="size-4" />
+                      Delete
+                    </Button>
+                  </div>
+                }
+              />
+              <CardBody className="grid gap-4 sm:grid-cols-2">
+                <Detail label="Company name" value={current!.name} />
+                <div>
+                  <p className="text-content-subtle text-xs font-medium tracking-wide uppercase">
+                    Status
+                  </p>
+                  <div className="mt-1.5">
+                    <Badge tone={current!.isActive ? 'success' : 'neutral'}>
+                      {current!.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </div>
+                </div>
+              </CardBody>
+            </Card>
+
+            <Card>
+              <CardHeader
+                title="Plans"
+                icon={<IconLayers className="size-5" />}
+                description="Open a plan to manage its configurations and benefits."
+                action={
+                  <Button size="sm" onClick={() => setAddingPlan(true)}>
+                    <IconAdd className="size-4" />
+                    Add plan
+                  </Button>
+                }
+              />
+              <CardBody>
+                {plans.isLoading ? (
+                  <div className="space-y-3">
+                    {[0, 1].map((row) => (
+                      <div
+                        key={row}
+                        className="bg-surface-muted h-14 animate-pulse rounded-(--radius-control)"
                       />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </StepCard>
+                    ))}
+                  </div>
+                ) : (plans.data?.length ?? 0) === 0 ? (
+                  <EmptyState
+                    variant="plain"
+                    icon={<IconLayers className="size-6" />}
+                    title="No plans yet"
+                    description="Add the first plan this company sells."
+                    action={
+                      <Button onClick={() => setAddingPlan(true)}>
+                        <IconAdd className="size-4" />
+                        Add plan
+                      </Button>
+                    }
+                  />
+                ) : (
+                  <ul className="space-y-2">
+                    {(plans.data ?? []).map((plan) => (
+                      <li key={plan.id}>
+                        <PlanRow
+                          plan={plan}
+                          companyId={companyId!}
+                          onDelete={() => setPendingPlanDelete(plan)}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardBody>
+            </Card>
           </div>
         )}
       </DataState>
 
-      {editingPlan !== undefined && companyId ? (
-        <PlanDialog
-          companyId={companyId}
-          plan={editingPlan}
-          onClose={() => setEditingPlan(undefined)}
-        />
+      {editingCompany && company.data ? (
+        <EditCompanyDialog company={company.data} onClose={() => setEditingCompany(false)} />
+      ) : null}
+
+      {addingPlan && companyId ? (
+        <Dialog
+          open
+          size="lg"
+          onClose={() => setAddingPlan(false)}
+          title="Add a plan"
+          description="The plan and its first price. More combinations can be added from the plan itself."
+        >
+          <PlanSetupForm companyId={companyId} onCreated={() => setAddingPlan(false)} />
+        </Dialog>
       ) : null}
 
       <ConfirmDialog
@@ -182,7 +190,7 @@ export function CompanyDetailPage() {
         onClose={() => setPendingPlanDelete(null)}
         busy={deletePlan.isPending}
         title={`Delete ${pendingPlanDelete?.name ?? 'plan'}?`}
-        description="This permanently removes the plan with all of its configurations, benefits and values. Deactivate it instead if it has been quoted or compared."
+        description="This permanently removes the plan with all of its configurations, benefits and values."
         onConfirm={() => {
           if (!pendingPlanDelete) return;
           deletePlan.mutate(pendingPlanDelete.id, {
@@ -222,144 +230,138 @@ export function CompanyDetailPage() {
   );
 }
 
-/** Editable company details — the same two fields as creation, plus status. */
-function CompanyInfoCard({ companyId }: { companyId: string }) {
-  const { notify } = useToast();
-  const company = useCompany(companyId);
-  const save = useSaveCompany(companyId);
-  const form = useRecordForm({ name: '', logoUrl: null as string | null, isActive: true });
-  const { values, setValue, reset, fieldErrors, formError, applyError } = form;
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-content-subtle text-xs font-medium tracking-wide uppercase">{label}</p>
+      <p className="text-content mt-1 text-sm font-semibold">{value}</p>
+    </div>
+  );
+}
 
-  useEffect(() => {
-    if (!company.data) return;
-    reset({
-      name: company.data.name,
-      logoUrl: company.data.logoUrl,
-      isActive: company.data.isActive,
-    });
-  }, [company.data, reset]);
+/** Name, logo and status — the only company fields the system keeps. */
+function EditCompanyDialog({ company, onClose }: { company: CompanyDto; onClose: () => void }) {
+  const { notify } = useToast();
+  const save = useSaveCompany(company.id);
+  const { values, setValue, fieldErrors, formError, applyError } = useRecordForm({
+    name: company.name,
+    logoUrl: company.logoUrl,
+    isActive: company.isActive,
+  });
 
   return (
-    <StepCard step={1} title="Company information" description="Name, logo and availability.">
-      <form
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault();
-          save.mutate(
-            { name: values.name.trim(), logoUrl: values.logoUrl, isActive: values.isActive },
-            {
-              onSuccess: () => notify('The company was saved.'),
-              onError: (error) => applyError(error, 'the company'),
-            },
-          );
-        }}
-      >
+    <Dialog
+      open
+      onClose={onClose}
+      title="Edit company"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose} disabled={save.isPending}>
+            Cancel
+          </Button>
+          <Button
+            disabled={save.isPending}
+            onClick={() =>
+              save.mutate(
+                { name: values.name.trim(), logoUrl: values.logoUrl, isActive: values.isActive },
+                {
+                  onSuccess: () => {
+                    notify('The company was saved.');
+                    onClose();
+                  },
+                  onError: (error) => applyError(error, 'the company'),
+                },
+              )
+            }
+          >
+            {save.isPending ? 'Saving…' : 'Save'}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
         {formError ? (
-          <Callout tone="danger" className="mb-4" title="Could not save">
+          <Callout tone="danger" title="Could not save">
             {formError}
           </Callout>
         ) : null}
 
-        <div className="grid gap-5 md:grid-cols-2">
-          <div className="space-y-5">
-            <Field label="Company name" required error={fieldErrors.name}>
-              {(props) => (
-                <Input
-                  {...props}
-                  value={values.name}
-                  onChange={(event) => setValue('name', event.target.value)}
-                />
-              )}
-            </Field>
-            <Field label="Status" error={fieldErrors.isActive}>
-              {(props) => (
-                <StatusToggle
-                  id={props.id}
-                  value={values.isActive}
-                  onChange={(isActive) => setValue('isActive', isActive)}
-                />
-              )}
-            </Field>
-          </div>
+        <Field label="Company name" required error={fieldErrors.name}>
+          {(props) => (
+            <Input
+              {...props}
+              autoFocus
+              value={values.name}
+              onChange={(event) => setValue('name', event.target.value)}
+            />
+          )}
+        </Field>
 
-          <Field label="Company logo" error={fieldErrors.logoUrl}>
-            {(props) => (
-              <LogoUploader
-                id={props.id}
-                value={values.logoUrl}
-                onChange={(url) => setValue('logoUrl', url)}
-              />
-            )}
-          </Field>
-        </div>
+        <Field label="Company logo" error={fieldErrors.logoUrl} hint="Optional.">
+          {(props) => (
+            <LogoUploader
+              id={props.id}
+              value={values.logoUrl}
+              onChange={(url) => setValue('logoUrl', url)}
+            />
+          )}
+        </Field>
 
-        <div className="mt-5 flex justify-end">
-          <Button type="submit" size="sm" variant="secondary" disabled={save.isPending}>
-            {save.isPending ? 'Saving…' : 'Save details'}
-          </Button>
-        </div>
-      </form>
-    </StepCard>
+        <Field label="Status" error={fieldErrors.isActive}>
+          {(props) => (
+            <StatusToggle
+              id={props.id}
+              value={values.isActive}
+              onChange={(isActive) => setValue('isActive', isActive)}
+            />
+          )}
+        </Field>
+      </div>
+    </Dialog>
   );
 }
 
 function PlanRow({
   plan,
   companyId,
-  typeName,
-  onEdit,
   onDelete,
 }: {
   plan: PlanDto;
   companyId: string;
-  typeName: string | undefined;
-  onEdit: () => void;
   onDelete: () => void;
 }) {
   return (
-    <Card className="hover:border-brand-border flex flex-wrap items-center gap-3 p-4 transition-colors">
-      <span className="bg-brand-soft text-brand flex size-10 shrink-0 items-center justify-center rounded-(--radius-control)">
+    <Card className="hover:border-brand-border flex flex-wrap items-center gap-3 p-3.5 transition-colors">
+      <span className="bg-brand-soft text-brand flex size-9 shrink-0 items-center justify-center rounded-(--radius-control)">
         <IconLayers className="size-5" />
       </span>
 
       <Link to={ROUTES.plans.detail(companyId, plan.id)} className="min-w-0 flex-1">
         <span className="text-content block truncate font-semibold">{plan.name}</span>
-        <span className="text-content-subtle block truncate text-xs">
-          {plan.code}
-          {typeName ? ` · ${typeName}` : ''}
-          {plan.category ? ` · ${plan.category}` : ''}
-        </span>
+        <span className="text-content-subtle block truncate text-xs">{plan.code}</span>
       </Link>
 
       <Badge tone={plan.isActive ? 'success' : 'neutral'}>
         {plan.isActive ? 'Active' : 'Inactive'}
       </Badge>
 
-      <div className="flex items-center gap-1">
-        <button
-          type="button"
-          onClick={onEdit}
-          aria-label={`Edit ${plan.name}`}
-          className="text-content-muted hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-2"
-        >
-          <IconEdit className="size-4" />
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label={`Delete ${plan.name}`}
-          className="text-danger hover:bg-danger-soft rounded-(--radius-control) p-2"
-        >
-          <IconTrash className="size-4" />
-        </button>
-        <Link
-          to={ROUTES.plans.detail(companyId, plan.id)}
-          aria-label={`Configure ${plan.name}`}
-          className="text-brand-strong hover:bg-brand-soft rounded-(--radius-control) p-2"
-        >
-          <IconChevronRight className="size-4" />
-        </Link>
-      </div>
+      <button
+        type="button"
+        onClick={onDelete}
+        aria-label={`Delete ${plan.name}`}
+        className="text-danger hover:bg-danger-soft rounded-(--radius-control) p-2"
+      >
+        <IconTrash className="size-4" />
+      </button>
+
+      <Link
+        to={ROUTES.plans.detail(companyId, plan.id)}
+        aria-label={`Manage ${plan.name}`}
+        className="text-brand-strong bg-brand-soft hover:bg-brand hover:text-content-inverted inline-flex items-center gap-1 rounded-(--radius-control) px-3 py-2 text-sm font-semibold transition-colors"
+      >
+        Manage
+        <IconChevronRight className="size-4" />
+      </Link>
     </Card>
   );
 }

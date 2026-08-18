@@ -8,6 +8,7 @@ import { NewComparisonPage } from '@/pages/comparison/NewComparisonPage';
 import { AddCompanyPage } from '@/pages/manage/AddCompanyPage';
 import { CompaniesPage } from '@/pages/manage/CompaniesPage';
 import { CompanyDetailPage } from '@/pages/manage/CompanyDetailPage';
+import { CompanySetupPage } from '@/pages/manage/CompanySetupPage';
 import { PlanConfigurationDetailPage } from '@/pages/manage/PlanConfigurationDetailPage';
 import { PlanDetailPage } from '@/pages/manage/PlanDetailPage';
 
@@ -27,6 +28,7 @@ export const routes: RouteObject[] = [
 
       { path: ROUTES.companies.list, element: <CompaniesPage /> },
       { path: ROUTES.companies.new, element: <AddCompanyPage /> },
+      { path: ROUTE_PATTERNS.companySetup, element: <CompanySetupPage /> },
       { path: ROUTE_PATTERNS.companyDetail, element: <CompanyDetailPage /> },
       { path: ROUTE_PATTERNS.planDetail, element: <PlanDetailPage /> },
       { path: ROUTE_PATTERNS.configurationDetail, element: <PlanConfigurationDetailPage /> },

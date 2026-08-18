@@ -13,6 +13,8 @@ export const ROUTES = {
     list: '/companies',
     new: '/companies/new',
     detail: (companyId: string) => `/companies/${companyId}`,
+    /** Step 2 of the create flow: add this company's plans. */
+    setup: (companyId: string) => `/companies/${companyId}/setup`,
   },
   plans: {
     detail: (companyId: string, planId: string) => `/companies/${companyId}/plans/${planId}`,
@@ -30,12 +32,7 @@ export const ROUTES = {
 /** Route patterns, for registering routes in the router. */
 export const ROUTE_PATTERNS = {
   companyDetail: '/companies/:companyId',
+  companySetup: '/companies/:companyId/setup',
   planDetail: '/companies/:companyId/plans/:planId',
   configurationDetail: '/companies/:companyId/plans/:planId/configurations/:configurationId',
 } as const;
-
-/**
- * Query flag set right after a company is created, so the company screen opens
- * in "set up your plans" mode instead of the normal management view.
- */
-export const SETUP_FLAG = 'setup';

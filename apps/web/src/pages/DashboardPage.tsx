@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
+  Button,
   ButtonLink,
   Card,
   CompanyLogo,
@@ -9,15 +10,14 @@ import {
   IconChevronRight,
   IconLayers,
   IconShield,
-  IconUsers,
   PageHeader,
   StatTile,
+  describeError,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
 import {
   useCompanies,
-  useInsuranceOptions,
-  usePlanConfigurations,
+  useInsuranceTypes,
   usePlans,
 } from '@/features/insurance-data/insurance-data.api';
 
@@ -28,19 +28,30 @@ import {
 export function DashboardPage() {
   const companies = useCompanies();
   const plans = usePlans();
-  const configurations = usePlanConfigurations({ isActive: true });
-  const options = useInsuranceOptions();
+  const insuranceTypes = useInsuranceTypes();
 
-  const loading =
-    companies.isLoading || plans.isLoading || configurations.isLoading || options.isLoading;
+  const queries = [companies, plans, insuranceTypes];
+  const loading = queries.some((query) => query.isLoading);
+
+  /**
+   * A failed request is NOT an empty database. Without this the counts fall
+   * back to zero and the screen wrongly announces that nothing has been
+   * entered — which is indistinguishable from real data loss to whoever is
+   * looking at it.
+   */
+  const failure = queries.find((query) => query.error)?.error;
+  const allLoaded = queries.every((query) => query.data !== undefined);
 
   const total =
     (companies.data?.length ?? 0) +
     (plans.data?.length ?? 0) +
-    (configurations.data?.length ?? 0) +
-    (options.data?.length ?? 0);
+    (insuranceTypes.data?.length ?? 0);
 
   const recent = (companies.data ?? []).slice(0, 5);
+
+  function retryAll() {
+    for (const query of queries) void query.refetch();
+  }
 
   return (
     <>
@@ -59,32 +70,41 @@ export function DashboardPage() {
         <StatTile
           label="Companies"
           value={companies.data?.length}
-          loading={loading}
+          loading={loading || failure !== undefined}
           icon={<IconBuilding className="size-5" />}
         />
         <StatTile
           label="Plans"
           value={plans.data?.length}
-          loading={loading}
+          loading={loading || failure !== undefined}
           icon={<IconLayers className="size-5" />}
         />
         <StatTile
-          label="Active configurations"
-          value={configurations.data?.length}
-          loading={loading}
-          hint="Customer type × coverage"
-          icon={<IconUsers className="size-5" />}
-        />
-        <StatTile
-          label="Insurance options"
-          value={options.data?.length}
-          loading={loading}
-          hint="Benefits you defined"
+          label="Insurance types"
+          value={insuranceTypes.data?.length}
+          loading={loading || failure !== undefined}
+          hint="Categories you defined"
           icon={<IconShield className="size-5" />}
         />
       </div>
 
-      {!loading && total === 0 ? (
+      {failure !== undefined ? (
+        <div className="mt-5">
+          <Card className="px-6 py-12 text-center">
+            <h2 className="text-content text-base font-semibold">Could not load the overview</h2>
+            <p className="text-content-muted mx-auto mt-2 max-w-md text-sm">
+              {describeError(failure, 'the overview')}
+            </p>
+            <div className="mt-6 flex justify-center">
+              <Button variant="secondary" onClick={retryAll}>
+                Try again
+              </Button>
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
+      {!loading && failure === undefined && allLoaded && total === 0 ? (
         <div className="mt-5">
           <EmptyState
             icon={<IconBuilding className="size-6" />}

@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import {
   Badge,
   ButtonLink,
@@ -7,7 +6,6 @@ import {
   CompanyLogo,
   DataState,
   IconAdd,
-  IconBuilding,
   IconChevronRight,
   Input,
   PageHeader,
@@ -106,34 +104,26 @@ export function CompaniesPage() {
 
 function CompanyCard({ company, plans }: { company: CompanyDto; plans: number }) {
   return (
-    <Link
-      to={ROUTES.companies.detail(company.id)}
-      className="group block rounded-(--radius-card) focus-visible:outline-2"
-    >
-      <Card className="hover:border-brand-border h-full p-5 transition-all group-hover:shadow-(--shadow-raised)">
-        <div className="flex items-start gap-4">
-          <CompanyLogo name={company.name} logoUrl={company.logoUrl} />
-          <div className="min-w-0 flex-1">
-            <p className="text-content truncate font-semibold">{company.name}</p>
-            <p className="text-content-subtle mt-0.5 text-sm">
-              {plans === 0 ? 'No plans yet' : `${plans} ${plans === 1 ? 'plan' : 'plans'}`}
-            </p>
-          </div>
-          <IconChevronRight className="text-content-subtle group-hover:text-brand mt-1 size-4 shrink-0 transition-colors" />
+    <Card className="hover:border-brand-border flex h-full flex-col p-5 transition-colors">
+      <div className="flex items-start gap-3">
+        <CompanyLogo name={company.name} logoUrl={company.logoUrl} />
+        <div className="min-w-0 flex-1">
+          <p className="text-content truncate text-base font-semibold">{company.name}</p>
+          <p className="text-content-muted mt-0.5 text-sm">
+            {plans === 0 ? 'No plans yet' : `${plans} ${plans === 1 ? 'Plan' : 'Plans'}`}
+          </p>
         </div>
+      </div>
 
-        <div className="mt-4 flex items-center gap-2">
-          <Badge tone={company.isActive ? 'success' : 'neutral'}>
-            {company.isActive ? 'Active' : 'Inactive'}
-          </Badge>
-          {plans === 0 ? (
-            <Badge tone="warning">
-              <IconBuilding className="size-3.5" />
-              Setup pending
-            </Badge>
-          ) : null}
-        </div>
-      </Card>
-    </Link>
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <Badge tone={company.isActive ? 'success' : 'neutral'}>
+          {company.isActive ? 'Active' : 'Inactive'}
+        </Badge>
+        <ButtonLink size="sm" variant="secondary" to={ROUTES.companies.detail(company.id)}>
+          Manage
+          <IconChevronRight className="size-4" />
+        </ButtonLink>
+      </div>
+    </Card>
   );
 }
