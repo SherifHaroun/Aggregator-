@@ -10,6 +10,15 @@ export function describeError(error: unknown, subject: string): string {
     switch (error.code) {
       case 'DATABASE_UNAVAILABLE':
         return 'The database is not available right now. Please try again in a moment.';
+      case 'API_UNREACHABLE':
+      case 'SERVER_UNREACHABLE':
+      case 'NETWORK_ERROR':
+        // The API process is down or unreachable — say so, rather than blaming
+        // the response body.
+        return 'Cannot reach the server. Check that the API is running, then try again.';
+      case 'EMPTY_RESPONSE':
+      case 'SERVER_ERROR':
+        return `The server did not return ${subject}. Please try again.`;
       case 'NOT_FOUND':
         return `We could not find the ${subject} you asked for. It may have been deleted.`;
       case 'VALIDATION_ERROR':

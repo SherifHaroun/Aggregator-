@@ -1,4 +1,9 @@
-import type { OptionFieldDataType, PlanOptionDto, PlanOptionValueInput } from '@aggregator/shared';
+import {
+  parseOptionValue,
+  type OptionFieldDataType,
+  type PlanOptionDto,
+  type PlanOptionValueInput,
+} from '@aggregator/shared';
 import { useEffect, useState } from 'react';
 import {
   Button,
@@ -47,7 +52,7 @@ export function PlanOptionValuesForm({ planOption }: { planOption: PlanOptionDto
 
     const values: PlanOptionValueInput[] = planOption.values.map((value) => ({
       optionFieldId: value.optionFieldId,
-      value: parseValue(value.dataType, draft[value.optionFieldId] ?? ''),
+      value: parseOptionValue(value.dataType, draft[value.optionFieldId] ?? ''),
     }));
 
     save.mutate(
@@ -183,22 +188,4 @@ function toDraft(planOption: PlanOptionDto): Record<string, string> {
     draft[value.optionFieldId] = value.value === null ? '' : String(value.value);
   }
   return draft;
-}
-
-/** Convert the edited string back to the type the API expects. */
-function parseValue(dataType: OptionFieldDataType, raw: string): number | string | boolean | null {
-  const trimmed = raw.trim();
-  if (trimmed === '') return null;
-
-  switch (dataType) {
-    case 'BOOLEAN':
-      return trimmed === 'true';
-    case 'TEXT':
-      return trimmed;
-    default: {
-      const parsed = Number(trimmed);
-      // Let the API reject a non-number so its message is the single source.
-      return Number.isNaN(parsed) ? trimmed : parsed;
-    }
-  }
 }

@@ -7,6 +7,7 @@
  */
 
 import { Router } from 'express';
+import { requireWriteAccess } from '../middleware/access.js';
 import { companiesRouter } from '../modules/companies/companies.routes.js';
 import { configurationRouter } from '../modules/configuration/configuration.routes.js';
 import { healthRouter } from '../modules/health/health.routes.js';
@@ -24,6 +25,13 @@ export const apiRouter: Router = Router();
 
 apiRouter.use('/health', healthRouter);
 apiRouter.use('/configuration', configurationRouter);
+
+/**
+ * Reads stay open so a future public aggregator can consume these same
+ * resources; writes pass through one staff-only gate. Mounted here rather than
+ * per-route so no new endpoint can accidentally skip it.
+ */
+apiRouter.use(requireWriteAccess);
 
 // Insurance data — every record is created by employees; nothing is seeded.
 apiRouter.use('/companies', companiesRouter);

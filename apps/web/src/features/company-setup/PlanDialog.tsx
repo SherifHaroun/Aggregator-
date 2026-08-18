@@ -1,4 +1,4 @@
-import type { PlanDto } from '@aggregator/shared';
+import { derivePlanCode, type PlanDto } from '@aggregator/shared';
 import {
   Button,
   Callout,
@@ -54,8 +54,8 @@ export function PlanDialog({
   const creatingType = values.insuranceTypeId === NEW_TYPE;
   const pending = savePlan.isPending || saveType.isPending;
 
-  /** "Basic Plan" -> "BASIC-PLAN". The API requires a code; this spares the employee. */
-  const derivedCode = values.name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '');
+  // The API requires a code; the shared rule derives one so the employee need not.
+  const derivedCode = derivePlanCode(values.name);
 
   async function submit() {
     const blankToNull = (value: string) => (value.trim() === '' ? null : value.trim());

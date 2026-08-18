@@ -307,7 +307,60 @@ sentences — a technical message never reaches the screen.
 
 ---
 
-## 6. Not implemented
+## 6. Preparing for a public aggregator
+
+A separate customer-facing site is planned. It will consume **this same API and
+database**; only the interface differs.
+
+```
+web-admin  ─┐                  ┌─ employees: create / edit / configure
+            ├─► API ─► Neon ───┤
+web-public ─┘                  └─ customers: read / compare / recommend
+```
+
+### The read/write boundary
+
+`apps/api/src/middleware/access.ts` is the single gate, mounted once in
+`routes/index.ts` ahead of every data router so no endpoint can skip it.
+
+- **Reads are open.** A public client uses the same resource endpoints the admin
+  UI does; it must never need an API of its own.
+- **Writes are staff-only.** With `ADMIN_API_TOKEN` unset (today's internal-only
+  deployment) writes behave exactly as before. Set it once a public client can
+  reach the API and every write requires `Authorization: Bearer <token>`.
+  Real employee authentication replaces the body of that one function.
+
+`tests/access-boundary.test.ts` pins this down: every representative write is
+refused without the token, and every public read still succeeds.
+
+### What the public site already has
+
+| Need | Already available |
+| ---- | ----------------- |
+| Find matching plans | `GET /plan-configurations?customerType=&geographicalCoverage=&isActive=true`, backed by a matching index |
+| Company / plan detail | `GET /companies/:id`, `GET /plans/:id` (includes configurations, options and values) |
+| Benefit definitions | `GET /insurance-options` — employee-defined, with their own fields |
+| Business rules | `@aggregator/shared` — SME average age, customer types, coverage, labels, money formatting |
+| Contracts | `ApiResponse<T>`, `Paginated<T>` and every DTO in `@aggregator/shared` |
+
+`packages/shared` imports no React, Prisma or Express, so a second client can
+depend on it directly.
+
+### Deliberately deferred
+
+Doing these now would be speculative; none is blocked by the current design.
+
+- `POST /compare`, match scoring and recommendation ranking.
+- Renaming `apps/web` to `apps/web-admin` — a `git mv` plus a Render root-dir
+  change when `web-public` actually exists.
+- Splitting the React Query hooks into read-only and admin modules.
+- Including plan/company summaries in the configurations list to save a round
+  trip; the right shape depends on the results page.
+- Extracting `components/ui` into a shared UI package.
+
+---
+
+## 7. Not implemented
 
 Deliberately absent, to be built in later steps:
 

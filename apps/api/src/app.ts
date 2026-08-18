@@ -55,10 +55,12 @@ export function createApp(): Express {
    * shadow an endpoint, and BEFORE `notFoundHandler` so unknown API paths still
    * get the JSON 404.
    *
-   * Skipped when the build is absent — in development the client is served by
-   * Vite on its own port, and the API must keep behaving exactly as before.
+   * Production only, and deliberately so. `npm run dev` does NOT rebuild the
+   * client, so serving `dist` in development would hand out a frozen snapshot
+   * of whenever `npm run build` last ran — silently masking the code being
+   * edited. In development the client is served by Vite on its own port.
    */
-  if (existsSync(join(WEB_DIST, 'index.html'))) {
+  if (env.isProduction && existsSync(join(WEB_DIST, 'index.html'))) {
     // `index: false` leaves "/" to the fallback below, so every HTML response
     // comes from one place.
     app.use(express.static(WEB_DIST, { index: false }));
@@ -68,6 +70,25 @@ export function createApp(): Express {
     // stray POST to an unknown path still returns the JSON 404.
     app.get(NON_SPA_PATHS, (_req, res) => {
       res.sendFile(join(WEB_DIST, 'index.html'));
+    });
+  }
+
+  if (!env.isProduction) {
+    // A browser hitting the API port in development gets a signpost rather than
+    // a stale build or a bare JSON 404.
+    app.get(NON_SPA_PATHS, (req, res, next) => {
+      if (!req.accepts('html')) return next();
+      res
+        .status(404)
+        .type('html')
+        .send(
+          `<!doctype html><meta charset="utf-8"><title>API only</title>` +
+            `<div style="font:16px/1.6 system-ui;max-width:34rem;margin:12vh auto;padding:0 1rem">` +
+            `<h1 style="font-size:1.25rem">This port serves the API only</h1>` +
+            `<p>In development the web client runs on its own server. Open ` +
+            `<a href="${env.webDevServerUrl}">${env.webDevServerUrl}</a> instead.</p>` +
+            `<p style="color:#666">The API itself is at <code>${API_BASE_PATH}</code>.</p></div>`,
+        );
     });
   }
 

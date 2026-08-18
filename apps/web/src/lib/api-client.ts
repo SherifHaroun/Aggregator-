@@ -20,27 +20,75 @@ export class ApiError extends Error {
   }
 }
 
-export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(init.headers ?? {}),
-    },
-  });
+/**
+ * Read a response body once and turn it into the shared `ApiResponse` envelope.
+ *
+ * Anything that is not the envelope — a proxy error page, an HTML 404, an empty
+ * body — is reported with its REAL status and a message that says what actually
+ * happened, rather than a blanket "unreadable response". The raw body is logged
+ * so the cause is visible in the console instead of being swallowed.
+ */
+async function readEnvelope<T>(response: Response, path: string): Promise<ApiResponse<T>> {
+  // 204 No Content is a legitimate empty success (DELETE, reorder).
+  if (response.status === 204) return { ok: true, data: undefined as T };
 
-  let payload: ApiResponse<T> | null = null;
+  const text = await response.text();
+
+  if (text.trim() === '') {
+    throw new ApiError(
+      response.ok ? 'EMPTY_RESPONSE' : 'SERVER_ERROR',
+      `The server returned an empty response (HTTP ${response.status}).`,
+      response.status,
+    );
+  }
+
   try {
-    payload = (await response.json()) as ApiResponse<T>;
+    return JSON.parse(text) as ApiResponse<T>;
   } catch {
-    payload = null;
+    // Not JSON. In development this is nearly always the Vite proxy reporting
+    // that the API process is not reachable.
+    console.error(
+      `[api] ${path} returned non-JSON (HTTP ${response.status}, ${
+        response.headers.get('content-type') ?? 'no content-type'
+      }):`,
+      text.slice(0, 500),
+    );
+    throw new ApiError(
+      response.status >= 500 ? 'SERVER_UNREACHABLE' : 'INVALID_RESPONSE',
+      response.status >= 500
+        ? 'Could not reach the API server. Check that it is running.'
+        : `The server responded with HTTP ${response.status} instead of data.`,
+      response.status,
+    );
+  }
+}
+
+export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init.headers ?? {}),
+      },
+    });
+  } catch (cause) {
+    // fetch only rejects when the request never completed: no network, DNS
+    // failure, or nothing listening at all.
+    console.error(`[api] ${path} request failed:`, cause);
+    throw new ApiError('NETWORK_ERROR', 'Could not reach the API server.', 0);
   }
 
-  if (!payload) {
-    throw new ApiError('INVALID_RESPONSE', 'The server returned an unreadable response.', response.status);
-  }
+  const payload = await readEnvelope<T>(response, path);
+
   if (!payload.ok) {
-    throw new ApiError(payload.error.code, payload.error.message, response.status, payload.error.details);
+    throw new ApiError(
+      payload.error.code,
+      payload.error.message,
+      response.status,
+      payload.error.details,
+    );
   }
   return payload.data;
 }
@@ -64,14 +112,23 @@ export async function uploadImage(file: File): Promise<string> {
   const body = new FormData();
   body.append('file', file);
 
-  const response = await fetch(`${BASE_URL}/uploads/image`, { method: 'POST', body });
-  const payload = (await response.json().catch(() => null)) as ApiResponse<{ url: string }> | null;
-
-  if (!payload) {
-    throw new ApiError('INVALID_RESPONSE', 'The upload failed. Please try again.', response.status);
+  let response: Response;
+  try {
+    // No Content-Type header: the browser sets the multipart boundary.
+    response = await fetch(`${BASE_URL}/uploads/image`, { method: 'POST', body });
+  } catch (cause) {
+    console.error('[api] upload request failed:', cause);
+    throw new ApiError('NETWORK_ERROR', 'Could not reach the API server.', 0);
   }
+
+  const payload = await readEnvelope<{ url: string }>(response, '/uploads/image');
   if (!payload.ok) {
-    throw new ApiError(payload.error.code, payload.error.message, response.status, payload.error.details);
+    throw new ApiError(
+      payload.error.code,
+      payload.error.message,
+      response.status,
+      payload.error.details,
+    );
   }
   return payload.data.url;
 }
