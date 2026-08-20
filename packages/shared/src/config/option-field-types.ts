@@ -11,6 +11,7 @@
  * which is why the list is deliberately small and generic.
  */
 
+import type { ComparisonDirection } from './comparison-scoring.js';
 import type { ConfigOption, OptionRegistry } from './option-registry.js';
 
 export const OPTION_FIELD_DATA_TYPES_IDS = [
@@ -30,6 +31,13 @@ export interface OptionFieldDataTypeOption extends ConfigOption<OptionFieldDataT
   storage: OptionValueStorage;
   /** Suggested unit shown in the field editor. Employees may override it. */
   defaultUnit: string | null;
+  /**
+   * Which way is better when the comparison ranks this kind of value.
+   *
+   * Declared per DATA TYPE, never per benefit name, so a benefit invented
+   * tomorrow is ranked correctly without a code change.
+   */
+  comparison: ComparisonDirection;
 }
 
 export const OPTION_FIELD_DATA_TYPES: OptionRegistry<
@@ -44,6 +52,8 @@ export const OPTION_FIELD_DATA_TYPES: OptionRegistry<
     enabled: true,
     storage: 'NUMBER',
     defaultUnit: null,
+    /** A count, e.g. sessions or visits: more of it is better cover. */
+    comparison: 'HIGHER_IS_BETTER',
   },
   PERCENTAGE: {
     id: 'PERCENTAGE',
@@ -53,6 +63,8 @@ export const OPTION_FIELD_DATA_TYPES: OptionRegistry<
     enabled: true,
     storage: 'NUMBER',
     defaultUnit: '%',
+    /** Coverage percentage: 90% covers more than 60%. */
+    comparison: 'HIGHER_IS_BETTER',
   },
   CURRENCY: {
     id: 'CURRENCY',
@@ -62,6 +74,8 @@ export const OPTION_FIELD_DATA_TYPES: OptionRegistry<
     enabled: true,
     storage: 'NUMBER',
     defaultUnit: null,
+    /** A benefit amount, e.g. a limit: a bigger one pays out more. */
+    comparison: 'HIGHER_IS_BETTER',
   },
   TEXT: {
     id: 'TEXT',
@@ -71,6 +85,8 @@ export const OPTION_FIELD_DATA_TYPES: OptionRegistry<
     enabled: true,
     storage: 'TEXT',
     defaultUnit: null,
+    /** Free text cannot be ranked; it is shown but never scored. */
+    comparison: 'NOT_COMPARABLE',
   },
   BOOLEAN: {
     id: 'BOOLEAN',
@@ -80,6 +96,8 @@ export const OPTION_FIELD_DATA_TYPES: OptionRegistry<
     enabled: true,
     storage: 'BOOLEAN',
     defaultUnit: null,
+    /** Included beats not included. */
+    comparison: 'HIGHER_IS_BETTER',
   },
 };
 

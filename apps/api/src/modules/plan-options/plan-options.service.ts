@@ -39,8 +39,11 @@ export async function getPlanOption(planOptionId: string): Promise<PlanOptionDto
  * to Individual+Local and to Family+Local with completely different values;
  * neither can see the other's.
  *
+ * The option itself is global, so any benefit can be attached to any plan of
+ * any company. Attaching creates only this relationship — never a second copy
+ * of the benefit.
+ *
  * Integrity rules enforced here rather than in the route:
- *  - the option must belong to the same insurance type as the configuration's plan,
  *  - a deactivated option cannot be newly attached,
  *  - an option can appear at most once per configuration (also a DB constraint).
  */
@@ -53,19 +56,16 @@ export async function addPlanOption(
   const [configuration, option] = await Promise.all([
     prisma.planConfiguration.findUnique({
       where: { id: planConfigurationId },
-      select: { id: true, plan: { select: { insuranceTypeId: true } } },
+      select: { id: true },
     }),
     prisma.insuranceOption.findUnique({
       where: { id: input.optionId },
-      select: { id: true, insuranceTypeId: true, isActive: true },
+      select: { id: true, isActive: true },
     }),
   ]);
 
   if (!configuration) throw notFound('Plan configuration');
   if (!option) throw notFound('Insurance option');
-  if (option.insuranceTypeId !== configuration.plan.insuranceTypeId) {
-    throw badRequest("This option belongs to a different insurance type than the plan.");
-  }
   if (!option.isActive) {
     throw conflict('This option is deactivated and cannot be added to a configuration.');
   }

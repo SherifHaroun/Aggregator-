@@ -24,7 +24,6 @@ export function toInsuranceOptionDto(
 ): InsuranceOptionDto {
   return {
     id: option.id,
-    insuranceTypeId: option.insuranceTypeId,
     name: option.name,
     description: option.description,
     sortOrder: option.sortOrder,

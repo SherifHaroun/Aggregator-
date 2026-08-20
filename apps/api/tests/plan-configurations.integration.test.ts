@@ -46,10 +46,10 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
         code: `${PREFIX}_plan`,
       },
     });
-    // An option invented here, exactly as an employee would create one.
+    // A benefit invented here, exactly as an employee would create one. It is
+    // global: it carries no company and no insurance type.
     const option = await db().insuranceOption.create({
       data: {
-        insuranceTypeId: insuranceType.id,
         name: `${PREFIX}_option`,
         fields: {
           create: [
@@ -91,7 +91,14 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
 
     for (const [index, combination] of combinations.entries()) {
       await db().planConfiguration.create({
-        data: { planId: ids.plan, ...combination, currency: 'EGP', annualPrice: 1000 * (index + 1) },
+        data: {
+          planId: ids.plan,
+          ...combination,
+          ageFrom: 18,
+          ageTo: 60,
+          currency: 'EGP',
+          annualPrice: 1000 * (index + 1),
+        },
       });
     }
 
@@ -161,7 +168,6 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
   it('accepts a completely new option with new fields, with no schema change', async () => {
     const invented = await db().insuranceOption.create({
       data: {
-        insuranceTypeId: ids.insuranceType,
         name: `${PREFIX}_invented`,
         fields: {
           create: [
@@ -202,14 +208,43 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
     });
   });
 
+  it('lets one plan price two age bands for the same customer type and coverage', async () => {
+    // 18-40 and 41-60 are separate configurations of the same product.
+    const older = await db().planConfiguration.create({
+      data: {
+        planId: ids.plan,
+        customerType: 'INDIVIDUAL',
+        geographicalCoverage: 'LOCAL',
+        ageFrom: 61,
+        ageTo: 75,
+        currency: 'EGP',
+        annualPrice: 9000,
+      },
+    });
+
+    expect(older.ageFrom).toBe(61);
+    expect(older.ageTo).toBe(75);
+
+    // The band a given age falls into is found numerically, not by text.
+    const forThirtyFive = await db().planConfiguration.findMany({
+      where: { planId: ids.plan, ageFrom: { lte: 35 }, ageTo: { gte: 35 } },
+    });
+    expect(forThirtyFive.every((c) => c.ageFrom <= 35 && c.ageTo >= 35)).toBe(true);
+    expect(forThirtyFive.map((c) => c.id)).not.toContain(older.id);
+
+    await db().planConfiguration.delete({ where: { id: older.id } });
+  });
+
   // (8)
-  it('rejects a duplicate plan + customer type + coverage', async () => {
+  it('rejects a duplicate plan + customer type + coverage + age band', async () => {
     await expect(
       db().planConfiguration.create({
         data: {
           planId: ids.plan,
           customerType: 'INDIVIDUAL',
           geographicalCoverage: 'LOCAL',
+          ageFrom: 18,
+          ageTo: 60,
           annualPrice: 1,
         },
       }),

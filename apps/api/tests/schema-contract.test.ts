@@ -70,24 +70,24 @@ describe('Plan vs PlanConfiguration', () => {
     expect(relation?.type).toBe('PlanConfiguration');
   });
 
-  it('is unique on plan + customer type + geographical coverage', () => {
+  it('is unique on plan + customer type + coverage + age band', () => {
+    // The age band is part of the identity, so one plan can price 18-40 and
+    // 41-60 separately for the same customer type and coverage area.
     expect(uniqueSets('PlanConfiguration')).toContain(
-      ['planId', 'customerType', 'geographicalCoverage'].sort().join('+'),
+      ['planId', 'customerType', 'geographicalCoverage', 'ageFrom', 'ageTo'].sort().join('+'),
     );
   });
 
-  it('stores no age on the configuration — the SME rule stays centralized', () => {
-    // Compare camelCase words, so "geographicalCoverage" is not read as "age".
-    const words = (name: string) =>
-      name
-        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-        .toLowerCase()
-        .split(/[^a-z0-9]+/);
-
-    const ageFields = fieldNames('PlanConfiguration').filter((name) =>
-      words(name).includes('age'),
-    );
-    expect(ageFields).toEqual([]);
+  it('requires an age band on the configuration', () => {
+    // The admin side of the age match. The customer's own age stays a single
+    // number they type on the comparison screen, never stored here.
+    const fields = model('PlanConfiguration').fields;
+    for (const name of ['ageFrom', 'ageTo']) {
+      const field = fields.find((item) => item.name === name);
+      expect(field, `${name} should exist`).toBeDefined();
+      expect(field?.type).toBe('Int');
+      expect(field?.isRequired).toBe(true);
+    }
   });
 });
 

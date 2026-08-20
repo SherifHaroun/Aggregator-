@@ -2,6 +2,7 @@ import type { InsuranceTypeDto, Paginated } from '@aggregator/shared';
 import type { InsuranceType } from '@prisma/client';
 import { toIso } from '../../lib/decimal.js';
 import { conflict, notFound } from '../../lib/errors.js';
+import { nextSortOrder } from '../../lib/ordering.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
 import { getPrisma } from '../../lib/prisma.js';
 import { toRecordKey } from '../../lib/record-key.js';
@@ -48,12 +49,25 @@ export async function getInsuranceType(id: string): Promise<InsuranceTypeDto> {
   return toInsuranceTypeDto(type);
 }
 
+/**
+ * Create a category.
+ *
+ * A new type is placed at the END of the list rather than left at the default
+ * `0`. Without this every type shares one position and the list quietly falls
+ * back to alphabetical order — so "Basic, Medium, High" would read as "Basic,
+ * High, Medium", which is not the order anybody thinks in.
+ */
 export async function createInsuranceType(
   input: CreateInsuranceTypeInput,
 ): Promise<InsuranceTypeDto> {
-  const { code, ...rest } = input;
-  const type = await getPrisma().insuranceType.create({
-    data: { ...rest, code: code ?? toRecordKey(input.name) },
+  const prisma = getPrisma();
+  const { code, sortOrder, ...rest } = input;
+
+  const position =
+    sortOrder ?? nextSortOrder(await prisma.insuranceType.aggregate({ _max: { sortOrder: true } }));
+
+  const type = await prisma.insuranceType.create({
+    data: { ...rest, sortOrder: position, code: code ?? toRecordKey(input.name) },
   });
   return toInsuranceTypeDto(type);
 }
@@ -67,20 +81,16 @@ export async function updateInsuranceType(
 }
 
 /**
- * Permanent delete, allowed only while nothing references the type.
- * Options and plans both hang off an insurance type, so in practice an
- * established type is deactivated rather than deleted.
+ * Permanent delete, allowed only while no plan uses the type. Benefits are
+ * global and no longer hang off a type, so they never block this.
  */
 export async function deleteInsuranceType(id: string): Promise<void> {
   const prisma = getPrisma();
-  const [planCount, optionCount] = await Promise.all([
-    prisma.plan.count({ where: { insuranceTypeId: id } }),
-    prisma.insuranceOption.count({ where: { insuranceTypeId: id } }),
-  ]);
+  const planCount = await prisma.plan.count({ where: { insuranceTypeId: id } });
 
-  if (planCount > 0 || optionCount > 0) {
+  if (planCount > 0) {
     throw conflict(
-      `This insurance type is used by ${planCount} plan(s) and ${optionCount} option(s) and cannot be deleted. Deactivate it instead.`,
+      `This insurance type is used by ${planCount} plan(s) and cannot be deleted. Deactivate it instead.`,
     );
   }
   await prisma.insuranceType.delete({ where: { id } });

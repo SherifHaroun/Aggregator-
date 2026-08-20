@@ -9,6 +9,7 @@
  */
 
 import {
+  BENEFIT_VALUE_FIELD,
   resolveAverageAgeForCustomerType,
   type CompanyDto,
   type InsuranceOptionDto,
@@ -40,8 +41,18 @@ export interface FakeStore {
   configurations: PlanConfigurationDto[];
   planOptions: StoredPlanOption[];
   values: StoredValue[];
-  /** Set to make the next matching request fail, e.g. to test error states. */
-  failNext: { method: string; path: RegExp; status: number; body: unknown } | null;
+  /**
+   * Set to make the next matching request fail, e.g. to test error states.
+   * `delayMs` holds the response back, which is what makes an optimistic UI
+   * state observable before the failure arrives.
+   */
+  failNext: {
+    method: string;
+    path: RegExp;
+    status: number;
+    body: unknown;
+    delayMs?: number;
+  } | null;
 }
 
 export function createStore(): FakeStore {
@@ -89,8 +100,9 @@ export function installFakeApi(store: FakeStore = createStore()): FakeStore {
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, never>) : {};
 
     if (store.failNext && store.failNext.method === method && store.failNext.path.test(path)) {
-      const { status, body: failBody } = store.failNext;
+      const { status, body: failBody, delayMs } = store.failNext;
       store.failNext = null;
+      if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
       return new Response(JSON.stringify(failBody), {
         status,
         headers: { 'Content-Type': 'application/json' },
@@ -164,27 +176,30 @@ function route({
 
   // --- insurance options ---------------------------------------------------
   if (resource === 'insurance-options') {
-    if (method === 'GET' && !first) {
-      const typeFilter = search.get('insuranceTypeId');
-      return ok(
-        page(
-          store.options.filter(
-            (option) => !typeFilter || option.insuranceTypeId === typeFilter,
-          ),
-        ),
-      );
-    }
+    // The catalogue is global: no company or type narrows it.
+    if (method === 'GET' && !first) return ok(page(store.options));
     if (method === 'POST' && !first) {
       const optionId = id('option');
-      // The real API accepts the option's fields in the same request.
-      const inlineFields = (body.fields ?? []) as unknown as {
+      /**
+       * The real API gives a benefit created without fields the standard
+       * percentage value, which is all the web client ever asks for.
+       */
+      const inlineFields = ((body.fields as unknown[] | undefined)?.length
+        ? body.fields
+        : [BENEFIT_VALUE_FIELD]) as unknown as {
         label: string;
         dataType: OptionFieldDto['dataType'];
+        unit?: string;
       }[];
+      const name = String(body.name ?? '');
+      // Global uniqueness, as the real API enforces it.
+      if (store.options.some((item) => item.name.toLowerCase() === name.toLowerCase())) {
+        return fail(409, 'DUPLICATE', 'This benefit already exists.');
+      }
+
       const option: InsuranceOptionDto = {
         id: optionId,
-        insuranceTypeId: String(body.insuranceTypeId ?? ''),
-        name: String(body.name ?? ''),
+        name,
         description: (body.description as string | null) ?? null,
         sortOrder: store.options.length,
         fields: inlineFields.map((field, index) => ({
@@ -193,7 +208,7 @@ function route({
           label: field.label,
           key: field.label.toLowerCase().replace(/\W+/g, '_'),
           dataType: field.dataType,
-          unit: null,
+          unit: field.unit ?? null,
           helpText: null,
           isRequired: false,
           sortOrder: index,
@@ -242,6 +257,118 @@ function route({
       owner.fields = owner.fields!.filter((f) => f.id !== first);
       return noContent();
     }
+  }
+
+  // --- comparison ----------------------------------------------------------
+  /**
+   * Enough of the real contract for the results screen: configurations are
+   * split by the budget, each side scored on its own, one recommendation per
+   * side. The real ranking lives in `@aggregator/shared` and is tested there.
+   */
+  if (resource === 'comparison' && !first && method === 'POST') {
+    const budget = body.budget as number | undefined;
+    const toPlan = (configuration: PlanConfigurationDto, recommended: boolean) => {
+      const options = store.planOptions.filter((p) => p.planConfigurationId === configuration.id);
+      const plan = store.plans.find((item) => item.id === configuration.planId);
+      const company = store.companies.find((item) => item.id === plan?.companyId);
+      return {
+        configurationId: configuration.id,
+        planId: plan?.id ?? '',
+        planName: plan?.name ?? '',
+        planCategory: null,
+        companyId: company?.id ?? '',
+        companyName: company?.name ?? '',
+        companyLogoUrl: null,
+        currency: configuration.currency,
+        annualPrice: configuration.annualPrice,
+        customerTypeLabel: configuration.customerType,
+        geographicalCoverageLabel: configuration.geographicalCoverage,
+        benefits: options.map((planOption) => {
+          const option = store.options.find((item) => item.id === planOption.optionId);
+          const value = store.values.find((v) => v.planOptionId === planOption.id)?.value ?? null;
+          return {
+            optionId: planOption.optionId,
+            optionName: option?.name ?? '',
+            covered: value !== null,
+            value: typeof value === 'number' ? value : null,
+            display: typeof value === 'number' ? `${value}%` : 'Not covered',
+            dataType: 'PERCENTAGE',
+            unit: '%',
+            direction: 'HIGHER_IS_BETTER',
+            score: typeof value === 'number' ? 1 : 0,
+            isBest: false,
+          };
+        }),
+        attributes: [],
+        coverageScore: 1,
+        priceScore: 1,
+        valueScore: 1,
+        missingBenefitCount: 0,
+        isDominated: false,
+        dominatedBy: [],
+        isRecommended: recommended,
+        isCheapest: false,
+        isHighestCoverage: false,
+      };
+    };
+
+    const priced = store.configurations.filter((c) => typeof c.annualPrice === 'number');
+    const within = budget === undefined ? priced : priced.filter((c) => c.annualPrice! <= budget);
+    const above = budget === undefined ? [] : priced.filter((c) => c.annualPrice! > budget);
+    const namesOf = (configurations: PlanConfigurationDto[]) => {
+      const ids = new Set(
+        store.planOptions
+          .filter((p) => configurations.some((c) => c.id === p.planConfigurationId))
+          .map((p) => p.optionId),
+      );
+      return store.options.filter((o) => ids.has(o.id)).map((o) => ({ id: o.id, name: o.name }));
+    };
+
+    return ok({
+      criteria: {
+        insuranceTypeId: String(body.insuranceTypeId ?? ''),
+        insuranceTypeName: store.insuranceTypes[0]?.name ?? '',
+        customerTypeId: body.customerTypeId,
+        customerTypeLabel: String(body.customerTypeId ?? ''),
+        geographicalCoverageId: body.geographicalCoverageId,
+        geographicalCoverageLabel: String(body.geographicalCoverageId ?? ''),
+        currency: String(body.currency ?? ''),
+        ageFrom: Number(body.ageFrom ?? 0),
+        ageTo: Number(body.ageTo ?? 0),
+        budget: budget ?? null,
+        averageAge: { value: null, source: 'NOT_SPECIFIED', label: null },
+        benefits: namesOf(within),
+      },
+      plans: within.map((c, index) => toPlan(c, index === 0)),
+      recommendedConfigurationId: within[0]?.id ?? null,
+      recommendationReasons: within.length ? ['Best value within the budget.'] : [],
+      matchedCount: within.length,
+      overBudgetPlans: above.map((c, index) => toPlan(c, index === 0)),
+      overBudgetBenefits: namesOf(above),
+      overBudgetRecommendedConfigurationId: above[0]?.id ?? null,
+      overBudgetRecommendationReasons: above.length ? ['Best value above the budget.'] : [],
+      overBudgetCount: above.length,
+    });
+  }
+
+
+  if (resource === 'comparison' && first === 'price-range' && method === 'POST') {
+    const prices = store.configurations
+      .filter(
+        (configuration) =>
+          configuration.customerType === body.customerType ||
+          configuration.customerType === body.customerTypeId,
+      )
+      .map((configuration) => configuration.annualPrice)
+      .filter((price): price is number => typeof price === 'number');
+
+    return ok({
+      count: prices.length,
+      lowestPrice: prices.length ? Math.min(...prices) : null,
+      highestPrice: prices.length ? Math.max(...prices) : null,
+      suggestedBudget: prices.length ? Math.max(...prices) : null,
+      currency: String(body.currency ?? ''),
+    });
   }
 
   // --- plans ---------------------------------------------------------------
@@ -300,11 +427,28 @@ function route({
       );
     }
     if (method === 'POST' && !first) {
+      // The age band is required and has to run forwards, as the real API says.
+      const ageFrom = body.ageFrom as number | null | undefined;
+      const ageTo = body.ageTo as number | null | undefined;
+      if (typeof ageFrom !== 'number' || typeof ageTo !== 'number') {
+        return fail(422, 'VALIDATION_ERROR', 'The request payload is invalid.', {
+          ...(typeof ageFrom !== 'number' ? { ageFrom: ['Required'] } : {}),
+          ...(typeof ageTo !== 'number' ? { ageTo: ['Required'] } : {}),
+        });
+      }
+      if (ageFrom > ageTo) {
+        return fail(422, 'VALIDATION_ERROR', 'The request payload is invalid.', {
+          ageFrom: ['Age From cannot be greater than Age To.'],
+        });
+      }
+
       const duplicate = store.configurations.some(
         (configuration) =>
           configuration.planId === body.planId &&
           configuration.customerType === body.customerType &&
-          configuration.geographicalCoverage === body.geographicalCoverage,
+          configuration.geographicalCoverage === body.geographicalCoverage &&
+          configuration.ageFrom === ageFrom &&
+          configuration.ageTo === ageTo,
       );
       if (duplicate) {
         return fail(409, 'DUPLICATE', 'A record with this planId, customerType already exists.');
@@ -314,6 +458,8 @@ function route({
         planId: String(body.planId ?? ''),
         customerType: body.customerType as PlanConfigurationDto['customerType'],
         geographicalCoverage: body.geographicalCoverage as PlanConfigurationDto['geographicalCoverage'],
+        ageFrom: body.ageFrom as number,
+        ageTo: body.ageTo as number,
         currency: (body.currency as string | null) ?? null,
         annualPrice: (body.annualPrice as number | null) ?? null,
         annualLimit: (body.annualLimit as number | null) ?? null,

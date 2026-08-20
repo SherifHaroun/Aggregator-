@@ -35,12 +35,12 @@ export function ComparisonCriteriaForm({
           {...(step.description !== undefined ? { hint: step.description } : {})}
           options={getOptionsForSource(step.optionSource)}
           value={criteria[step.field]}
-          onChange={(id) =>
-            onChange(step.field, id as ComparisonCriteriaInput[typeof step.field])
-          }
+          onChange={(id) => onChange(step.field, id as ComparisonCriteriaInput[typeof step.field])}
           error={errorsByField[step.field] ?? null}
           columns={step.optionSource === 'GEOGRAPHICAL_COVERAGES' ? 2 : 3}
-          {...(step.optionSource === 'CUSTOMER_TYPES' ? { renderNote: renderCustomerTypeNote } : {})}
+          {...(step.optionSource === 'CUSTOMER_TYPES'
+            ? { renderNote: renderCustomerTypeNote }
+            : {})}
         />
       ))}
     </div>

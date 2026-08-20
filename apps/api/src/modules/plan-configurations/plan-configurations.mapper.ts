@@ -14,6 +14,8 @@ export function toPlanConfigurationDto(
     planId: configuration.planId,
     customerType: configuration.customerType,
     geographicalCoverage: configuration.geographicalCoverage,
+    ageFrom: configuration.ageFrom,
+    ageTo: configuration.ageTo,
     currency: configuration.currency,
     annualPrice: toNumber(configuration.annualPrice),
     annualLimit: toNumber(configuration.annualLimit),

@@ -7,11 +7,7 @@ import { Card, CardBody, CardHeader, SummaryList, type SummaryItem } from '@/com
  * The average age line is rendered from `resolved.averageAge`, which the shared
  * rules produce — this component contains no age logic of its own.
  */
-export function ComparisonCriteriaSummary({
-  resolved,
-}: {
-  resolved: ResolvedComparisonCriteria;
-}) {
+export function ComparisonCriteriaSummary({ resolved }: { resolved: ResolvedComparisonCriteria }) {
   const items: SummaryItem[] = [
     { label: 'Insured', value: resolved.customerTypeLabel },
     { label: 'Geographical coverage', value: resolved.geographicalCoverageLabel },

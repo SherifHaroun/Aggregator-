@@ -4,10 +4,185 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>Insurance Aggregator</title>
+    <meta name="theme-color" content="#17244b" />
+    <title>Hadbrok Insurance Brokers</title>
+
+    <!--
+      The opening screen.
+
+      Inline on purpose: it paints on the first frame, before the stylesheet or
+      the application bundle have been parsed, so the brand is what appears
+      first rather than a white page. `main.tsx` fades it out once React has
+      mounted.
+    -->
+    <style>
+      /*
+        Already welcomed during this browser session — never show it again.
+        Applied before the first paint by the script below, so a reload in the
+        middle of a task does not flash the opening screen.
+      */
+      html[data-splash-seen] #splash {
+        display: none;
+      }
+
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2.75rem;
+        /* The same navy the theme is built on, so the application continues
+           the opening screen rather than replacing it. Written out rather than
+           referencing a token: this paints before the stylesheet loads. */
+        background: radial-gradient(
+          120% 120% at 50% 0%,
+          oklch(0.36 0.09 266) 0%,
+          oklch(0.272 0.074 267) 55%,
+          oklch(0.2 0.06 267) 100%
+        );
+        opacity: 1;
+        transition: opacity 520ms ease;
+      }
+
+      /* Removed from the flow once faded, so it can never trap a click. */
+      #splash[data-leaving='true'] {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .splash-mark {
+        width: min(74vw, 340px);
+        color: #fff;
+        text-align: center;
+        font-family: Georgia, 'Times New Roman', Times, serif;
+        animation: splash-rise 720ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+
+      .splash-name {
+        margin: 0;
+        font-size: clamp(2.5rem, 11vw, 3.9rem);
+        font-weight: 400;
+        letter-spacing: 0.06em;
+        line-height: 1;
+      }
+
+      .splash-rule {
+        height: 3px;
+        margin: 1.15rem 0 0.95rem;
+        background: #fff;
+        transform-origin: center;
+        animation: splash-rule 760ms cubic-bezier(0.16, 1, 0.3, 1) 160ms both;
+      }
+
+      .splash-descriptor {
+        margin: 0;
+        font-size: clamp(0.8rem, 3.4vw, 1.15rem);
+        letter-spacing: 0.34em;
+        /* The tracking is applied on the right of each letter; nudge back so
+           the line still reads as centred. */
+        text-indent: 0.34em;
+      }
+
+      .splash-progress {
+        position: relative;
+        width: min(58vw, 220px);
+        height: 3px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.16);
+      }
+
+      .splash-progress::after {
+        content: '';
+        position: absolute;
+        inset-block: 0;
+        width: 42%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, transparent, #fff, transparent);
+        animation: splash-sweep 1150ms ease-in-out infinite;
+      }
+
+      .splash-caption {
+        margin: 0;
+        color: rgba(255, 255, 255, 0.62);
+        font-family:
+          system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+        font-size: 0.75rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      @keyframes splash-rise {
+        from {
+          opacity: 0;
+          transform: translateY(14px) scale(0.97);
+        }
+      }
+
+      @keyframes splash-rule {
+        from {
+          transform: scaleX(0);
+        }
+      }
+
+      @keyframes splash-sweep {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(240%);
+        }
+      }
+
+      /* Respect a stated preference for less movement: the screen still shows,
+         it simply does not animate. */
+      @media (prefers-reduced-motion: reduce) {
+        .splash-mark,
+        .splash-rule,
+        .splash-progress::after {
+          animation: none;
+        }
+      }
+    </style>
+
+    <script>
+      /*
+        Runs before the body is parsed, so the decision is made before anything
+        paints. The opening screen belongs to arriving at the application, not
+        to every reload: a dev-server refresh, a crash recovery or a second tab
+        would otherwise replay it over work in progress.
+      */
+      try {
+        if (sessionStorage.getItem('hadbrok:welcomed')) {
+          document.documentElement.setAttribute('data-splash-seen', '');
+        } else {
+          sessionStorage.setItem('hadbrok:welcomed', '1');
+        }
+      } catch {
+        /* Storage unavailable (private mode). Showing it is the safe default. */
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
+
+    <div id="splash" role="status" aria-live="polite">
+      <div class="splash-mark">
+        <p class="splash-name">HADBROK</p>
+        <div class="splash-rule"></div>
+        <p class="splash-descriptor">Insurance Brokers</p>
+      </div>
+
+      <div class="splash-progress" aria-hidden="true"></div>
+      <p class="splash-caption">Loading</p>
+    </div>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

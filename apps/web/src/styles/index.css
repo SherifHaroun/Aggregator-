@@ -6,25 +6,41 @@
  * of raw colours, so a rebrand is a change to this block only.
  */
 @theme {
-  /* Surfaces: a soft lavender-tinted canvas with white cards on top. */
-  --color-canvas: oklch(0.978 0.006 292);
+  /*
+   * Everything is set on the navy of the Hadbrok mark — `#17244b`, which is
+   * `oklch(0.272 0.074 267)`. The surfaces, text and shadows all carry a trace
+   * of that same hue rather than a neutral grey, so the interface reads as one
+   * palette with the logo instead of sitting next to it.
+   */
+
+  /* Surfaces: a barely-tinted navy canvas with white cards on top. */
+  --color-canvas: oklch(0.978 0.006 265);
   --color-surface: oklch(1 0 0);
-  --color-surface-muted: oklch(0.968 0.008 292);
+  --color-surface-muted: oklch(0.968 0.008 265);
   --color-sidebar: oklch(1 0 0);
-  --color-border-subtle: oklch(0.925 0.008 292);
-  --color-border-strong: oklch(0.865 0.012 292);
+  --color-border-subtle: oklch(0.925 0.008 265);
+  --color-border-strong: oklch(0.865 0.012 265);
 
   /* Text */
-  --color-content: oklch(0.24 0.03 285);
-  --color-content-muted: oklch(0.53 0.025 285);
-  --color-content-subtle: oklch(0.65 0.02 285);
+  --color-content: oklch(0.24 0.03 265);
+  --color-content-muted: oklch(0.53 0.025 265);
+  --color-content-subtle: oklch(0.65 0.02 265);
   --color-content-inverted: oklch(0.99 0 0);
 
-  /* Brand — violet, matching the Hadbrok identity. */
-  --color-brand: oklch(0.52 0.22 292);
-  --color-brand-strong: oklch(0.45 0.22 292);
-  --color-brand-soft: oklch(0.965 0.025 292);
-  --color-brand-border: oklch(0.85 0.09 292);
+  /*
+   * Brand — the mark's navy.
+   *
+   * `brand` sits a little above the logo so a hover has somewhere darker to
+   * go; `brand-strong` IS the logo navy, and is what carries brand-coloured
+   * text on a light tint.
+   */
+  --color-brand: oklch(0.33 0.1 265);
+  --color-brand-strong: oklch(0.272 0.074 267);
+  --color-brand-soft: oklch(0.955 0.022 265);
+  --color-brand-border: oklch(0.84 0.06 265);
+  /* The two ends of the panels that echo the opening screen. */
+  --color-brand-gradient-from: oklch(0.36 0.09 266);
+  --color-brand-gradient-to: oklch(0.245 0.07 267);
 
   /* Status */
   --color-accent: oklch(0.7 0.15 200);
@@ -40,10 +56,10 @@
   --radius-control: 0.625rem;
   --radius-pill: 999px;
 
-  /* Elevation — soft and violet-tinted rather than flat grey. */
-  --shadow-card: 0 1px 2px oklch(0.3 0.05 292 / 0.04), 0 6px 16px oklch(0.3 0.05 292 / 0.05);
-  --shadow-raised: 0 2px 6px oklch(0.3 0.05 292 / 0.06), 0 18px 40px oklch(0.3 0.05 292 / 0.12);
-  --shadow-brand: 0 6px 16px oklch(0.52 0.22 292 / 0.28);
+  /* Elevation — soft and navy-tinted rather than flat grey. */
+  --shadow-card: 0 1px 2px oklch(0.3 0.05 265 / 0.05), 0 6px 16px oklch(0.3 0.05 265 / 0.06);
+  --shadow-raised: 0 2px 6px oklch(0.3 0.05 265 / 0.07), 0 18px 40px oklch(0.3 0.05 265 / 0.14);
+  --shadow-brand: 0 6px 16px oklch(0.272 0.074 267 / 0.3);
 }
 
 @layer base {
@@ -54,7 +70,13 @@
   body {
     @apply bg-canvas text-content antialiased;
     font-family:
-      ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      'Segoe UI',
+      Roboto,
+      'Helvetica Neue',
+      Arial,
       sans-serif;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
@@ -70,12 +92,15 @@
 }
 
 @layer utilities {
-  /** The violet gradient used on the sidebar brand mark and hero panels. */
+  /**
+   * The navy gradient on the hero panels, drawn from the same two ends as the
+   * opening screen so the application continues where the splash left off.
+   */
   .bg-brand-gradient {
     background-image: linear-gradient(
       135deg,
-      oklch(0.56 0.22 292) 0%,
-      oklch(0.46 0.23 288) 100%
+      var(--color-brand-gradient-from) 0%,
+      var(--color-brand-gradient-to) 100%
     );
   }
 }

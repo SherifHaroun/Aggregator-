@@ -174,7 +174,11 @@ export function PlanDialog({
           <Field
             label="Plan code"
             error={fieldErrors.code}
-            hint={values.code.trim() === '' && derivedCode ? `Will be saved as ${derivedCode}` : 'Optional.'}
+            hint={
+              values.code.trim() === '' && derivedCode
+                ? `Will be saved as ${derivedCode}`
+                : 'Optional.'
+            }
           >
             {(props) => (
               <Input
@@ -186,7 +190,11 @@ export function PlanDialog({
             )}
           </Field>
 
-          <Field label="Category" error={fieldErrors.category} hint="Optional. Groups similar plans when comparing.">
+          <Field
+            label="Category"
+            error={fieldErrors.category}
+            hint="Optional. Groups similar plans when comparing."
+          >
             {(props) => (
               <Input
                 {...props}

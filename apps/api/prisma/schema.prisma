@@ -92,9 +92,8 @@ model Company {
 /// A category of insurance (medical, life, motor, ...) — a record, never a
 /// hardcoded enum, so employees can add new categories from the website.
 ///
-/// It scopes the option catalogue: a medical plan can only use options defined
-/// for medical insurance. This is what keeps the design extensible to insurance
-/// types whose benefits look nothing like medical ones.
+/// It categorises plans. Benefits are NOT scoped by it: one global catalogue is
+/// offered to every plan, whatever its type — see `InsuranceOption`.
 model InsuranceType {
   id          String  @id @default(cuid())
   name        String  @unique
@@ -108,8 +107,7 @@ model InsuranceType {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  plans   Plan[]
-  options InsuranceOption[]
+  plans Plan[]
 
   @@index([isActive])
   @@map("insurance_types")
@@ -122,13 +120,24 @@ model InsuranceType {
 /// A benefit/feature an employee has defined, e.g. outpatient care, dental
 /// care, physiotherapy, telemedicine — or anything invented in the future.
 ///
-/// This is the list an employee drags from when building a plan.
+/// GLOBAL: a benefit is defined once and is then offered to every company and
+/// every plan. It deliberately carries no company and no insurance type, which
+/// is what makes "Outpatient Care" one record rather than one per company.
+///
+/// What differs between companies is the VALUE the benefit takes, and that
+/// lives on `PlanOptionValue` — keyed by `PlanOption`, which belongs to a
+/// single plan configuration. So one benefit supports 80% for one company and
+/// 70% for another with no duplication.
 model InsuranceOption {
-  id              String        @id @default(cuid())
-  insuranceTypeId String
-  insuranceType   InsuranceType @relation(fields: [insuranceTypeId], references: [id], onDelete: Restrict)
+  id String @id @default(cuid())
 
-  name        String
+  /// Unique across the whole catalogue: creating a benefit that already exists
+  /// is refused rather than duplicated.
+  ///
+  /// Uniqueness ignores case — "Dental" and "dental" are one benefit. That is
+  /// enforced by a second, case-folded unique index that Prisma cannot express
+  /// here; see the `case_insensitive_benefit_names` migration.
+  name        String  @unique
   description String?
   /// Display order of the option in the catalogue.
   sortOrder   Int     @default(0)
@@ -143,8 +152,7 @@ model InsuranceOption {
   fields      OptionField[]
   planOptions PlanOption[]
 
-  @@unique([insuranceTypeId, name])
-  @@index([insuranceTypeId, isActive])
+  @@index([isActive])
   @@map("insurance_options")
 }
 
@@ -234,9 +242,14 @@ model Plan {
 /// "Individual + Local" matches configurations directly, and each result still
 /// knows its plan and company through the relation.
 ///
-/// Age is deliberately NOT stored here. The SME average age is a business rule
-/// that lives once in `@aggregator/shared`, and age-based pricing has not been
-/// specified — adding it later means new columns here, not a redesign.
+/// The configuration also declares WHO IT IS FOR by age: `ageFrom`..`ageTo`,
+/// inclusive. A plan sold differently to 18-40 year olds and to 41-60 year olds
+/// is two configurations, which is why the age band is part of this row's
+/// identity. A comparison matches when `ageFrom <= age <= ageTo`.
+///
+/// The customer's own age is a single number they type; the band is the admin's
+/// side of that match. The SME default age remains a business rule in
+/// `@aggregator/shared` and is never stored here.
 model PlanConfiguration {
   id     String @id @default(cuid())
   planId String
@@ -244,6 +257,11 @@ model PlanConfiguration {
 
   customerType         CustomerType
   geographicalCoverage GeographicalCoverage
+
+  /// Inclusive age band this configuration applies to. Both are required: a
+  /// configuration that applies to nobody in particular cannot be matched.
+  ageFrom Int
+  ageTo   Int
 
   /// ISO 4217 code, e.g. "EGP". Set per configuration because a local and an
   /// international configuration may well be priced in different currencies.
@@ -260,11 +278,16 @@ model PlanConfiguration {
 
   options PlanOption[]
 
-  /// A plan has at most one configuration per customer type and coverage area.
-  @@unique([planId, customerType, geographicalCoverage])
+  /// A plan has at most one configuration per customer type, coverage area and
+  /// age band — the age band is what lets 18-40 and 41-60 coexist.
+  /// Named explicitly: the generated name exceeds Postgres's 63-character
+  /// identifier limit and would be silently truncated.
+  @@unique([planId, customerType, geographicalCoverage, ageFrom, ageTo], map: "plan_configurations_identity_key")
   /// The comparison's primary lookup: "every active configuration for this
   /// customer type and coverage area".
   @@index([customerType, geographicalCoverage, isActive])
+  /// Supports the comparison's age-band lookup.
+  @@index([ageFrom, ageTo])
   @@index([planId, isActive])
   @@map("plan_configurations")
 }

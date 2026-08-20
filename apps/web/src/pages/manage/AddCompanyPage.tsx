@@ -3,10 +3,10 @@ import {
   Button,
   Callout,
   Card,
-  CardBody,
-  CardFooter,
   Field,
   IconBuilding,
+  IconChevronRight,
+  IconLayers,
   Input,
   PageHeader,
   useToast,
@@ -21,6 +21,9 @@ import { useRecordForm } from '@/features/insurance-data/useRecordForm';
  * Everything else about a company is added later from its own screen, so the
  * employee reaches the part that matters — the plans — in one field. On success
  * the flow continues straight into plan setup rather than returning to a list.
+ *
+ * Laid out like the comparison: one panel across the page, a navy header, and
+ * the step it belongs to shown against its progress.
  */
 export function AddCompanyPage() {
   const navigate = useNavigate();
@@ -43,22 +46,39 @@ export function AddCompanyPage() {
   }
 
   return (
-    <div className="mx-auto max-w-xl">
+    <div className="w-full">
+      {/* Trail only — the heading belongs to the panel below. */}
       <PageHeader
-        title="Add a company"
-        description="Step 1 of 2. You will set up this company's plans next."
         breadcrumbs={[{ label: 'Companies', to: ROUTES.companies.list }, { label: 'New company' }]}
       />
 
-      <form onSubmit={handleSubmit} noValidate>
-        <Card>
-          <CardBody className="space-y-5">
-            {formError ? (
-              <Callout tone="danger" title="Could not save">
-                {formError}
-              </Callout>
-            ) : null}
+      <Card className="overflow-hidden">
+        <div className="bg-brand-gradient text-content-inverted px-6 py-8 sm:px-10 sm:py-12">
+          <p className="text-sm font-medium text-white/80">New insurance company</p>
+          <h1 className="mt-1 text-3xl font-bold tracking-tight sm:text-4xl">Add a company</h1>
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-white/85">
+            Start with the name. You will set up the plans this company offers next.
+          </p>
+        </div>
 
+        <form onSubmit={handleSubmit} noValidate className="px-6 py-7 sm:px-10 sm:py-9">
+          <div className="flex items-center gap-3">
+            <span className="bg-brand text-content-inverted rounded-(--radius-pill) px-3 py-1 text-xs font-bold">
+              1 / 2
+            </span>
+            <span className="text-content text-sm font-medium">Company details</span>
+          </div>
+          <div className="bg-surface-muted mt-3 h-1.5 overflow-hidden rounded-full">
+            <div className="bg-brand h-full w-1/2 rounded-full" />
+          </div>
+
+          {formError ? (
+            <Callout tone="danger" title="Could not save" className="mt-7">
+              {formError}
+            </Callout>
+          ) : null}
+
+          <div className="mt-7 grid gap-x-8 gap-y-6 lg:grid-cols-2">
             <Field label="Company name" required error={fieldErrors.name}>
               {(props) => (
                 <Input
@@ -70,23 +90,42 @@ export function AddCompanyPage() {
                 />
               )}
             </Field>
-          </CardBody>
 
-          <CardFooter>
-            <Button variant="secondary" onClick={() => navigate(ROUTES.companies.list)}>
+            {/* What the second step will ask for, so the name is not the whole
+                story on an otherwise empty page. */}
+            <div className="border-border-subtle bg-surface-muted/40 rounded-(--radius-control) border p-4">
+              <p className="text-content flex items-center gap-2 text-sm font-semibold">
+                <IconLayers className="text-brand size-4" />
+                Next: this company's plans
+              </p>
+              <p className="text-content-muted mt-2 text-xs leading-relaxed">
+                You will add each plan it offers with its price, the ages it covers and the benefits
+                it carries. Everything here is created by you — nothing is preloaded.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-8 flex flex-wrap justify-end gap-3">
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              onClick={() => navigate(ROUTES.companies.list)}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={save.isPending}>
+            <Button type="submit" size="lg" disabled={save.isPending}>
               {save.isPending ? 'Creating…' : 'Create company'}
+              <IconChevronRight className="size-4" />
             </Button>
-          </CardFooter>
-        </Card>
-      </form>
+          </div>
 
-      <p className="text-content-subtle mt-6 flex items-center justify-center gap-2 text-xs">
-        <IconBuilding className="size-4" />
-        Companies, plans and benefits are all created by you — nothing is preloaded.
-      </p>
+          <p className="text-content-subtle mt-6 flex items-center justify-center gap-2 text-xs">
+            <IconBuilding className="size-4" />
+            Companies, plans and benefits are all created by you — nothing is preloaded.
+          </p>
+        </form>
+      </Card>
     </div>
   );
 }

@@ -10,14 +10,13 @@ import {
   CUSTOMER_TYPES,
   SME_FIXED_AVERAGE_AGE,
   resolveAverageAgeForCustomerType,
+  usesAgeRange,
+  usesFixedAverageAge,
 } from '@aggregator/shared';
 import type { OptionField, PlanConfiguration } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
 import { toPlanConfigurationDto } from '../src/modules/plan-configurations/plan-configurations.mapper.js';
-import {
-  buildValueColumns,
-  readValue,
-} from '../src/modules/plan-options/plan-option-values.js';
+import { buildValueColumns, readValue } from '../src/modules/plan-options/plan-option-values.js';
 
 describe('SME average age stays centralized', () => {
   it('resolves SME to the single configured constant', () => {
@@ -35,10 +34,19 @@ describe('SME average age stays centralized', () => {
     }
   });
 
-  it('marks SME as the only fixed-average customer type', () => {
+  it('gives each customer type the age input its cover needs', () => {
+    // SME is quoted against the standard age and never asked for one; a family
+    // covers a group, so it states a youngest and an eldest.
     expect(CUSTOMER_TYPES.SME.ageInputMode).toBe('FIXED_AVERAGE');
-    expect(CUSTOMER_TYPES.INDIVIDUAL.ageInputMode).toBe('MANUAL');
-    expect(CUSTOMER_TYPES.FAMILY.ageInputMode).toBe('MANUAL');
+    expect(CUSTOMER_TYPES.INDIVIDUAL.ageInputMode).toBe('SINGLE_AGE');
+    expect(CUSTOMER_TYPES.FAMILY.ageInputMode).toBe('AGE_RANGE');
+
+    // SME remains the only type whose age is fixed by a rule.
+    expect(usesFixedAverageAge('SME')).toBe(true);
+    expect(usesFixedAverageAge('INDIVIDUAL')).toBe(false);
+    expect(usesFixedAverageAge('FAMILY')).toBe(false);
+    expect(usesAgeRange('FAMILY')).toBe(true);
+    expect(usesAgeRange('INDIVIDUAL')).toBe(false);
   });
 });
 
@@ -75,11 +83,7 @@ describe('configuration responses carry the resolved age', () => {
 });
 
 /** Builds a field definition of the kind an employee creates at runtime. */
-function field(
-  label: string,
-  dataType: OptionField['dataType'],
-  isRequired = false,
-): OptionField {
+function field(label: string, dataType: OptionField['dataType'], isRequired = false): OptionField {
   return {
     id: `field_${label}`,
     optionId: 'option',

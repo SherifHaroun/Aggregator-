@@ -169,3 +169,10 @@ export const IconHelp = (p: IconProps) => (
     <path d="M10 14.2h.01" />
   </Icon>
 );
+
+export const IconLock = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="4.5" y="8.8" width="11" height="7.2" rx="1.8" />
+    <path d="M7.2 8.8V6.6a2.8 2.8 0 0 1 5.6 0v2.2" />
+  </Icon>
+);

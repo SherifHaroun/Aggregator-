@@ -16,9 +16,7 @@ import {
  * in this hook.
  */
 export function useComparisonCriteria() {
-  const [criteria, setCriteria] = useState<ComparisonCriteriaInput>(
-    createEmptyComparisonCriteria,
-  );
+  const [criteria, setCriteria] = useState<ComparisonCriteriaInput>(createEmptyComparisonCriteria);
   const [showErrors, setShowErrors] = useState(false);
 
   const setField = useCallback(

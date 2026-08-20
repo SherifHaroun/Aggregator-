@@ -1,6 +1,9 @@
+import { useState } from 'react';
 import {
   CUSTOMER_TYPE_IDS,
   GEOGRAPHICAL_COVERAGE_IDS,
+  MAX_INSURABLE_AGE,
+  MIN_INSURABLE_AGE,
   coverageLabel,
   customerTypeLabel,
   derivePlanCode,
@@ -34,6 +37,8 @@ const EMPTY = {
   newTypeName: '',
   customerType: 'INDIVIDUAL' as CustomerTypeId,
   geographicalCoverage: 'LOCAL' as GeographicalCoverageId,
+  ageFrom: '',
+  ageTo: '',
   currency: '',
   annualPrice: '',
   annualLimit: '',
@@ -70,8 +75,45 @@ export function PlanSetupForm({
   const creatingType = values.insuranceTypeId === NEW_TYPE;
   const pending = saveType.isPending || savePlan.isPending || saveConfiguration.isPending;
 
+  const [ageError, setAgeError] = useState<{ field: 'ageFrom' | 'ageTo'; message: string } | null>(
+    null,
+  );
+
+  /**
+   * Checked here so the employee sees the problem next to the field. The API
+   * validates the band again and remains the authority.
+   */
+  function ageBandIssue(): { field: 'ageFrom' | 'ageTo'; message: string } | null {
+    const from = toNumber(values.ageFrom);
+    const to = toNumber(values.ageTo);
+    if (from === null) return { field: 'ageFrom', message: 'Age From is required.' };
+    if (to === null) return { field: 'ageTo', message: 'Age To is required.' };
+    if (!Number.isInteger(from)) {
+      return { field: 'ageFrom', message: 'Enter a whole number of years.' };
+    }
+    if (!Number.isInteger(to)) return { field: 'ageTo', message: 'Enter a whole number of years.' };
+    if (from < MIN_INSURABLE_AGE || from > MAX_INSURABLE_AGE) {
+      return {
+        field: 'ageFrom',
+        message: `Enter an age between ${MIN_INSURABLE_AGE} and ${MAX_INSURABLE_AGE}.`,
+      };
+    }
+    if (to < MIN_INSURABLE_AGE || to > MAX_INSURABLE_AGE) {
+      return {
+        field: 'ageTo',
+        message: `Enter an age between ${MIN_INSURABLE_AGE} and ${MAX_INSURABLE_AGE}.`,
+      };
+    }
+    if (from > to) return { field: 'ageFrom', message: 'Age From cannot be greater than Age To.' };
+    return null;
+  }
+
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+
+    const issue = ageBandIssue();
+    setAgeError(issue);
+    if (issue) return;
 
     // A brand-new insurance type is created first, then the plan points at it.
     let insuranceTypeId = values.insuranceTypeId;
@@ -97,6 +139,8 @@ export function PlanSetupForm({
         planId: plan.id,
         customerType: values.customerType,
         geographicalCoverage: values.geographicalCoverage,
+        ageFrom: toNumber(values.ageFrom),
+        ageTo: toNumber(values.ageTo),
         currency: values.currency.trim() === '' ? null : values.currency.trim(),
         annualPrice: toNumber(values.annualPrice),
         annualLimit: toNumber(values.annualLimit),
@@ -210,6 +254,52 @@ export function PlanSetupForm({
                 </option>
               ))}
             </Select>
+          )}
+        </Field>
+
+        {/* Who this configuration is for, by age. Required: a configuration
+            nobody's age falls into can never be matched by a comparison. */}
+        <Field
+          label="Age from"
+          required
+          error={ageError?.field === 'ageFrom' ? ageError.message : fieldErrors.ageFrom}
+        >
+          {(props) => (
+            <Input
+              {...props}
+              type="number"
+              min={MIN_INSURABLE_AGE}
+              max={MAX_INSURABLE_AGE}
+              step={1}
+              value={values.ageFrom}
+              onChange={(event) => {
+                setAgeError(null);
+                setValue('ageFrom', event.target.value);
+              }}
+              placeholder="18"
+            />
+          )}
+        </Field>
+
+        <Field
+          label="Age to"
+          required
+          error={ageError?.field === 'ageTo' ? ageError.message : fieldErrors.ageTo}
+        >
+          {(props) => (
+            <Input
+              {...props}
+              type="number"
+              min={MIN_INSURABLE_AGE}
+              max={MAX_INSURABLE_AGE}
+              step={1}
+              value={values.ageTo}
+              onChange={(event) => {
+                setAgeError(null);
+                setValue('ageTo', event.target.value);
+              }}
+              placeholder="60"
+            />
           )}
         </Field>
 

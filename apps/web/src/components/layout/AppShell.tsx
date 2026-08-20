@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { IconClose, IconMenu, IconShield } from '@/components/ui/icons';
+import { HadbrokLogo } from '@/components/ui/HadbrokLogo';
+import { IconClose, IconMenu } from '@/components/ui/icons';
 import { APP_NAME, APP_TAGLINE } from '@/config/navigation';
 import { ROUTES } from '@/config/routes';
+import { cn } from '@/lib/cn';
 import { SidebarNav } from './SidebarNav';
 
 /**
@@ -74,22 +76,34 @@ export function AppShell() {
   );
 }
 
+/**
+ * The company's own mark, with what this tool is beside it.
+ *
+ * The logo already says "Hadbrok Insurance Brokers", so the text next to it
+ * names the application rather than repeating the company.
+ */
 function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
-    <Link to={ROUTES.dashboard} className="flex items-center gap-2.5">
-      <span className="bg-brand-gradient text-content-inverted flex size-9 items-center justify-center rounded-xl shadow-(--shadow-brand)">
-        <IconShield className="size-5" />
-      </span>
-      <span className="min-w-0">
-        <span className="text-content block text-[0.95rem] leading-tight font-bold">
-          {APP_NAME}
+    <Link
+      to={ROUTES.dashboard}
+      className="flex min-w-0 flex-col justify-center gap-1"
+      aria-label={`${APP_NAME} ${APP_TAGLINE}`}
+    >
+      {/*
+        The full lock-up where it has room to be read, and the wordmark alone
+        on the mobile bar — at that height "Insurance Brokers" would be seen
+        rather than read.
+      */}
+      <HadbrokLogo
+        variant={compact ? 'name' : 'wide'}
+        className={cn('w-auto rounded-md', compact ? 'h-8' : 'h-12')}
+        title={APP_NAME}
+      />
+      {!compact ? (
+        <span className="text-content-subtle block truncate text-[0.7rem] leading-tight">
+          {APP_TAGLINE}
         </span>
-        {!compact ? (
-          <span className="text-content-subtle block text-[0.7rem] leading-tight">
-            {APP_TAGLINE}
-          </span>
-        ) : null}
-      </span>
+      ) : null}
     </Link>
   );
 }

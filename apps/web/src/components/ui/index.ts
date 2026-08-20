@@ -9,6 +9,7 @@ export * from './DataState';
 export * from './Dialog';
 export * from './EmptyState';
 export * from './Field';
+export * from './HadbrokLogo';
 export * from './Input';
 export * from './LogoUploader';
 export * from './OptionCard';

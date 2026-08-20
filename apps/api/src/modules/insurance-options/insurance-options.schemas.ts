@@ -22,26 +22,22 @@ export const optionFieldInputSchema = z.object({
 export const updateOptionFieldSchema = optionFieldInputSchema.omit({ key: true }).partial();
 
 export const createInsuranceOptionSchema = z.object({
-  insuranceTypeId: z.string().min(1),
+  /** Unique across the whole catalogue — a benefit is global. */
   name: z.string().trim().min(1).max(150),
   description: z.string().trim().max(2000).nullable().optional(),
   isActive: z.boolean().optional(),
   /**
-   * Optional: create the option together with the information it requires.
-   * Employees may equally add fields afterwards, one at a time.
+   * Optional. Omitted — which is what the web client always does — the benefit
+   * is created with the standard single percentage value. Supplying fields
+   * explicitly remains possible for benefits that need another shape.
    */
   fields: z.array(optionFieldInputSchema).max(50).optional(),
 });
 
-/** `insuranceTypeId` is not updatable — moving an option between types would
- *  invalidate every plan that already uses it. */
+/** Fields are managed through their own endpoints, never on the option body. */
 export const updateInsuranceOptionSchema = createInsuranceOptionSchema
-  .omit({ insuranceTypeId: true, fields: true })
+  .omit({ fields: true })
   .partial();
-
-export const listOptionsQueryExtension = z.object({
-  insuranceTypeId: z.string().min(1).optional(),
-});
 
 export type OptionFieldInput = z.infer<typeof optionFieldInputSchema>;
 export type UpdateOptionFieldInput = z.infer<typeof updateOptionFieldSchema>;

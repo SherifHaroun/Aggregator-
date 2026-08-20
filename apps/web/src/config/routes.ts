@@ -3,8 +3,12 @@
  *
  * The management experience is a single drill-down:
  *   Companies -> Company -> Plan -> Configuration
- * Insurance types, options and option fields are managed inside that flow
- * rather than from their own top-level screens.
+ * Options and option fields are managed inside that flow rather than from their
+ * own top-level screens.
+ *
+ * Plans and insurance types additionally have a read-only top-level list, so
+ * the dashboard tiles counting them have somewhere to lead. Editing either one
+ * still happens in the drill-down.
  */
 
 export const ROUTES = {
@@ -17,7 +21,13 @@ export const ROUTES = {
     setup: (companyId: string) => `/companies/${companyId}/setup`,
   },
   plans: {
+    /** Read-only list of every plan across all companies. */
+    list: '/plans',
     detail: (companyId: string, planId: string) => `/companies/${companyId}/plans/${planId}`,
+  },
+  insuranceTypes: {
+    /** Read-only list of every insurance type. */
+    list: '/insurance-types',
   },
   configurations: {
     detail: (companyId: string, planId: string, configurationId: string) =>

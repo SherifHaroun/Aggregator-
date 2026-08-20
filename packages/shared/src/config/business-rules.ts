@@ -38,3 +38,20 @@ export const AVERAGE_AGE_LABEL_PREFIX = 'Average age';
  */
 export const SME_FIXED_AVERAGE_AGE_NOTICE =
   'SME comparisons are always generated using the standard average age.';
+
+/**
+ * The age band a plan configuration may declare, and the ages a customer may
+ * enter on the comparison screen.
+ *
+ * A single pair of bounds, so the admin form, the API validation and the
+ * comparison input can never disagree about what counts as an age.
+ */
+export const MIN_INSURABLE_AGE = 0;
+export const MAX_INSURABLE_AGE = 120;
+
+/**
+ * Widest possible band, used to open a configuration to every age.
+ * Existing configurations were backfilled with this when the band became
+ * mandatory, so nothing that used to match stopped matching.
+ */
+export const WIDEST_AGE_BAND = { from: MIN_INSURABLE_AGE, to: MAX_INSURABLE_AGE } as const;

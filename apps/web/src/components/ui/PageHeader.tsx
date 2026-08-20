@@ -12,6 +12,10 @@ export interface Crumb {
  *
  * The trail is what keeps the drill-down (Companies -> Company -> Plan ->
  * Configuration) feeling like one workflow instead of separate screens.
+ *
+ * `title` is optional so a screen whose heading lives inside its own panel can
+ * still show the trail above it — the trail is about where you are, not about
+ * what the page is called.
  */
 export function PageHeader({
   title,
@@ -20,7 +24,7 @@ export function PageHeader({
   breadcrumbs,
   media,
 }: {
-  title: string;
+  title?: string;
   description?: string;
   actions?: ReactNode;
   breadcrumbs?: Crumb[];
@@ -28,7 +32,7 @@ export function PageHeader({
   media?: ReactNode;
 }) {
   return (
-    <header className="mb-6 sm:mb-8">
+    <header className={title ? 'mb-6 sm:mb-8' : 'mb-4'}>
       {breadcrumbs?.length ? (
         <nav aria-label="Breadcrumb" className="mb-3">
           <ol className="text-content-subtle flex flex-wrap items-center gap-1 text-sm">
@@ -48,20 +52,25 @@ export function PageHeader({
         </nav>
       ) : null}
 
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-4">
-          {media}
-          <div className="min-w-0">
-            <h1 className="text-content text-2xl font-bold sm:text-[1.75rem]">{title}</h1>
-            {description ? (
-              <p className="text-content-muted mt-1.5 max-w-2xl text-sm sm:text-[0.95rem]">
-                {description}
-              </p>
-            ) : null}
+      {/* Trail only, when the heading belongs to a panel further down. */}
+      {title || description || media || actions ? (
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-4">
+            {media}
+            <div className="min-w-0">
+              {title ? (
+                <h1 className="text-content text-2xl font-bold sm:text-[1.75rem]">{title}</h1>
+              ) : null}
+              {description ? (
+                <p className="text-content-muted mt-1.5 max-w-2xl text-sm sm:text-[0.95rem]">
+                  {description}
+                </p>
+              ) : null}
+            </div>
           </div>
+          {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
         </div>
-        {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
-      </div>
+      ) : null}
     </header>
   );
 }

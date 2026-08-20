@@ -36,11 +36,8 @@ export function PlanConfigurationDetailPage() {
   const company = useCompany(companyId);
   const plan = usePlan(planId);
 
-  // Only benefits defined for this plan's insurance type can be attached.
-  const options = useInsuranceOptions({
-    ...(plan.data ? { insuranceTypeId: plan.data.insuranceTypeId } : {}),
-    isActive: true,
-  });
+  // The global benefit catalogue: the same list whichever company this is.
+  const options = useInsuranceOptions({ isActive: true });
 
   return (
     <>
@@ -122,14 +119,11 @@ export function PlanConfigurationDetailPage() {
               </CardBody>
             </Card>
 
-            {plan.data ? (
-              <ConfigurationOptionsBoard
-                configurationId={current!.id}
-                insuranceTypeId={plan.data.insuranceTypeId}
-                attached={current!.options ?? []}
-                available={options.data ?? []}
-              />
-            ) : null}
+            <ConfigurationOptionsBoard
+              configurationId={current!.id}
+              attached={current!.options ?? []}
+              available={options.data ?? []}
+            />
           </div>
         )}
       </DataState>
@@ -137,15 +131,7 @@ export function PlanConfigurationDetailPage() {
   );
 }
 
-function Summary({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
+function Summary({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div>
       <p className="text-content-subtle text-xs font-medium tracking-wide uppercase">{label}</p>

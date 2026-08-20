@@ -42,10 +42,13 @@ export interface InsuranceTypeDto extends RecordMeta {
 
 /**
  * A benefit/feature an employee has defined, e.g. anything from outpatient care
- * to a benefit that does not exist yet. Scoped to one insurance type.
+ * to a benefit that does not exist yet.
+ *
+ * GLOBAL: defined once and offered to every company and plan. What differs
+ * between them is the value it takes, which lives on `PlanOptionValueDto`.
  */
 export interface InsuranceOptionDto extends RecordMeta {
-  insuranceTypeId: string;
+  /** Unique across the catalogue. */
   name: string;
   description: string | null;
   sortOrder: number;
@@ -89,6 +92,9 @@ export interface PlanConfigurationDto extends RecordMeta {
   planId: string;
   customerType: CustomerTypeId;
   geographicalCoverage: GeographicalCoverageId;
+  /** Inclusive age band this configuration applies to. Both always present. */
+  ageFrom: number;
+  ageTo: number;
   currency: string | null;
   annualPrice: number | null;
   annualLimit: number | null;

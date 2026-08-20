@@ -1,4 +1,9 @@
-import type { InsuranceOptionDto, OptionFieldDto, Paginated } from '@aggregator/shared';
+import {
+  BENEFIT_VALUE_FIELD,
+  type InsuranceOptionDto,
+  type OptionFieldDto,
+  type Paginated,
+} from '@aggregator/shared';
 import { conflict, inUse, notFound } from '../../lib/errors.js';
 import { applyOrder, nextSortOrder } from '../../lib/ordering.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
@@ -20,13 +25,13 @@ const fieldsInclude = {
 // Options (the benefit catalogue)
 // ---------------------------------------------------------------------------
 
+/** The whole catalogue. It is global, so there is nothing to scope it by. */
 export async function listInsuranceOptions(
-  query: ListQuery & { insuranceTypeId?: string },
+  query: ListQuery,
 ): Promise<Paginated<InsuranceOptionDto>> {
   const prisma = getPrisma();
   const where = {
     ...activeFilter(query.isActive),
-    ...(query.insuranceTypeId ? { insuranceTypeId: query.insuranceTypeId } : {}),
     ...(query.search ? { name: { contains: query.search, mode: 'insensitive' as const } } : {}),
   };
 
@@ -53,40 +58,55 @@ export async function getInsuranceOption(id: string): Promise<InsuranceOptionDto
 }
 
 /**
- * Create an option, optionally with the fields it requires.
+ * Create a benefit, once, for the whole application.
  *
  * This is the operation that makes the system data-driven: an employee can
- * define a benefit that has never existed before, with whatever information it
- * needs, and no code or schema changes.
+ * define a benefit that has never existed before and no code or schema changes.
+ *
+ * The benefit is GLOBAL — it belongs to no company and no insurance type, so
+ * every plan can use it the moment it exists. Only the values it takes differ
+ * per plan configuration.
+ *
+ * A caller that supplies no `fields` gets the standard benefit shape — a single
+ * percentage value — so creating a benefit needs nothing but a name. The
+ * general form is still accepted, which is what keeps the model open to
+ * benefits that one day need something else.
  */
 export async function createInsuranceOption(
   input: CreateInsuranceOptionInput,
 ): Promise<InsuranceOptionDto> {
   const prisma = getPrisma();
 
-  const insuranceType = await prisma.insuranceType.findUnique({
-    where: { id: input.insuranceTypeId },
-    select: { id: true },
+  /**
+   * Checked case-insensitively so "dental" cannot be added beside "Dental".
+   * The unique index on `name` is still the guarantee; this is what turns a
+   * constraint violation into a sentence an employee can act on.
+   */
+  const existing = await prisma.insuranceOption.findFirst({
+    where: { name: { equals: input.name, mode: 'insensitive' } },
+    select: { name: true },
   });
-  if (!insuranceType) throw notFound('Insurance type');
+  if (existing) {
+    throw conflict(`This benefit already exists — "${existing.name}" is available to every plan.`);
+  }
 
   const sortOrder = nextSortOrder(
-    await prisma.insuranceOption.aggregate({
-      where: { insuranceTypeId: input.insuranceTypeId },
-      _max: { sortOrder: true },
-    }),
+    await prisma.insuranceOption.aggregate({ _max: { sortOrder: true } }),
   );
 
   const option = await prisma.insuranceOption.create({
     data: {
-      insuranceTypeId: input.insuranceTypeId,
       name: input.name,
       ...(input.description !== undefined ? { description: input.description } : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
       sortOrder,
-      ...(input.fields?.length
-        ? { fields: { create: buildFieldCreateData(input.fields, new Set<string>(), 0) } }
-        : {}),
+      fields: {
+        create: buildFieldCreateData(
+          input.fields?.length ? input.fields : [{ ...BENEFIT_VALUE_FIELD }],
+          new Set<string>(),
+          0,
+        ),
+      },
     },
     include: fieldsInclude,
   });

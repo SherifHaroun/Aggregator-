@@ -21,6 +21,14 @@ export function usesFixedAverageAge(customerTypeId: CustomerTypeId): boolean {
 }
 
 /**
+ * Does this customer type cover a GROUP, and so need a youngest and an oldest
+ * rather than one age? Currently Family.
+ */
+export function usesAgeRange(customerTypeId: CustomerTypeId): boolean {
+  return CUSTOMER_TYPES[customerTypeId].ageInputMode === 'AGE_RANGE';
+}
+
+/**
  * Resolve the age information for a customer type.
  *
  * - Fixed-average types (currently SME) return the configured constant and a

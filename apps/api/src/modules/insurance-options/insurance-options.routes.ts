@@ -6,7 +6,6 @@ import { param } from '../../lib/request.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
 import {
   createInsuranceOptionSchema,
-  listOptionsQueryExtension,
   optionFieldInputSchema,
   updateInsuranceOptionSchema,
   updateOptionFieldSchema,
@@ -25,14 +24,12 @@ import {
   updateOptionField,
 } from './insurance-options.service.js';
 
-const listQuery = listQuerySchema.merge(listOptionsQueryExtension);
-
 export const insuranceOptionsRouter: Router = Router();
 
 insuranceOptionsRouter.get(
   '/',
   asyncHandler(async (req, res) => {
-    res.json(success(await listInsuranceOptions(listQuery.parse(req.query))));
+    res.json(success(await listInsuranceOptions(listQuerySchema.parse(req.query))));
   }),
 );
 
@@ -94,7 +91,9 @@ insuranceOptionsRouter.post(
   asyncHandler(async (req, res) => {
     res
       .status(201)
-      .json(success(await createOptionField(param(req, 'id'), optionFieldInputSchema.parse(req.body))));
+      .json(
+        success(await createOptionField(param(req, 'id'), optionFieldInputSchema.parse(req.body))),
+      );
   }),
 );
 
@@ -114,7 +113,9 @@ optionFieldsRouter.patch(
   '/:fieldId',
   asyncHandler(async (req, res) => {
     res.json(
-      success(await updateOptionField(param(req, 'fieldId'), updateOptionFieldSchema.parse(req.body))),
+      success(
+        await updateOptionField(param(req, 'fieldId'), updateOptionFieldSchema.parse(req.body)),
+      ),
     );
   }),
 );

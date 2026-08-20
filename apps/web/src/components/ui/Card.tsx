@@ -1,16 +1,16 @@
 import type { HTMLAttributes, ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 
+/**
+ * The card surface itself. Exported so an element that has to be a `<Link>` or
+ * a `<button>` rather than a `<div>` can look exactly like a `Card` without
+ * restating the classes and drifting from it.
+ */
+export const cardSurface =
+  'bg-surface border-border-subtle rounded-(--radius-card) border shadow-(--shadow-card)';
+
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cn(
-        'bg-surface border-border-subtle rounded-(--radius-card) border shadow-(--shadow-card)',
-        className,
-      )}
-      {...props}
-    />
-  );
+  return <div className={cn(cardSurface, className)} {...props} />;
 }
 
 export function CardHeader({

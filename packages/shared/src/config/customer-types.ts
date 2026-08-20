@@ -15,13 +15,14 @@ export type CustomerTypeId = (typeof CUSTOMER_TYPE_IDS)[number];
 /**
  * How the age information for a customer type is obtained.
  *
- *  - `MANUAL`        the employee supplies the age information.
- *                    The exact input (single age, range, per-member ages, ...)
- *                    is NOT defined yet and will be specified later.
- *  - `FIXED_AVERAGE` the age is a fixed business constant and is never entered
- *                    by the employee.
+ *  - `SINGLE_AGE`    one age, typed by the employee — the person insured.
+ *  - `AGE_RANGE`     the youngest and oldest to be covered. A plan matches only
+ *                    if its own band spans the whole range, so nobody in the
+ *                    group is left outside the cover.
+ *  - `FIXED_AVERAGE` the age is a fixed business constant, shown but never
+ *                    entered.
  */
-export type AgeInputMode = 'MANUAL' | 'FIXED_AVERAGE';
+export type AgeInputMode = 'SINGLE_AGE' | 'AGE_RANGE' | 'FIXED_AVERAGE';
 
 export interface CustomerTypeOption extends ConfigOption<CustomerTypeId> {
   ageInputMode: AgeInputMode;
@@ -39,7 +40,7 @@ export const CUSTOMER_TYPES: OptionRegistry<CustomerTypeId, CustomerTypeOption> 
     description: 'Cover for a single person.',
     order: 1,
     enabled: true,
-    ageInputMode: 'MANUAL',
+    ageInputMode: 'SINGLE_AGE',
     fixedAverageAge: null,
   },
   FAMILY: {
@@ -48,7 +49,7 @@ export const CUSTOMER_TYPES: OptionRegistry<CustomerTypeId, CustomerTypeOption> 
     description: 'Cover for a family group.',
     order: 2,
     enabled: true,
-    ageInputMode: 'MANUAL',
+    ageInputMode: 'AGE_RANGE',
     fixedAverageAge: null,
   },
   SME: {
