@@ -12,8 +12,6 @@ export const createPlanSchema = z.object({
   /** Unique per company. */
   code: z.string().trim().min(1).max(60),
   description: z.string().trim().max(2000).nullable().optional(),
-  /** Plan tier/category. The comparison groups equivalent plans by this. */
-  category: z.string().trim().max(100).nullable().optional(),
   isActive: z.boolean().optional(),
 });
 

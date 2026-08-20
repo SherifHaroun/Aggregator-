@@ -28,7 +28,9 @@ const EMPTY: ValueColumns = { numberValue: null, textValue: null, booleanValue: 
 export function buildValueColumns(field: OptionField, value: unknown): ValueColumns {
   if (value === null || value === undefined) {
     if (field.isRequired) {
-      throw badRequest(`"${field.label}" is required.`, { [field.key]: ['This value is required.'] });
+      throw badRequest(`"${field.label}" is required.`, {
+        [field.key]: ['This value is required.'],
+      });
     }
     return EMPTY;
   }
@@ -43,7 +45,9 @@ export function buildValueColumns(field: OptionField, value: unknown): ValueColu
       if (field.dataType === 'PERCENTAGE' && (value < PERCENTAGE_MIN || value > PERCENTAGE_MAX)) {
         throw badRequest(
           `"${field.label}" must be between ${PERCENTAGE_MIN} and ${PERCENTAGE_MAX}.`,
-          { [field.key]: [`Expected a percentage between ${PERCENTAGE_MIN} and ${PERCENTAGE_MAX}.`] },
+          {
+            [field.key]: [`Expected a percentage between ${PERCENTAGE_MIN} and ${PERCENTAGE_MAX}.`],
+          },
         );
       }
       if (field.dataType === 'CURRENCY' && value < 0) {

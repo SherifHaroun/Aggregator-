@@ -3,10 +3,7 @@ import { success } from '../../lib/api-response.js';
 import { listQuerySchema } from '../../lib/pagination.js';
 import { param } from '../../lib/request.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
-import {
-  createInsuranceTypeSchema,
-  updateInsuranceTypeSchema,
-} from './insurance-types.schemas.js';
+import { createInsuranceTypeSchema, updateInsuranceTypeSchema } from './insurance-types.schemas.js';
 import {
   createInsuranceType,
   deleteInsuranceType,
@@ -44,7 +41,9 @@ insuranceTypesRouter.patch(
   '/:id',
   asyncHandler(async (req, res) => {
     res.json(
-      success(await updateInsuranceType(param(req, 'id'), updateInsuranceTypeSchema.parse(req.body))),
+      success(
+        await updateInsuranceType(param(req, 'id'), updateInsuranceTypeSchema.parse(req.body)),
+      ),
     );
   }),
 );

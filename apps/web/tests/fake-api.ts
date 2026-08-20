@@ -275,7 +275,6 @@ function route({
         configurationId: configuration.id,
         planId: plan?.id ?? '',
         planName: plan?.name ?? '',
-        planCategory: null,
         companyId: company?.id ?? '',
         companyName: company?.name ?? '',
         companyLogoUrl: null,
@@ -387,7 +386,6 @@ function route({
         name: String(body.name ?? ''),
         code: String(body.code ?? ''),
         description: (body.description as string | null) ?? null,
-        category: (body.category as string | null) ?? null,
         ...meta(),
       };
       store.plans.push(plan);

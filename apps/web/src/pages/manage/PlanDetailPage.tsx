@@ -106,7 +106,6 @@ export function PlanDetailPage() {
               />
               <CardBody className="grid gap-4 sm:grid-cols-3">
                 <Detail label="Plan code" value={current!.code} />
-                <Detail label="Category" value={current!.category ?? '—'} />
                 <Detail label="Configurations" value={String(configurations.length)} />
               </CardBody>
             </Card>
@@ -158,11 +157,7 @@ export function PlanDetailPage() {
       </DataState>
 
       {editingPlan && companyId && plan.data ? (
-        <PlanDialog
-          companyId={companyId}
-          plan={plan.data}
-          onClose={() => setEditingPlan(false)}
-        />
+        <PlanDialog companyId={companyId} plan={plan.data} onClose={() => setEditingPlan(false)} />
       ) : null}
 
       {editingConfiguration !== undefined && planId ? (

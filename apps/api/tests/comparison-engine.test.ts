@@ -35,7 +35,6 @@ function plan(
     configurationId: id,
     planId: `${id}_plan`,
     planName: `${companyName} plan`,
-    planCategory: null,
     companyId: `${id}_company`,
     companyName,
     companyLogoUrl: null,

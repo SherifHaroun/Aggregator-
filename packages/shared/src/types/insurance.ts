@@ -79,7 +79,6 @@ export interface PlanDto extends RecordMeta {
   name: string;
   code: string;
   description: string | null;
-  category: string | null;
   /** Present when the plan was fetched with its configurations. */
   configurations?: PlanConfigurationDto[];
 }

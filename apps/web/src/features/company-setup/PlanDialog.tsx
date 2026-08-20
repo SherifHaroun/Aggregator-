@@ -45,7 +45,6 @@ export function PlanDialog({
   const { values, setValue, fieldErrors, formError, applyError } = useRecordForm({
     name: plan?.name ?? '',
     code: plan?.code ?? '',
-    category: plan?.category ?? '',
     insuranceTypeId: plan?.insuranceTypeId ?? '',
     newTypeName: '',
     isActive: plan?.isActive ?? true,
@@ -76,7 +75,6 @@ export function PlanDialog({
       {
         name: values.name.trim(),
         code: values.code.trim() === '' ? derivedCode : values.code.trim(),
-        category: blankToNull(values.category),
         isActive: values.isActive,
         // Company and type are fixed after creation, so only sent when creating.
         ...(plan ? {} : { companyId, insuranceTypeId }),
@@ -170,40 +168,24 @@ export function PlanDialog({
           </Field>
         ) : null}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="Plan code"
-            error={fieldErrors.code}
-            hint={
-              values.code.trim() === '' && derivedCode
-                ? `Will be saved as ${derivedCode}`
-                : 'Optional.'
-            }
-          >
-            {(props) => (
-              <Input
-                {...props}
-                value={values.code}
-                onChange={(event) => setValue('code', event.target.value)}
-                placeholder={derivedCode || 'Auto-generated'}
-              />
-            )}
-          </Field>
-
-          <Field
-            label="Category"
-            error={fieldErrors.category}
-            hint="Optional. Groups similar plans when comparing."
-          >
-            {(props) => (
-              <Input
-                {...props}
-                value={values.category}
-                onChange={(event) => setValue('category', event.target.value)}
-              />
-            )}
-          </Field>
-        </div>
+        <Field
+          label="Plan code"
+          error={fieldErrors.code}
+          hint={
+            values.code.trim() === '' && derivedCode
+              ? `Will be saved as ${derivedCode}`
+              : 'Optional.'
+          }
+        >
+          {(props) => (
+            <Input
+              {...props}
+              value={values.code}
+              onChange={(event) => setValue('code', event.target.value)}
+              placeholder={derivedCode || 'Auto-generated'}
+            />
+          )}
+        </Field>
 
         <Field label="Status" error={fieldErrors.isActive}>
           {(props) => (

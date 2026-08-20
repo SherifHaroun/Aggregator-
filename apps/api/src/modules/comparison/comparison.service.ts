@@ -177,7 +177,6 @@ const configurationForComparison = {
     select: {
       id: true,
       name: true,
-      category: true,
       company: { select: { id: true, name: true, logoUrl: true } },
     },
   },
@@ -253,7 +252,6 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
       configurationId: configuration.id,
       planId: configuration.plan.id,
       planName: configuration.plan.name,
-      planCategory: configuration.plan.category,
       companyId: configuration.plan.company.id,
       companyName: configuration.plan.company.name,
       companyLogoUrl: configuration.plan.company.logoUrl,

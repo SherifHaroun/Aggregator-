@@ -61,7 +61,6 @@ export function RecommendedPlanCard({
             <h3 className="text-content text-xl font-bold">{plan.planName}</h3>
             <p className="text-content-subtle mt-1 text-xs">
               {plan.customerTypeLabel} • {plan.geographicalCoverageLabel}
-              {plan.planCategory ? ` • ${plan.planCategory}` : ''}
             </p>
           </div>
           <div className="text-right">

@@ -18,7 +18,6 @@ export function toPlanDto(
     name: plan.name,
     code: plan.code,
     description: plan.description,
-    category: plan.category,
     isActive: plan.isActive,
     createdAt: toIso(plan.createdAt),
     updatedAt: toIso(plan.updatedAt),

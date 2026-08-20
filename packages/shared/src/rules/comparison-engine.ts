@@ -52,7 +52,6 @@ export interface ComparisonCandidate {
   configurationId: string;
   planId: string;
   planName: string;
-  planCategory: string | null;
   companyId: string;
   companyName: string;
   companyLogoUrl: string | null;
@@ -329,7 +328,6 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
       configurationId: entry.candidate.configurationId,
       planId: entry.candidate.planId,
       planName: entry.candidate.planName,
-      planCategory: entry.candidate.planCategory,
       companyId: entry.candidate.companyId,
       companyName: entry.candidate.companyName,
       companyLogoUrl: entry.candidate.companyLogoUrl,

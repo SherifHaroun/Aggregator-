@@ -215,9 +215,6 @@ model Plan {
   /// Company-facing plan code. Unique per company.
   code        String
   description String?
-  /// Free-text plan tier/category. The comparison groups results by this, or
-  /// by name, so equivalent plans from different companies line up.
-  category    String?
 
   isActive Boolean @default(true)
 
@@ -229,8 +226,6 @@ model Plan {
   @@unique([companyId, code])
   @@index([companyId, isActive])
   @@index([insuranceTypeId, isActive])
-  /// Supports grouping comparison results by plan tier.
-  @@index([category])
   @@map("plans")
 }
 

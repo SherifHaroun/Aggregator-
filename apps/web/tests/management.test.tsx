@@ -70,7 +70,6 @@ function givenPlan(id = 'plan_1', companyId = 'company_1', typeId = 'type_1') {
     name: 'Tier One',
     code: 'TIER-ONE',
     description: null,
-    category: null,
     isActive: true,
     ...timestamps,
   });
@@ -87,7 +86,19 @@ function givenOption(id = 'option_1', name = 'Aurora Wellness Programme') {
     isActive: true,
     ...timestamps,
     fields: [
-      { id: `${id}_percentage`, optionId: id, label: 'Percentage', key: 'percentage', dataType: 'PERCENTAGE', unit: '%', helpText: null, isRequired: false, sortOrder: 0, isActive: true, ...timestamps },
+      {
+        id: `${id}_percentage`,
+        optionId: id,
+        label: 'Percentage',
+        key: 'percentage',
+        dataType: 'PERCENTAGE',
+        unit: '%',
+        helpText: null,
+        isRequired: false,
+        sortOrder: 0,
+        isActive: true,
+        ...timestamps,
+      },
     ],
   });
   return id;
@@ -141,7 +152,9 @@ describe('navigation', () => {
     renderApp(ROUTES.dashboard);
 
     // The headline is the action, and it is the page's first heading.
-    expect(await screen.findByRole('heading', { name: 'Start Comparing', level: 1 })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Start Comparing', level: 1 }),
+    ).toBeInTheDocument();
 
     // The company list is no longer the dashboard's content — the company's
     // own name must not appear on it.
@@ -152,7 +165,9 @@ describe('navigation', () => {
     expect(
       await screen.findByRole('heading', { name: 'Insurance plan', level: 1 }),
     ).toBeInTheDocument();
-    expect(await screen.findByRole('group', { name: /Who do you want to insure/i })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('group', { name: /Who do you want to insure/i }),
+    ).toBeInTheDocument();
   });
 
   it('asks for one age and a budget, and never for benefits', async () => {
@@ -165,7 +180,9 @@ describe('navigation', () => {
 
     renderApp(ROUTES.comparison.new);
 
-    expect(await screen.findByRole('heading', { name: 'Insurance plan', level: 1 })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Insurance plan', level: 1 }),
+    ).toBeInTheDocument();
 
     // ONE age, not a range, and no slider anywhere.
     expect(screen.getByLabelText(/^Age/)).toBeInTheDocument();
@@ -202,7 +219,9 @@ describe('navigation', () => {
     givenInsuranceType('type_1', 'Medical');
 
     renderApp(ROUTES.insuranceTypes.list);
-    expect(await screen.findByRole('heading', { name: 'Insurance types', level: 1 })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: 'Insurance types', level: 1 }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Add insurance type/i }));
 
@@ -214,6 +233,60 @@ describe('navigation', () => {
     expect(store.insuranceTypes[1]?.name).toBe('Motor');
     // The new category appears in the list it was added from.
     await waitFor(() => expect(screen.getAllByText('Motor').length).toBeGreaterThan(0));
+  });
+
+  it('never lets a wheel scroll rewrite a number, on any numeric field', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    givenConfiguration('cfg_1', 'plan_1');
+
+    renderApp(ROUTES.comparison.new);
+    await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
+    await user.click(screen.getByRole('radio', { name: /Individual/i }));
+
+    const age = screen.getByLabelText(/^Age/);
+    await user.type(age, '35');
+    expect(age).toHaveValue(35);
+
+    // Scrolling over the focused field is how a price or an age gets silently
+    // rewritten. The value must not move.
+    expect(age).toHaveFocus();
+    fireEvent.wheel(age, { deltaY: -120 });
+    expect(age).toHaveValue(35);
+    // Focus is dropped, which is what stops the browser spinning the value —
+    // and leaves the page free to scroll as normal.
+    expect(age).not.toHaveFocus();
+
+    fireEvent.wheel(age, { deltaY: 240 });
+    expect(age).toHaveValue(35);
+
+    // Typing still works afterwards.
+    await user.clear(age);
+    await user.type(age, '41');
+    expect(age).toHaveValue(41);
+
+    // The budget field is the same control, and so is every generated one.
+    await user.click(screen.getByRole('radio', { name: /Enter an amount/i }));
+    const budget = await screen.findByLabelText(/^Amount/);
+    await user.type(budget, '700');
+    fireEvent.wheel(budget, { deltaY: -120 });
+    expect(budget).toHaveValue(700);
+  });
+
+  it('leaves the wheel alone on inputs that are not numeric', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+
+    renderApp(ROUTES.companies.list);
+    const search = await screen.findByLabelText(/Search companies/i);
+    await user.click(search);
+
+    // A text field has no wheel behaviour to guard against, so focus stays put.
+    expect(search).toHaveFocus();
+    fireEvent.wheel(search, { deltaY: -120 });
+    expect(search).toHaveFocus();
   });
 
   it('asks a family for a youngest and an eldest, and validates the order', async () => {
@@ -243,9 +316,7 @@ describe('navigation', () => {
     await user.type(screen.getByLabelText(/^Age from/i), '50');
     await user.type(screen.getByLabelText(/^Age to/i), '30');
     await user.click(screen.getByRole('button', { name: /Compare Plans/i }));
-    expect(
-      await screen.findByText('Age From cannot be greater than Age To.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Age From cannot be greater than Age To.')).toBeInTheDocument();
   });
 
   it('offers a worked-out budget or a typed one, and asks for it last', async () => {
@@ -259,7 +330,9 @@ describe('navigation', () => {
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
 
     // Two ways to set it, and no slider.
-    const modes = await screen.findAllByRole('radio', { name: /Work it out for me|Enter an amount/i });
+    const modes = await screen.findAllByRole('radio', {
+      name: /Work it out for me|Enter an amount/i,
+    });
     expect(modes).toHaveLength(2);
     expect(document.querySelectorAll('input[type="range"]')).toHaveLength(0);
 
@@ -304,9 +377,7 @@ describe('navigation', () => {
     expect(await screen.findByText('RECOMMENDED')).toBeInTheDocument();
 
     // The dearer one is not hidden — it is shown beneath, with its own pick.
-    expect(
-      await screen.findByRole('heading', { name: 'Above your budget' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Above your budget' })).toBeInTheDocument();
     expect(await screen.findByText('BEST ABOVE YOUR BUDGET')).toBeInTheDocument();
     expect(screen.getByText(/1 plan costs more than 700 EGP/)).toBeInTheDocument();
     expect(screen.getAllByText('Southwind Mutual').length).toBeGreaterThan(0);
@@ -516,9 +587,7 @@ describe('adding a company', () => {
     expect(store.companies[0]).toMatchObject({ name: 'Northwind Assurance', isActive: true });
 
     // It lands on the company's own setup step, not back on a list.
-    expect(
-      await screen.findByText(/Set up plans for Northwind Assurance/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/Set up plans for Northwind Assurance/i)).toBeInTheDocument();
     expect(screen.getByText(/Step 2 of 2/i)).toBeInTheDocument();
   });
 
@@ -529,7 +598,9 @@ describe('adding a company', () => {
     await user.click(await screen.findByRole('button', { name: /Create company/i }));
 
     expect(await screen.findByText(/Please correct the highlighted fields/i)).toBeInTheDocument();
-    expect(await screen.findByText(/String must contain at least 1 character/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/String must contain at least 1 character/i),
+    ).toBeInTheDocument();
     expect(store.companies).toHaveLength(0);
   });
 
@@ -745,7 +816,11 @@ describe('plan configurations', () => {
 
     const who = await screen.findByRole('group', { name: /Who is this for/i });
     await user.click(within(who).getAllByRole('radio')[0]!);
-    await user.click(within(screen.getByRole('group', { name: /Geographical coverage/i })).getAllByRole('radio')[0]!);
+    await user.click(
+      within(screen.getByRole('group', { name: /Geographical coverage/i })).getAllByRole(
+        'radio',
+      )[0]!,
+    );
 
     // Age To only — Age From is missing.
     await user.type(screen.getByLabelText(/Age to/i), '40');
@@ -766,15 +841,17 @@ describe('plan configurations', () => {
 
     const who = await screen.findByRole('group', { name: /Who is this for/i });
     await user.click(within(who).getAllByRole('radio')[0]!);
-    await user.click(within(screen.getByRole('group', { name: /Geographical coverage/i })).getAllByRole('radio')[0]!);
+    await user.click(
+      within(screen.getByRole('group', { name: /Geographical coverage/i })).getAllByRole(
+        'radio',
+      )[0]!,
+    );
 
     await user.type(screen.getByLabelText(/Age from/i), '50');
     await user.type(screen.getByLabelText(/Age to/i), '30');
     await user.click(screen.getByRole('button', { name: /Save configuration/i }));
 
-    expect(
-      await screen.findByText('Age From cannot be greater than Age To.'),
-    ).toBeInTheDocument();
+    expect(await screen.findByText('Age From cannot be greater than Age To.')).toBeInTheDocument();
     expect(store.configurations).toHaveLength(0);
   });
 });
@@ -911,8 +988,32 @@ describe('dynamic insurance options', () => {
       isActive: true,
       ...timestamps,
       fields: [
-        { id: 'f_available', optionId: 'option_2', label: 'Available', key: 'available', dataType: 'BOOLEAN', unit: null, helpText: null, isRequired: false, sortOrder: 0, isActive: true, ...timestamps },
-        { id: 'f_provider', optionId: 'option_2', label: 'Provider', key: 'provider', dataType: 'TEXT', unit: null, helpText: null, isRequired: false, sortOrder: 1, isActive: true, ...timestamps },
+        {
+          id: 'f_available',
+          optionId: 'option_2',
+          label: 'Available',
+          key: 'available',
+          dataType: 'BOOLEAN',
+          unit: null,
+          helpText: null,
+          isRequired: false,
+          sortOrder: 0,
+          isActive: true,
+          ...timestamps,
+        },
+        {
+          id: 'f_provider',
+          optionId: 'option_2',
+          label: 'Provider',
+          key: 'provider',
+          dataType: 'TEXT',
+          unit: null,
+          helpText: null,
+          isRequired: false,
+          sortOrder: 1,
+          isActive: true,
+          ...timestamps,
+        },
       ],
     });
     store.planOptions.push({
@@ -1010,8 +1111,18 @@ describe('plan coverage', () => {
     givenOption('option_1', 'Aurora Wellness Programme');
     givenOption('option_2', 'Zenith Travel Assistance');
     store.planOptions.push(
-      { id: 'planOption_a', planConfigurationId: configurationId, optionId: 'option_1', sortOrder: 0 },
-      { id: 'planOption_b', planConfigurationId: configurationId, optionId: 'option_2', sortOrder: 1 },
+      {
+        id: 'planOption_a',
+        planConfigurationId: configurationId,
+        optionId: 'option_1',
+        sortOrder: 0,
+      },
+      {
+        id: 'planOption_b',
+        planConfigurationId: configurationId,
+        optionId: 'option_2',
+        sortOrder: 1,
+      },
     );
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));

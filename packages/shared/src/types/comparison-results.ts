@@ -102,7 +102,6 @@ export interface ComparisonPlanResult {
   configurationId: string;
   planId: string;
   planName: string;
-  planCategory: string | null;
   companyId: string;
   companyName: string;
   companyLogoUrl: string | null;
