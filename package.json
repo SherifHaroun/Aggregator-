@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Internal insurance aggregator — employee-managed insurance database and comparison tool.",
+  "description": "Internal insurance aggregator \u00e2\u20ac\u201d employee-managed insurance database and comparison tool.",
   "workspaces": [
     "packages/*",
     "apps/*"
@@ -15,6 +15,8 @@
     "dev:api": "npm run dev -w @aggregator/api",
     "dev:web": "npm run dev -w @aggregator/web",
     "build": "npm run build -w @aggregator/shared && npm run build -w @aggregator/api && npm run build -w @aggregator/web",
+    "start": "npm run prisma:deploy && npm run start -w @aggregator/api",
+    "prisma:deploy": "npm run prisma:deploy -w @aggregator/api",
     "typecheck": "npm run build:shared && npm run typecheck --workspaces --if-present",
     "test": "npm run build:shared && npm run test --workspaces --if-present",
     "prisma:generate": "npm run prisma:generate -w @aggregator/api",
