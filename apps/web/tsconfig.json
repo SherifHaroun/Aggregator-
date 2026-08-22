@@ -16,5 +16,10 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"],
+  // Building this project builds `@aggregator/shared` first, so its `dist`
+  // (which the package's "exports"/"types" point at) exists before the web
+  // app resolves it. Without this, a clean checkout — e.g. a Vercel build —
+  // fails with TS2307: Cannot find module '@aggregator/shared'.
+  "references": [{ "path": "../../packages/shared" }]
 }
