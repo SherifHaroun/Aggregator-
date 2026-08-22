@@ -4,6 +4,7 @@ import { HadbrokLogo } from '@/components/ui/HadbrokLogo';
 import { IconClose, IconMenu } from '@/components/ui/icons';
 import { APP_NAME, APP_TAGLINE } from '@/config/navigation';
 import { ROUTES } from '@/config/routes';
+import { HelpWalkthrough } from '@/features/help';
 import { cn } from '@/lib/cn';
 import { SidebarNav } from './SidebarNav';
 
@@ -13,10 +14,24 @@ import { SidebarNav } from './SidebarNav';
  */
 export function AppShell() {
   const [navOpen, setNavOpen] = useState(false);
+  /*
+   * The walkthrough lives here rather than in `SidebarNav`, because that
+   * component is mounted twice on a small screen — once in the hidden desktop
+   * aside, once in the drawer. State inside it would put two modal dialogs in
+   * the top layer, one of them invisible.
+   */
+  const [helpOpen, setHelpOpen] = useState(false);
   const { pathname } = useLocation();
 
   // Close the drawer whenever navigation happens, so a tap never leaves it open.
   useEffect(() => setNavOpen(false), [pathname]);
+
+  /* On mobile the tour is opened from the drawer; close it so finishing the
+     tour returns to the page rather than to the navigation. */
+  function openHelp() {
+    setNavOpen(false);
+    setHelpOpen(true);
+  }
 
   return (
     <div className="bg-canvas min-h-dvh">
@@ -38,7 +53,7 @@ export function AppShell() {
         <div className="border-border-subtle flex h-18 items-center border-b px-5">
           <BrandMark />
         </div>
-        <SidebarNav />
+        <SidebarNav onOpenHelp={openHelp} />
       </aside>
 
       {/* Mobile drawer */}
@@ -62,7 +77,7 @@ export function AppShell() {
                 <IconClose />
               </button>
             </div>
-            <SidebarNav onNavigate={() => setNavOpen(false)} />
+            <SidebarNav onNavigate={() => setNavOpen(false)} onOpenHelp={openHelp} />
           </aside>
         </div>
       ) : null}
@@ -72,6 +87,8 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
+
+      <HelpWalkthrough open={helpOpen} onClose={() => setHelpOpen(false)} />
     </div>
   );
 }

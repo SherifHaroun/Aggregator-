@@ -104,3 +104,53 @@
     );
   }
 }
+
+/**
+ * Walkthrough step transitions.
+ *
+ * The tour replaces its content in place, so a step that simply appeared would
+ * read as a redraw rather than as a move. Sliding it in from the side the
+ * employee pressed makes the direction of travel obvious.
+ *
+ * Declared here rather than inline because the keyframes are shared by both
+ * directions and by every step.
+ */
+@keyframes tour-slide-forward {
+  from {
+    opacity: 0;
+    transform: translate3d(1.5rem, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes tour-slide-back {
+  from {
+    opacity: 0;
+    transform: translate3d(-1.5rem, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@layer utilities {
+  .animate-tour-forward {
+    animation: tour-slide-forward 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-tour-back {
+    animation: tour-slide-back 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* Movement is decoration here; the step still changes without it. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-tour-forward,
+    .animate-tour-back {
+      animation: none;
+    }
+  }
+}

@@ -1,10 +1,17 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { IconHelp } from '@/components/ui/icons';
+import { IconChevronRight, IconHelp } from '@/components/ui/icons';
 import { NAV_ITEMS } from '@/config/navigation';
 import { cn } from '@/lib/cn';
 
 /** Renders whatever `NAV_ITEMS` describes — no hardcoded links. */
-export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+export function SidebarNav({
+  onNavigate,
+  onOpenHelp,
+}: {
+  onNavigate?: () => void;
+  /** Opens the walkthrough. Owned by `AppShell`, which renders exactly one. */
+  onOpenHelp: () => void;
+}) {
   const { pathname } = useLocation();
 
   return (
@@ -35,19 +42,34 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         })}
       </nav>
 
-      {/* Support card, mirroring the reference layout's sidebar footer. */}
+      {/*
+        Support card, mirroring the reference layout's sidebar footer.
+
+        It opens the walkthrough rather than stating a fact, so the answer to
+        "how does this work?" is the guided tour instead of a sentence. Kept a
+        button, and kept outside the <nav>: this is not a destination, and the
+        navigation is exactly what `NAV_ITEMS` says it is.
+      */}
       <div className="p-3">
-        <div className="bg-surface-muted rounded-(--radius-card) p-4">
+        <button
+          type="button"
+          onClick={onOpenHelp}
+          className={cn(
+            'bg-surface-muted hover:bg-brand-soft group block w-full rounded-(--radius-card) p-4 text-left',
+            'border border-transparent transition-colors hover:border-(--color-brand-border)',
+          )}
+        >
           <div className="flex items-center gap-2">
-            <span className="bg-brand text-content-inverted flex size-7 items-center justify-center rounded-full">
+            <span className="bg-brand text-content-inverted flex size-7 shrink-0 items-center justify-center rounded-full">
               <IconHelp className="size-4" />
             </span>
             <p className="text-content text-sm font-semibold">Need help?</p>
+            <IconChevronRight className="text-content-subtle group-hover:text-brand ml-auto size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
           </div>
           <p className="text-content-muted mt-2 text-xs leading-relaxed">
-            Every company, plan and benefit here is created by you — nothing is preloaded.
+            Take the walkthrough — from adding a company to comparing plans, one step at a time.
           </p>
-        </div>
+        </button>
       </div>
     </div>
   );
