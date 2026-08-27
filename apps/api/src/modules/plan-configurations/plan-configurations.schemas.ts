@@ -82,6 +82,19 @@ export const updatePlanConfigurationSchema = orderedAgeBand(
   z.object({ ...ageBandFields, ...pricingFields }).partial(),
 );
 
+/**
+ * Copy a configuration to another age band.
+ *
+ * The same cover sold to 21-25 year olds and to 26-30 year olds differs in one
+ * thing — the price — so the age band is required and everything else is
+ * optional: whatever is omitted is taken from the configuration being copied,
+ * benefits and their values included. Customer type and coverage area are never
+ * accepted here; a copy that changed those would not be the same product.
+ */
+export const duplicatePlanConfigurationSchema = orderedAgeBand(
+  z.object({ ...ageBandFields, ...pricingFields }),
+);
+
 export const listPlanConfigurationsQueryExtension = z.object({
   planId: z.string().min(1).optional(),
   companyId: z.string().min(1).optional(),
@@ -92,5 +105,6 @@ export const listPlanConfigurationsQueryExtension = z.object({
 });
 
 export type CreatePlanConfigurationInput = z.infer<typeof createPlanConfigurationSchema>;
+export type DuplicatePlanConfigurationInput = z.infer<typeof duplicatePlanConfigurationSchema>;
 export type UpdatePlanConfigurationInput = z.infer<typeof updatePlanConfigurationSchema>;
 export type ListPlanConfigurationsQuery = z.infer<typeof listPlanConfigurationsQueryExtension>;

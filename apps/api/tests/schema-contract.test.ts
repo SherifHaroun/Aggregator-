@@ -30,12 +30,18 @@ const uniqueSets = (name: string) =>
 
 describe('customer type and geographical coverage', () => {
   it('are Prisma enums matching the centralized business configuration', () => {
-    expect(enums.get('CustomerType')?.values.map((v) => v.name).sort()).toEqual(
-      [...CUSTOMER_TYPE_IDS].sort(),
-    );
-    expect(enums.get('GeographicalCoverage')?.values.map((v) => v.name).sort()).toEqual(
-      [...GEOGRAPHICAL_COVERAGE_IDS].sort(),
-    );
+    expect(
+      enums
+        .get('CustomerType')
+        ?.values.map((v) => v.name)
+        .sort(),
+    ).toEqual([...CUSTOMER_TYPE_IDS].sort());
+    expect(
+      enums
+        .get('GeographicalCoverage')
+        ?.values.map((v) => v.name)
+        .sort(),
+    ).toEqual([...GEOGRAPHICAL_COVERAGE_IDS].sort());
   });
 
   it('contain no COUPLE customer type', () => {
@@ -139,6 +145,38 @@ describe('no benefit is ever a column', () => {
   it('represents benefits as records with self-described fields', () => {
     expect(fieldNames('InsuranceOption')).toContain('fields');
     expect(fieldNames('OptionField')).toEqual(expect.arrayContaining(['label', 'key', 'dataType']));
+  });
+});
+
+describe('a benefit may group other benefits', () => {
+  it('models the group as a self-relation, not a second table of benefits', () => {
+    const option = model('InsuranceOption');
+    const parent = option.fields.find((field) => field.name === 'parent');
+    const children = option.fields.find((field) => field.name === 'children');
+
+    expect(option.fields.map((field) => field.name)).toEqual(
+      expect.arrayContaining(['isUmbrella', 'parentId']),
+    );
+    expect(parent?.type).toBe('InsuranceOption');
+    expect(children?.type).toBe('InsuranceOption');
+    expect(children?.isList).toBe(true);
+  });
+
+  it('keeps a sub-benefit an ordinary benefit, valued per configuration', () => {
+    // A sub-benefit is attached and valued exactly like any other benefit:
+    // nothing about the hierarchy reaches the value tables.
+    expect(fieldNames('PlanOption')).not.toContain('parentId');
+    expect(fieldNames('PlanOptionValue')).not.toContain('parentId');
+  });
+
+  it('refuses in SQL to let a benefit be its own parent', () => {
+    const sql = readdirSync(join(import.meta.dirname, '..', 'prisma', 'migrations'), {
+      withFileTypes: true,
+    })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => readFileSync(join(entry.parentPath, entry.name, 'migration.sql'), 'utf8'))
+      .join('\n');
+    expect(sql).toMatch(/insurance_options_parent_not_self_check/);
   });
 });
 

@@ -19,17 +19,23 @@ export function toOptionFieldDto(field: OptionField): OptionFieldDto {
   };
 }
 
-export function toInsuranceOptionDto(
-  option: InsuranceOption & { fields?: OptionField[] },
-): InsuranceOptionDto {
+export type InsuranceOptionWithRelations = InsuranceOption & {
+  fields?: OptionField[];
+  children?: InsuranceOptionWithRelations[];
+};
+
+export function toInsuranceOptionDto(option: InsuranceOptionWithRelations): InsuranceOptionDto {
   return {
     id: option.id,
     name: option.name,
     description: option.description,
     sortOrder: option.sortOrder,
+    isUmbrella: option.isUmbrella,
+    parentId: option.parentId,
     isActive: option.isActive,
     createdAt: toIso(option.createdAt),
     updatedAt: toIso(option.updatedAt),
     ...(option.fields ? { fields: option.fields.map(toOptionFieldDto) } : {}),
+    ...(option.children ? { children: option.children.map(toInsuranceOptionDto) } : {}),
   };
 }

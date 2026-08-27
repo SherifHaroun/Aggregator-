@@ -12,12 +12,14 @@ import {
 } from '../plan-options/plan-options.service.js';
 import {
   createPlanConfigurationSchema,
+  duplicatePlanConfigurationSchema,
   listPlanConfigurationsQueryExtension,
   updatePlanConfigurationSchema,
 } from './plan-configurations.schemas.js';
 import {
   createPlanConfiguration,
   deletePlanConfiguration,
+  duplicatePlanConfiguration,
   getPlanConfiguration,
   listPlanConfigurations,
   updatePlanConfiguration,
@@ -52,6 +54,26 @@ planConfigurationsRouter.get(
   '/:configurationId',
   asyncHandler(async (req, res) => {
     res.json(success(await getPlanConfiguration(param(req, 'configurationId'))));
+  }),
+);
+
+/**
+ * The same cover for another age band, benefits and values included.
+ * Everything omitted from the body is inherited from the source.
+ */
+planConfigurationsRouter.post(
+  '/:configurationId/duplicate',
+  asyncHandler(async (req, res) => {
+    res
+      .status(201)
+      .json(
+        success(
+          await duplicatePlanConfiguration(
+            param(req, 'configurationId'),
+            duplicatePlanConfigurationSchema.parse(req.body),
+          ),
+        ),
+      );
   }),
 );
 

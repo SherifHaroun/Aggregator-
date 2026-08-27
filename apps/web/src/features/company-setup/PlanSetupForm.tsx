@@ -16,7 +16,7 @@ import {
   Field,
   IconAdd,
   Input,
-  InputWithSuffix,
+  NumberInput,
   Select,
   useToast,
 } from '@/components/ui';
@@ -315,30 +315,30 @@ export function PlanSetupForm({
           )}
         </Field>
 
+        {/* Every figure is grouped as it is typed, and left blank when the
+            plan does not state one. */}
         <Field label="Annual price" error={fieldErrors.annualPrice}>
           {(props) => (
-            <InputWithSuffix
+            <NumberInput
               {...props}
-              type="number"
-              min={0}
-              step="0.01"
               suffix={values.currency || ''}
               value={values.annualPrice}
-              onChange={(event) => setValue('annualPrice', event.target.value)}
+              onChange={(next) => setValue('annualPrice', next)}
             />
           )}
         </Field>
 
-        <Field label="Annual limit" error={fieldErrors.annualLimit}>
+        <Field
+          label="Annual limit"
+          error={fieldErrors.annualLimit}
+          hint="Leave blank if the plan does not state one."
+        >
           {(props) => (
-            <InputWithSuffix
+            <NumberInput
               {...props}
-              type="number"
-              min={0}
-              step="0.01"
               suffix={values.currency || ''}
               value={values.annualLimit}
-              onChange={(event) => setValue('annualLimit', event.target.value)}
+              onChange={(next) => setValue('annualLimit', next)}
             />
           )}
         </Field>
@@ -346,32 +346,29 @@ export function PlanSetupForm({
         <Field
           label="Deductible"
           error={fieldErrors.deductible}
-          hint="An amount, not a percentage."
+          hint="An amount, not a percentage. Leave blank if the plan does not state one."
         >
           {(props) => (
-            <InputWithSuffix
+            <NumberInput
               {...props}
-              type="number"
-              min={0}
-              step="0.01"
               suffix={values.currency || ''}
               value={values.deductible}
-              onChange={(event) => setValue('deductible', event.target.value)}
+              onChange={(next) => setValue('deductible', next)}
             />
           )}
         </Field>
 
-        <Field label="Co-payment" error={fieldErrors.coPayment}>
+        <Field
+          label="Co-payment"
+          error={fieldErrors.coPayment}
+          hint="Leave blank if the plan does not state one."
+        >
           {(props) => (
-            <InputWithSuffix
+            <NumberInput
               {...props}
-              type="number"
-              min={0}
-              max={100}
-              step="0.01"
               suffix="%"
               value={values.coPayment}
-              onChange={(event) => setValue('coPayment', event.target.value)}
+              onChange={(next) => setValue('coPayment', next)}
             />
           )}
         </Field>

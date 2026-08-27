@@ -1,3 +1,4 @@
+import { formatNumberInput, parseNumberInput } from '@aggregator/shared';
 import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
 import { cn } from '@/lib/cn';
 
@@ -65,6 +66,55 @@ export function InputWithSuffix({
   return (
     <div className="relative">
       <Input className={cn('pr-16', className)} {...props} />
+      <span className="text-content-subtle pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-sm font-medium">
+        {suffix}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The control every FIGURE is entered through — a price, a limit, a deductible,
+ * a co-payment, the value of a benefit.
+ *
+ * It groups digits as they are typed, so 100000 reads back as 100,000 and
+ * nobody counts zeros. What leaves the component is always the ungrouped
+ * number, so the separators never reach the API.
+ *
+ * A `type="text"` input on purpose: a number input rejects the separators
+ * outright. `inputMode="decimal"` still brings up the numeric keypad on a
+ * phone, and non-numeric keystrokes are simply dropped by the formatter.
+ */
+export function NumberInput({
+  value,
+  onChange,
+  suffix,
+  className,
+  ...props
+}: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'> & {
+  /** The ungrouped value, e.g. "100000". Empty means "not specified". */
+  value: string;
+  /** Receives the ungrouped value. */
+  onChange: (value: string) => void;
+  /** Trailing unit or currency marker, e.g. "%" or "EGP". */
+  suffix?: string;
+}) {
+  const control = (
+    <Input
+      {...props}
+      type="text"
+      inputMode="decimal"
+      className={cn(suffix ? 'pr-16' : undefined, className)}
+      value={formatNumberInput(value)}
+      onChange={(event) => onChange(parseNumberInput(event.target.value))}
+    />
+  );
+
+  if (!suffix) return control;
+
+  return (
+    <div className="relative">
+      {control}
       <span className="text-content-subtle pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-sm font-medium">
         {suffix}
       </span>

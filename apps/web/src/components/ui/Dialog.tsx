@@ -102,7 +102,11 @@ export function ConfirmDialog({
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button variant={tone === 'danger' ? 'danger' : 'primary'} onClick={onConfirm} disabled={busy}>
+          <Button
+            variant={tone === 'danger' ? 'danger' : 'primary'}
+            onClick={onConfirm}
+            disabled={busy}
+          >
             {busy ? 'Working…' : confirmLabel}
           </Button>
         </>

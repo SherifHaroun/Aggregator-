@@ -29,8 +29,10 @@ import {
   type ComparisonDirection,
   type PlanAttributeId,
 } from '../config/comparison-scoring.js';
+import { NOT_SPECIFIED_LABEL } from '../config/business-rules.js';
 import { OPTION_FIELD_DATA_TYPES } from '../config/option-field-types.js';
 import type { OptionFieldDataType } from '../config/option-field-types.js';
+import { formatNumberValue } from './number-format.js';
 import type {
   ComparisonAttributeCell,
   ComparisonBenefitCell,
@@ -120,9 +122,7 @@ function displayBenefit(benefit: CandidateBenefit): string {
 export const NOT_COVERED_LABEL = 'Not covered';
 
 /** Plain number formatting, grouped, without inventing decimals. */
-export function formatNumber(value: number): string {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
-}
+export const formatNumber = formatNumberValue;
 
 /**
  * Score every candidate and rank them.
@@ -215,7 +215,7 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
         id: attribute.id,
         label: attribute.label,
         value: present ? value : null,
-        display: present ? `${formatNumber(value)}${unit}` : '—',
+        display: present ? `${formatNumber(value)}${unit}` : NOT_SPECIFIED_LABEL,
         direction: attribute.direction,
         score: present ? normalise(value, range.min, range.max, attribute.direction) : 0,
         isBest: present && range.best !== null && value === range.best,

@@ -7,8 +7,16 @@
  */
 
 import {
+  BENEFIT_VALUE_KINDS,
   CUSTOMER_TYPES,
+  NOT_SPECIFIED_LABEL,
   SME_FIXED_AVERAGE_AGE,
+  benefitTypeLabel,
+  benefitValueField,
+  formatMoney,
+  formatNumberInput,
+  formatPercentage,
+  parseNumberInput,
   resolveAverageAgeForCustomerType,
   usesAgeRange,
   usesFixedAverageAge,
@@ -154,5 +162,50 @@ describe('a brand-new employee-created option needs no schema change', () => {
     expect(() => buildValueColumns(field('Sessions', 'NUMBER'), 'many')).toThrow();
     expect(() => buildValueColumns(field('Available', 'BOOLEAN'), 'yes')).toThrow();
     expect(() => buildValueColumns(field('Waiting', 'NUMBER', true), null)).toThrow();
+  });
+});
+
+describe('what a benefit carries', () => {
+  it('turns each offered kind into exactly one field definition', () => {
+    expect(benefitValueField('PERCENTAGE').dataType).toBe('PERCENTAGE');
+    expect(benefitValueField('LIMIT').dataType).toBe('CURRENCY');
+    expect(benefitValueField('TEXT').dataType).toBe('TEXT');
+  });
+
+  it('names every kind exactly once, so no two mean the same data type', () => {
+    const dataTypes = Object.values(BENEFIT_VALUE_KINDS).map((kind) => kind.field.dataType);
+    expect(new Set(dataTypes).size).toBe(dataTypes.length);
+  });
+
+  it('describes a benefit by the kind it carries, and a group as a group', () => {
+    expect(benefitTypeLabel([{ dataType: 'CURRENCY' }])).toBe(BENEFIT_VALUE_KINDS.LIMIT.label);
+    expect(benefitTypeLabel([{ dataType: 'PERCENTAGE' }])).toBe(
+      BENEFIT_VALUE_KINDS.PERCENTAGE.label,
+    );
+    // A benefit with no fields at all holds nothing: it heads other benefits.
+    expect(benefitTypeLabel([])).not.toBe(BENEFIT_VALUE_KINDS.PERCENTAGE.label);
+  });
+});
+
+describe('figures read the way a plan document writes them', () => {
+  it('groups digits in thousands as they are typed', () => {
+    expect(formatNumberInput('100000')).toBe('100,000');
+    expect(formatNumberInput('1234567.5')).toBe('1,234,567.5');
+    // Mid-entry: the decimal point the employee has just typed survives.
+    expect(formatNumberInput('1000.')).toBe('1,000.');
+    expect(formatNumberInput('')).toBe('');
+  });
+
+  it('sends the plain number, whatever was pasted in', () => {
+    expect(parseNumberInput('100,000')).toBe('100000');
+    expect(parseNumberInput('1,000 EGP')).toBe('1000');
+    expect(parseNumberInput('')).toBe('');
+  });
+
+  it('says a figure was never stated rather than showing a zero or a dash', () => {
+    expect(formatMoney(null, 'EGP')).toBe(NOT_SPECIFIED_LABEL);
+    expect(formatPercentage(null)).toBe(NOT_SPECIFIED_LABEL);
+    expect(formatMoney(100000, 'EGP')).toBe('100,000 EGP');
+    expect(formatPercentage(20)).toBe('20%');
   });
 });

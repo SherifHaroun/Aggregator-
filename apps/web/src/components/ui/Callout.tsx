@@ -25,7 +25,9 @@ export function Callout({
       className={cn('rounded-(--radius-control) border px-4 py-3 text-sm', TONES[tone], className)}
     >
       {title ? <p className="font-semibold">{title}</p> : null}
-      {children ? <div className={cn(title && 'mt-1', 'text-content-muted')}>{children}</div> : null}
+      {children ? (
+        <div className={cn(title && 'mt-1', 'text-content-muted')}>{children}</div>
+      ) : null}
     </div>
   );
 }

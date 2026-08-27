@@ -9,8 +9,10 @@
  */
 
 import {
-  BENEFIT_VALUE_FIELD,
+  benefitValueField,
+  DEFAULT_BENEFIT_VALUE_KIND,
   resolveAverageAgeForCustomerType,
+  type BenefitValueKind,
   type CompanyDto,
   type InsuranceOptionDto,
   type InsuranceTypeDto,
@@ -82,10 +84,13 @@ const ok = (data: unknown, status = 200) =>
 const noContent = () => new Response(null, { status: 204 });
 
 const fail = (status: number, code: string, message: string, details?: Record<string, string[]>) =>
-  new Response(JSON.stringify({ ok: false, error: { code, message, ...(details ? { details } : {}) } }), {
-    status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  new Response(
+    JSON.stringify({ ok: false, error: { code, message, ...(details ? { details } : {}) } }),
+    {
+      status,
+      headers: { 'Content-Type': 'application/json' },
+    },
+  );
 
 const page = <T>(items: T[]) => ({ items, total: items.length, page: 1, pageSize: 200 });
 
@@ -109,7 +114,10 @@ export function installFakeApi(store: FakeStore = createStore()): FakeStore {
       });
     }
 
-    return route({ store, path, method, body, search: url.searchParams }) ?? fail(404, 'NOT_FOUND', 'No route');
+    return (
+      route({ store, path, method, body, search: url.searchParams }) ??
+      fail(404, 'NOT_FOUND', 'No route')
+    );
   }) as typeof fetch;
 
   return store;
@@ -164,7 +172,9 @@ function route({
       const type: InsuranceTypeDto = {
         id: id('type'),
         name: String(body.name ?? ''),
-        code: String(body.name ?? '').toLowerCase().replace(/\W+/g, '_'),
+        code: String(body.name ?? '')
+          .toLowerCase()
+          .replace(/\W+/g, '_'),
         description: (body.description as string | null) ?? null,
         sortOrder: store.insuranceTypes.length,
         ...meta(),
@@ -176,20 +186,45 @@ function route({
 
   // --- insurance options ---------------------------------------------------
   if (resource === 'insurance-options') {
-    // The catalogue is global: no company or type narrows it.
-    if (method === 'GET' && !first) return ok(page(store.options));
+    /**
+     * The catalogue is global: no company or type narrows it. Sub-benefits are
+     * returned inside their umbrella, exactly as the real API returns them.
+     */
+    if (method === 'GET' && !first) {
+      return ok(
+        page(
+          store.options
+            .filter((option) => !option.parentId)
+            .map((option) => ({
+              ...option,
+              ...(option.isUmbrella
+                ? { children: store.options.filter((child) => child.parentId === option.id) }
+                : {}),
+            })),
+        ),
+      );
+    }
     if (method === 'POST' && !first) {
       const optionId = id('option');
+      const isUmbrella = Boolean(body.isUmbrella);
+      const parentId = (body.parentId as string | undefined) ?? null;
       /**
-       * The real API gives a benefit created without fields the standard
-       * percentage value, which is all the web client ever asks for.
+       * A benefit created without explicit fields gets the single field of the
+       * kind it was created with; an umbrella gets none, because it carries
+       * nothing itself.
        */
-      const inlineFields = ((body.fields as unknown[] | undefined)?.length
-        ? body.fields
-        : [BENEFIT_VALUE_FIELD]) as unknown as {
+      const inlineFields = (isUmbrella
+        ? []
+        : (body.fields as unknown[] | undefined)?.length
+          ? body.fields
+          : [
+              benefitValueField(
+                (body.valueKind as BenefitValueKind | undefined) ?? DEFAULT_BENEFIT_VALUE_KIND,
+              ),
+            ]) as unknown as {
         label: string;
         dataType: OptionFieldDto['dataType'];
-        unit?: string;
+        unit?: string | null;
       }[];
       const name = String(body.name ?? '');
       // Global uniqueness, as the real API enforces it.
@@ -202,6 +237,8 @@ function route({
         name,
         description: (body.description as string | null) ?? null,
         sortOrder: store.options.length,
+        isUmbrella,
+        parentId,
         fields: inlineFields.map((field, index) => ({
           id: id('field'),
           optionId,
@@ -231,7 +268,9 @@ function route({
         id: id('field'),
         optionId: option.id,
         label: String(body.label ?? ''),
-        key: String(body.label ?? '').toLowerCase().replace(/\W+/g, '_'),
+        key: String(body.label ?? '')
+          .toLowerCase()
+          .replace(/\W+/g, '_'),
         dataType: (body.dataType ?? 'NUMBER') as OptionFieldDto['dataType'],
         unit: (body.unit as string | null) ?? null,
         helpText: (body.helpText as string | null) ?? null,
@@ -350,7 +389,6 @@ function route({
     });
   }
 
-
   if (resource === 'comparison' && first === 'price-range' && method === 'POST') {
     const prices = store.configurations
       .filter(
@@ -455,7 +493,8 @@ function route({
         id: id('configuration'),
         planId: String(body.planId ?? ''),
         customerType: body.customerType as PlanConfigurationDto['customerType'],
-        geographicalCoverage: body.geographicalCoverage as PlanConfigurationDto['geographicalCoverage'],
+        geographicalCoverage:
+          body.geographicalCoverage as PlanConfigurationDto['geographicalCoverage'],
         ageFrom: body.ageFrom as number,
         ageTo: body.ageTo as number,
         currency: (body.currency as string | null) ?? null,
@@ -474,6 +513,41 @@ function route({
     const configuration = store.configurations.find((item) => item.id === first);
     if (!configuration) return fail(404, 'NOT_FOUND', 'The record was not found.');
     if (method === 'GET' && !second) return ok(hydrateConfiguration(store, configuration));
+    /** The same cover at another age: benefits and their values come with it. */
+    if (second === 'duplicate' && method === 'POST') {
+      const copy: PlanConfigurationDto = {
+        ...configuration,
+        id: id('configuration'),
+        ageFrom: body.ageFrom as number,
+        ageTo: body.ageTo as number,
+        ...(body.annualPrice === undefined
+          ? {}
+          : { annualPrice: body.annualPrice as number | null }),
+        ...(body.annualLimit === undefined
+          ? {}
+          : { annualLimit: body.annualLimit as number | null }),
+        ...(body.deductible === undefined ? {} : { deductible: body.deductible as number | null }),
+        ...(body.coPayment === undefined ? {} : { coPayment: body.coPayment as number | null }),
+      };
+      store.configurations.push(copy);
+
+      for (const planOption of store.planOptions.filter(
+        (item) => item.planConfigurationId === configuration.id,
+      )) {
+        const copied: StoredPlanOption = {
+          id: id('planOption'),
+          planConfigurationId: copy.id,
+          optionId: planOption.optionId,
+          sortOrder: planOption.sortOrder,
+        };
+        store.planOptions.push(copied);
+        for (const value of store.values.filter((item) => item.planOptionId === planOption.id)) {
+          store.values.push({ ...value, planOptionId: copied.id });
+        }
+      }
+
+      return ok(hydrateConfiguration(store, copy), 201);
+    }
     if (method === 'PATCH') {
       Object.assign(configuration, body);
       return ok(hydrateConfiguration(store, configuration));
@@ -487,15 +561,41 @@ function route({
       return noContent();
     }
     if (second === 'options' && method === 'POST') {
-      const planOption: StoredPlanOption = {
-        id: id('planOption'),
-        planConfigurationId: configuration.id,
-        optionId: String(body.optionId ?? ''),
-        sortOrder: store.planOptions.filter((item) => item.planConfigurationId === configuration.id)
-          .length,
-      };
-      store.planOptions.push(planOption);
-      return ok(hydratePlanOption(store, planOption), 201);
+      const option = store.options.find((item) => item.id === String(body.optionId ?? ''));
+      if (!option) return fail(404, 'NOT_FOUND', 'The record was not found.');
+
+      /**
+       * As the real API does: a group is attached with its parts, and a part is
+       * attached with the group that heads it. The response is therefore a
+       * list, even for an ordinary benefit.
+       */
+      const optionIds = option.isUmbrella
+        ? [option.id, ...store.options.filter((c) => c.parentId === option.id).map((c) => c.id)]
+        : option.parentId
+          ? [option.parentId, option.id]
+          : [option.id];
+
+      const created = optionIds.map((optionId) => {
+        const existing = store.planOptions.find(
+          (item) => item.planConfigurationId === configuration.id && item.optionId === optionId,
+        );
+        if (existing) return existing;
+        const planOption: StoredPlanOption = {
+          id: id('planOption'),
+          planConfigurationId: configuration.id,
+          optionId,
+          sortOrder: store.planOptions.filter(
+            (item) => item.planConfigurationId === configuration.id,
+          ).length,
+        };
+        store.planOptions.push(planOption);
+        return planOption;
+      });
+
+      return ok(
+        created.map((planOption) => hydratePlanOption(store, planOption)),
+        201,
+      );
     }
     if (method === 'DELETE' && !second) {
       store.configurations = store.configurations.filter((item) => item.id !== configuration.id);
@@ -521,8 +621,25 @@ function route({
       return ok(hydratePlanOption(store, planOption));
     }
     if (method === 'DELETE') {
-      store.planOptions = store.planOptions.filter((item) => item.id !== planOption.id);
-      store.values = store.values.filter((value) => value.planOptionId !== planOption.id);
+      /**
+       * As the real API does: removing a group removes the parts it heads from
+       * THIS configuration, so no value is left under a heading that is gone.
+       */
+      const option = store.options.find((item) => item.id === planOption.optionId);
+      const childOptionIds = option?.isUmbrella
+        ? store.options.filter((item) => item.parentId === option.id).map((item) => item.id)
+        : [];
+      const removed = store.planOptions
+        .filter(
+          (item) =>
+            item.id === planOption.id ||
+            (item.planConfigurationId === planOption.planConfigurationId &&
+              childOptionIds.includes(item.optionId)),
+        )
+        .map((item) => item.id);
+
+      store.planOptions = store.planOptions.filter((item) => !removed.includes(item.id));
+      store.values = store.values.filter((value) => !removed.includes(value.planOptionId));
       return noContent();
     }
   }
@@ -554,6 +671,8 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
     planConfigurationId: planOption.planConfigurationId,
     optionId: planOption.optionId,
     optionName: option?.name ?? 'Unknown',
+    isUmbrella: option?.isUmbrella ?? false,
+    parentOptionId: option?.parentId ?? null,
     sortOrder: planOption.sortOrder,
     createdAt: now(),
     updatedAt: now(),

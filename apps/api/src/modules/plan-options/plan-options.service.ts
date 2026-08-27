@@ -43,6 +43,13 @@ export async function getPlanOption(planOptionId: string): Promise<PlanOptionDto
  * any company. Attaching creates only this relationship — never a second copy
  * of the benefit.
  *
+ * A GROUP TRAVELS WITH ITS PARTS. Dropping an umbrella attaches its
+ * sub-benefits too, since a group on its own carries nothing and would show as
+ * an empty heading; dropping a sub-benefit attaches its umbrella, so the row
+ * always has the heading it belongs under. That is why this returns a list:
+ * one gesture can legitimately create several rows, and the client needs all of
+ * them to render what just happened.
+ *
  * Integrity rules enforced here rather than in the route:
  *  - a deactivated option cannot be newly attached,
  *  - an option can appear at most once per configuration (also a DB constraint).
@@ -50,7 +57,7 @@ export async function getPlanOption(planOptionId: string): Promise<PlanOptionDto
 export async function addPlanOption(
   planConfigurationId: string,
   input: AddPlanOptionInput,
-): Promise<PlanOptionDto> {
+): Promise<PlanOptionDto[]> {
   const prisma = getPrisma();
 
   const [configuration, option] = await Promise.all([
@@ -60,7 +67,17 @@ export async function addPlanOption(
     }),
     prisma.insuranceOption.findUnique({
       where: { id: input.optionId },
-      select: { id: true, isActive: true },
+      select: {
+        id: true,
+        isActive: true,
+        isUmbrella: true,
+        parentId: true,
+        children: {
+          where: { isActive: true },
+          orderBy: { sortOrder: 'asc' },
+          select: { id: true },
+        },
+      },
     }),
   ]);
 
@@ -70,27 +87,90 @@ export async function addPlanOption(
     throw conflict('This option is deactivated and cannot be added to a configuration.');
   }
 
-  const sortOrder = nextSortOrder(
+  /**
+   * The whole group, in the order it reads: the umbrella first, then its
+   * sub-benefits. A benefit that belongs to no group is a list of one.
+   */
+  const optionIds = option.isUmbrella
+    ? [option.id, ...option.children.map((child) => child.id)]
+    : option.parentId
+      ? [option.parentId, option.id]
+      : [option.id];
+
+  const existing = await prisma.planOption.findMany({
+    where: { planConfigurationId, optionId: { in: optionIds } },
+    select: { id: true, optionId: true },
+  });
+  const alreadyAttached = new Map(existing.map((row) => [row.optionId, row.id]));
+
+  const missing = optionIds.filter((id) => !alreadyAttached.has(id));
+  if (missing.length === 0 && !input.values?.length) {
+    throw conflict('This benefit is already on this configuration.');
+  }
+
+  let sortOrder = nextSortOrder(
     await prisma.planOption.aggregate({
       where: { planConfigurationId },
       _max: { sortOrder: true },
     }),
   );
 
-  const created = await prisma.planOption.create({
-    data: { planConfigurationId, optionId: input.optionId, sortOrder },
-    select: { id: true },
-  });
-
-  if (input.values?.length) {
-    await writeValues(created.id, input.optionId, input.values);
+  for (const optionId of missing) {
+    const created = await prisma.planOption.create({
+      data: { planConfigurationId, optionId, sortOrder },
+      select: { id: true },
+    });
+    alreadyAttached.set(optionId, created.id);
+    sortOrder += 1;
   }
-  return getPlanOption(created.id);
+
+  // Values supplied with the request configure the benefit that was named,
+  // never the rest of its group.
+  const namedPlanOptionId = alreadyAttached.get(option.id);
+  if (input.values?.length && namedPlanOptionId) {
+    await writeValues(namedPlanOptionId, option.id, input.values);
+  }
+
+  const planOptions = await prisma.planOption.findMany({
+    where: { id: { in: optionIds.flatMap((id) => alreadyAttached.get(id) ?? []) } },
+    include: planOptionInclude,
+    orderBy: { sortOrder: 'asc' },
+  });
+  return planOptions.map(toPlanOptionDto);
 }
 
-/** Detach an option from a configuration. Its values cascade away with it. */
+/**
+ * Detach an option from a configuration. Its values cascade away with it.
+ *
+ * Removing an umbrella removes the sub-benefits it heads FROM THIS
+ * CONFIGURATION — leaving them behind would strand values under a heading that
+ * no longer exists. The catalogue is untouched: this deletes attachments, never
+ * benefits.
+ */
 export async function removePlanOption(planOptionId: string): Promise<void> {
-  await getPrisma().planOption.delete({ where: { id: planOptionId } });
+  const prisma = getPrisma();
+
+  const planOption = await prisma.planOption.findUnique({
+    where: { id: planOptionId },
+    select: {
+      id: true,
+      planConfigurationId: true,
+      option: { select: { id: true, isUmbrella: true } },
+    },
+  });
+  if (!planOption) throw notFound('Plan option');
+
+  if (!planOption.option.isUmbrella) {
+    await prisma.planOption.delete({ where: { id: planOptionId } });
+    return;
+  }
+
+  await prisma.planOption.deleteMany({
+    where: {
+      planConfigurationId: planOption.planConfigurationId,
+      OR: [{ id: planOptionId }, { option: { parentId: planOption.option.id } }],
+    },
+  });
 }
 
 /** Reorder the options inside one configuration (drag-and-drop). */

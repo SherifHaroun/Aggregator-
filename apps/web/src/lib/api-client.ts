@@ -94,7 +94,9 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
 }
 
 /** Build a query string, skipping empty values. */
-export function query(params: Record<string, string | number | boolean | undefined | null>): string {
+export function query(
+  params: Record<string, string | number | boolean | undefined | null>,
+): string {
   const search = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null || value === '') continue;

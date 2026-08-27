@@ -211,6 +211,12 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
   const discovered = new Map<string, { id: string; name: string; sortOrder: number }>();
   for (const configuration of configurations) {
     for (const planOption of configuration.options) {
+      /**
+       * A group of benefits is a heading, not cover: it holds no value, so a
+       * column for it would read "not covered" against every plan. Its
+       * sub-benefits are ordinary benefits and are compared on their own.
+       */
+      if (planOption.option.isUmbrella) continue;
       if (discovered.has(planOption.optionId)) continue;
       discovered.set(planOption.optionId, {
         id: planOption.optionId,

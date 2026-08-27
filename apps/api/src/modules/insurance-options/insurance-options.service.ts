@@ -1,5 +1,6 @@
 import {
-  BENEFIT_VALUE_FIELD,
+  DEFAULT_BENEFIT_VALUE_KIND,
+  benefitValueField,
   type InsuranceOptionDto,
   type OptionFieldDto,
   type Paginated,
@@ -21,24 +22,54 @@ const fieldsInclude = {
   fields: { where: { isActive: true }, orderBy: { sortOrder: 'asc' as const } },
 };
 
+/**
+ * A benefit with its fields and, when it is an umbrella, the sub-benefits
+ * underneath it.
+ *
+ * One level deep, which is the whole hierarchy: a sub-benefit cannot itself be
+ * an umbrella, so this include always returns the complete tree.
+ */
+const catalogueInclude = {
+  ...fieldsInclude,
+  children: {
+    where: { isActive: true },
+    include: fieldsInclude,
+    orderBy: [{ sortOrder: 'asc' as const }, { name: 'asc' as const }],
+  },
+};
+
 // ---------------------------------------------------------------------------
 // Options (the benefit catalogue)
 // ---------------------------------------------------------------------------
 
-/** The whole catalogue. It is global, so there is nothing to scope it by. */
+/**
+ * The whole catalogue. It is global, so there is nothing to scope it by.
+ *
+ * Sub-benefits are returned INSIDE their umbrella rather than beside it, so a
+ * client renders the catalogue as the business describes it — "Life & Accident
+ * Coverage" with its parts under it — from a single response. A search still
+ * looks at every benefit, and an umbrella whose sub-benefit matches comes back
+ * with it.
+ */
 export async function listInsuranceOptions(
   query: ListQuery,
 ): Promise<Paginated<InsuranceOptionDto>> {
   const prisma = getPrisma();
+  const search = query.search
+    ? { contains: query.search, mode: 'insensitive' as const }
+    : undefined;
+
   const where = {
     ...activeFilter(query.isActive),
-    ...(query.search ? { name: { contains: query.search, mode: 'insensitive' as const } } : {}),
+    // Top level only: the sub-benefits ride along inside their umbrella.
+    parentId: null,
+    ...(search ? { OR: [{ name: search }, { children: { some: { name: search } } }] } : {}),
   };
 
   const [items, total] = await Promise.all([
     prisma.insuranceOption.findMany({
       where,
-      include: fieldsInclude,
+      include: catalogueInclude,
       orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
       ...toSkipTake(query),
     }),
@@ -51,10 +82,38 @@ export async function listInsuranceOptions(
 export async function getInsuranceOption(id: string): Promise<InsuranceOptionDto> {
   const option = await getPrisma().insuranceOption.findUnique({
     where: { id },
-    include: fieldsInclude,
+    include: catalogueInclude,
   });
   if (!option) throw notFound('Insurance option');
   return toInsuranceOptionDto(option);
+}
+
+/**
+ * Check where a new benefit is being placed, and refuse a placement that would
+ * not make sense.
+ *
+ * Two rules, both here rather than spread across the routes: only an umbrella
+ * may hold sub-benefits, and a sub-benefit may not itself be one. Together they
+ * bound the tree at `MAX_BENEFIT_DEPTH`, which is what lets every screen render
+ * the whole catalogue without recursing.
+ */
+async function checkParent(parentId: string, isUmbrella: boolean): Promise<void> {
+  if (isUmbrella) {
+    throw conflict(
+      'A group of benefits cannot sit inside another group. Create it at the top level instead.',
+    );
+  }
+
+  const parent = await getPrisma().insuranceOption.findUnique({
+    where: { id: parentId },
+    select: { id: true, name: true, isUmbrella: true },
+  });
+  if (!parent) throw notFound('Parent benefit');
+  if (!parent.isUmbrella) {
+    throw conflict(
+      `"${parent.name}" carries its own value, so it cannot hold sub-benefits. Only a group of benefits can.`,
+    );
+  }
 }
 
 /**
@@ -90,8 +149,24 @@ export async function createInsuranceOption(
     throw conflict(`This benefit already exists — "${existing.name}" is available to every plan.`);
   }
 
+  const isUmbrella = input.isUmbrella ?? false;
+  const parentId = input.parentId ?? null;
+  if (parentId) await checkParent(parentId, isUmbrella);
+
+  /**
+   * An umbrella holds no value, so it is created with no fields at all.
+   * Everything else gets exactly one field, taken from the kind the employee
+   * chose — which is why nobody is ever asked about data types or units.
+   */
+  const fields = isUmbrella
+    ? []
+    : input.fields?.length
+      ? input.fields
+      : [{ ...benefitValueField(input.valueKind ?? DEFAULT_BENEFIT_VALUE_KIND) }];
+
+  // Sub-benefits are ordered within their umbrella, top-level ones globally.
   const sortOrder = nextSortOrder(
-    await prisma.insuranceOption.aggregate({ _max: { sortOrder: true } }),
+    await prisma.insuranceOption.aggregate({ where: { parentId }, _max: { sortOrder: true } }),
   );
 
   const option = await prisma.insuranceOption.create({
@@ -99,16 +174,12 @@ export async function createInsuranceOption(
       name: input.name,
       ...(input.description !== undefined ? { description: input.description } : {}),
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
+      isUmbrella,
+      parentId,
       sortOrder,
-      fields: {
-        create: buildFieldCreateData(
-          input.fields?.length ? input.fields : [{ ...BENEFIT_VALUE_FIELD }],
-          new Set<string>(),
-          0,
-        ),
-      },
+      fields: { create: buildFieldCreateData(fields, new Set<string>(), 0) },
     },
-    include: fieldsInclude,
+    include: catalogueInclude,
   });
 
   return toInsuranceOptionDto(option);
@@ -121,16 +192,25 @@ export async function updateInsuranceOption(
   const option = await getPrisma().insuranceOption.update({
     where: { id },
     data: input,
-    include: fieldsInclude,
+    include: catalogueInclude,
   });
   return toInsuranceOptionDto(option);
 }
 
-/** Permanent delete, allowed only while no plan uses the option. */
+/**
+ * Permanent delete, allowed only while no plan uses the option and — for an
+ * umbrella — while nothing still sits under it. Deleting a group otherwise
+ * would either orphan its sub-benefits or take their plan values with them, so
+ * the employee empties it first.
+ */
 export async function deleteInsuranceOption(id: string): Promise<void> {
   const prisma = getPrisma();
-  const usage = await prisma.planOption.count({ where: { optionId: id } });
+  const [usage, children] = await Promise.all([
+    prisma.planOption.count({ where: { optionId: id } }),
+    prisma.insuranceOption.count({ where: { parentId: id } }),
+  ]);
   if (usage > 0) throw inUse('option', `${usage} plan(s)`);
+  if (children > 0) throw inUse('group of benefits', `${children} sub-benefit(s)`);
   // Field definitions are owned by the option and cascade with it.
   await prisma.insuranceOption.delete({ where: { id } });
 }

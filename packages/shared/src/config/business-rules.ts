@@ -55,3 +55,13 @@ export const MAX_INSURABLE_AGE = 120;
  * mandatory, so nothing that used to match stopped matching.
  */
 export const WIDEST_AGE_BAND = { from: MIN_INSURABLE_AGE, to: MAX_INSURABLE_AGE } as const;
+
+/**
+ * What a plan says where no figure was entered.
+ *
+ * A blank deductible, co-payment or limit does not mean zero and does not mean
+ * "not covered" — it means the document the plan was taken from is silent. The
+ * wording is a business decision, so it lives here and every screen reads it
+ * from this constant.
+ */
+export const NOT_SPECIFIED_LABEL = 'Not specified in plan';

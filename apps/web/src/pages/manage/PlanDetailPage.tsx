@@ -12,6 +12,7 @@ import {
   EmptyState,
   IconAdd,
   IconChevronRight,
+  IconCopy,
   IconEdit,
   IconGlobe,
   IconLayers,
@@ -52,9 +53,18 @@ export function PlanDetailPage() {
   const [editingConfiguration, setEditingConfiguration] = useState<
     PlanConfigurationDto | null | undefined
   >(undefined);
+  /** The configuration being copied to another age band, if any. */
+  const [duplicating, setDuplicating] = useState<PlanConfigurationDto | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PlanConfigurationDto | null>(null);
 
-  const configurations = plan.data?.configurations ?? [];
+  /**
+   * Youngest band first. Age is what separates most configurations of a plan,
+   * so reading them in age order is how the price table in a plan document
+   * reads.
+   */
+  const configurations = [...(plan.data?.configurations ?? [])].sort(
+    (a, b) => a.ageFrom - b.ageFrom || a.ageTo - b.ageTo,
+  );
 
   return (
     <>
@@ -145,6 +155,7 @@ export function PlanDetailPage() {
                         companyId={companyId!}
                         planId={planId!}
                         onEdit={() => setEditingConfiguration(configuration)}
+                        onDuplicate={() => setDuplicating(configuration)}
                         onDelete={() => setPendingDelete(configuration)}
                       />
                     ))}
@@ -165,6 +176,16 @@ export function PlanDetailPage() {
           planId={planId}
           configuration={editingConfiguration}
           onClose={() => setEditingConfiguration(undefined)}
+        />
+      ) : null}
+
+      {/* The same cover at another age: benefits and values travel with it. */}
+      {duplicating && planId ? (
+        <ConfigurationDialog
+          planId={planId}
+          configuration={null}
+          duplicateOf={duplicating}
+          onClose={() => setDuplicating(null)}
         />
       ) : null}
 
@@ -206,12 +227,14 @@ function ConfigurationCard({
   companyId,
   planId,
   onEdit,
+  onDuplicate,
   onDelete,
 }: {
   configuration: PlanConfigurationDto;
   companyId: string;
   planId: string;
   onEdit: () => void;
+  onDuplicate: () => void;
   onDelete: () => void;
 }) {
   const benefits = configuration.options?.length ?? 0;
@@ -226,6 +249,12 @@ function ConfigurationCard({
           {configuration.isActive ? 'Active' : 'Inactive'}
         </Badge>
       </div>
+
+      {/* The band this price applies to — what distinguishes one card from the
+          next when a plan is priced age by age. */}
+      <p className="text-content-muted mt-1 text-sm font-medium">
+        Ages {configuration.ageFrom}–{configuration.ageTo}
+      </p>
 
       <p className="text-content mt-3 text-2xl font-bold">
         {formatMoney(configuration.annualPrice, configuration.currency)}
@@ -248,6 +277,17 @@ function ConfigurationCard({
           className="text-content-muted hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-2"
         >
           <IconEdit className="size-4" />
+        </button>
+        {/* The whole point of the card for an age-priced plan: repeat it for
+            the next band without re-entering a single benefit. */}
+        <button
+          type="button"
+          onClick={onDuplicate}
+          aria-label="Add different age"
+          title="Add different age"
+          className="text-content-muted hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-2"
+        >
+          <IconCopy className="size-4" />
         </button>
         <button
           type="button"

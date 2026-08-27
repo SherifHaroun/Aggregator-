@@ -52,8 +52,18 @@ export interface InsuranceOptionDto extends RecordMeta {
   name: string;
   description: string | null;
   sortOrder: number;
+  /**
+   * An umbrella carries no value of its own; it groups the sub-benefits that
+   * name it as their parent, e.g. life & accident cover grouping death and
+   * disability. It therefore has no fields.
+   */
+  isUmbrella: boolean;
+  /** The umbrella this benefit sits under, or `null` for a top-level benefit. */
+  parentId: string | null;
   /** Present when the option was fetched with its field definitions. */
   fields?: OptionFieldDto[];
+  /** Present on an umbrella fetched with its sub-benefits, in display order. */
+  children?: InsuranceOptionDto[];
 }
 
 /** One piece of information an option requires, defined by an employee. */
@@ -127,6 +137,10 @@ export interface PlanOptionDto {
   planConfigurationId: string;
   optionId: string;
   optionName: string;
+  /** Copied from the benefit, so a client can nest without a second request. */
+  isUmbrella: boolean;
+  /** The umbrella benefit this one sits under, or `null` at the top level. */
+  parentOptionId: string | null;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;

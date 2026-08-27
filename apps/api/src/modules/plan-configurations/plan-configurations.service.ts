@@ -1,11 +1,12 @@
 import type { Paginated, PlanConfigurationDto } from '@aggregator/shared';
-import { notFound } from '../../lib/errors.js';
+import { conflict, notFound } from '../../lib/errors.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
 import { getPrisma } from '../../lib/prisma.js';
 import { planOptionInclude } from '../plan-options/plan-options.mapper.js';
 import { toPlanConfigurationDto } from './plan-configurations.mapper.js';
 import type {
   CreatePlanConfigurationInput,
+  DuplicatePlanConfigurationInput,
   ListPlanConfigurationsQuery,
   UpdatePlanConfigurationInput,
 } from './plan-configurations.schemas.js';
@@ -82,6 +83,118 @@ export async function createPlanConfiguration(
     include: configurationDetailInclude,
   });
   return toPlanConfigurationDto(configuration);
+}
+
+/**
+ * Copy a configuration to a different age band — "the same cover, for another
+ * age".
+ *
+ * Insurance is priced by age, so the identical benefit set is sold ten times
+ * over at ten different premiums. Re-entering thirty benefits and their values
+ * for each band is how mistakes get made, so the copy takes them all: every
+ * attached benefit, in its order, with the value it holds here. The new
+ * configuration is then edited freely — it shares nothing with its source,
+ * because each configuration owns its own option rows and values.
+ *
+ * Everything the caller omits is inherited, so "the same, but 26-30" is a
+ * request with two numbers in it.
+ */
+export async function duplicatePlanConfiguration(
+  id: string,
+  input: DuplicatePlanConfigurationInput,
+): Promise<PlanConfigurationDto> {
+  const prisma = getPrisma();
+
+  const source = await prisma.planConfiguration.findUnique({
+    where: { id },
+    include: {
+      options: {
+        orderBy: { sortOrder: 'asc' },
+        include: { values: true },
+      },
+    },
+  });
+  if (!source) throw notFound('Plan configuration');
+
+  const twin = await prisma.planConfiguration.findFirst({
+    where: {
+      planId: source.planId,
+      customerType: source.customerType,
+      geographicalCoverage: source.geographicalCoverage,
+      ageFrom: input.ageFrom,
+      ageTo: input.ageTo,
+    },
+    select: { id: true },
+  });
+  if (twin) {
+    throw conflict(
+      `This plan already has a configuration for ages ${input.ageFrom}-${input.ageTo} with the same customer type and coverage area. Edit that one instead.`,
+    );
+  }
+
+  /** Inherited unless the caller states otherwise — including a deliberate `null`. */
+  const inherit = <TKey extends keyof DuplicatePlanConfigurationInput>(key: TKey) =>
+    input[key] === undefined ? source[key as keyof typeof source] : input[key];
+
+  const created = await prisma.$transaction(async (tx) => {
+    const configuration = await tx.planConfiguration.create({
+      data: {
+        planId: source.planId,
+        customerType: source.customerType,
+        geographicalCoverage: source.geographicalCoverage,
+        ageFrom: input.ageFrom,
+        ageTo: input.ageTo,
+        currency: inherit('currency') as string | null,
+        annualPrice: inherit('annualPrice') as number | null,
+        annualLimit: inherit('annualLimit') as number | null,
+        deductible: inherit('deductible') as number | null,
+        coPayment: inherit('coPayment') as number | null,
+        isActive: (inherit('isActive') as boolean | undefined) ?? source.isActive,
+      },
+      select: { id: true },
+    });
+
+    /**
+     * The whole copy is three statements, not one per benefit.
+     *
+     * A configuration can carry dozens of benefits, each with a value, and a
+     * round trip per row runs past the transaction timeout long before it runs
+     * out of rows — copying a plan is exactly when there are most of them.
+     * Inserting the attachments in one statement, then their values in
+     * another, keeps the cost flat however large the plan is.
+     */
+    if (source.options.length > 0) {
+      const attached = await tx.planOption.createManyAndReturn({
+        data: source.options.map((planOption) => ({
+          planConfigurationId: configuration.id,
+          optionId: planOption.optionId,
+          sortOrder: planOption.sortOrder,
+        })),
+        select: { id: true, optionId: true },
+      });
+
+      // An option appears at most once per configuration, so this is exact.
+      const planOptionIdByOptionId = new Map(attached.map((row) => [row.optionId, row.id]));
+
+      const values = source.options.flatMap((planOption) => {
+        const planOptionId = planOptionIdByOptionId.get(planOption.optionId);
+        if (!planOptionId) return [];
+        return planOption.values.map((value) => ({
+          planOptionId,
+          optionFieldId: value.optionFieldId,
+          numberValue: value.numberValue,
+          textValue: value.textValue,
+          booleanValue: value.booleanValue,
+        }));
+      });
+
+      if (values.length > 0) await tx.planOptionValue.createMany({ data: values });
+    }
+
+    return configuration;
+  });
+
+  return getPlanConfiguration(created.id);
 }
 
 export async function updatePlanConfiguration(

@@ -8,6 +8,7 @@
  */
 
 import type {
+  BenefitValueKind,
   ComparisonPriceRangeDto,
   ComparisonRequestInput,
   ComparisonResultDto,
@@ -188,13 +189,22 @@ export function useInsuranceOption(id: string | undefined) {
 }
 
 /**
- * Create a benefit. The name is the whole payload: the benefit is global, and
- * the API gives every new one its percentage value, so there is nothing else
- * for the employee to decide.
+ * Create a benefit.
+ *
+ * The payload is a name and what the benefit carries — a percentage, a limit or
+ * text — which the API turns into the one field behind it. `isUmbrella` creates
+ * a group that carries nothing, and `parentId` puts the benefit inside such a
+ * group. The benefit is global either way.
  */
 export function useCreateInsuranceOption() {
-  return useInvalidatingMutation(keys.insuranceOptions, (input: { name: string }) =>
-    api.post<InsuranceOptionDto>('/insurance-options', input),
+  return useInvalidatingMutation(
+    keys.insuranceOptions,
+    (input: {
+      name: string;
+      valueKind?: BenefitValueKind;
+      isUmbrella?: boolean;
+      parentId?: string;
+    }) => api.post<InsuranceOptionDto>('/insurance-options', input),
   );
 }
 
@@ -280,6 +290,19 @@ export function useDeletePlanConfiguration() {
   );
 }
 
+/**
+ * The same configuration for a different age band — the write behind "Add
+ * different age".
+ *
+ * Everything omitted is inherited from the source, benefits and their values
+ * included, so the payload is usually the new band and the new price.
+ */
+export function useDuplicatePlanConfiguration(sourceId: string) {
+  return useInvalidatingMutation(keys.planConfigurations, (input: Record<string, unknown>) =>
+    api.post<PlanConfigurationDto>(`/plan-configurations/${sourceId}/duplicate`, input),
+  );
+}
+
 // --- Options attached to a configuration ------------------------------------
 
 /**
@@ -318,6 +341,8 @@ function optimisticPlanOption(
     planConfigurationId: configurationId,
     optionId: option.id,
     optionName: option.name,
+    isUmbrella: option.isUmbrella,
+    parentOptionId: option.parentId,
     sortOrder,
     createdAt: now,
     updatedAt: now,
@@ -331,6 +356,22 @@ function optimisticPlanOption(
       value: null,
     })),
   };
+}
+
+/**
+ * What one drop attaches: the benefit itself and, when it belongs to a group,
+ * the rest of that group in reading order.
+ *
+ * A group and its parts travel together — a heading with nothing under it, or a
+ * sub-benefit with no heading, is not something an employee ever means to
+ * create. The API applies the same rule; this is the client's matching guess,
+ * so the board looks settled before the response lands.
+ */
+export interface AttachBenefitInput {
+  /** The benefit that was dropped or added. */
+  option: InsuranceOptionDto;
+  /** Every benefit this gesture attaches, in the order they should read. */
+  rows: InsuranceOptionDto[];
 }
 
 /** `Array.map` that returns the ORIGINAL array when nothing changed, so
@@ -420,30 +461,40 @@ function rollbackOptions(
   void queryClient.invalidateQueries({ queryKey: [...keys.planConfigurations, configurationId] });
 }
 
-/** Attach a benefit. Takes the whole benefit so the row can be shown at once. */
+/**
+ * Attach a benefit. Takes the whole benefit — and its group — so the rows can
+ * be shown at once.
+ *
+ * The response is a LIST, because attaching a group creates a row per part of
+ * it. Each returned row replaces the placeholder standing in for the same
+ * benefit, so the board never flickers between the two.
+ */
 export function useAddPlanOption(configurationId: string) {
   const queryClient = useQueryClient();
 
-  return useMutation<PlanOptionDto, unknown, InsuranceOptionDto, PlanOptionDto[] | undefined>({
-    mutationFn: (option) =>
-      api.post<PlanOptionDto>(`/plan-configurations/${configurationId}/options`, {
+  return useMutation<PlanOptionDto[], unknown, AttachBenefitInput, PlanOptionDto[] | undefined>({
+    mutationFn: ({ option }) =>
+      api.post<PlanOptionDto[]>(`/plan-configurations/${configurationId}/options`, {
         optionId: option.id,
       }),
-    onMutate: async (option) => {
+    onMutate: async ({ rows }) => {
       const previous = await beginOptimisticOptions(queryClient, configurationId);
-      updateConfigurationOptions(queryClient, configurationId, (options) =>
-        options.some((item) => item.optionId === option.id)
-          ? options
-          : [...options, optimisticPlanOption(configurationId, option, options.length)],
-      );
+      updateConfigurationOptions(queryClient, configurationId, (options) => {
+        const attached = new Set(options.map((item) => item.optionId));
+        const added = rows
+          .filter((row) => !attached.has(row.id))
+          .map((row, index) => optimisticPlanOption(configurationId, row, options.length + index));
+        return added.length === 0 ? options : [...options, ...added];
+      });
       return previous;
     },
-    onError: (_error, _option, previous) => rollbackOptions(queryClient, configurationId, previous),
-    // Swap the placeholder for the server's row: same position, real ids.
-    onSuccess: (saved, option) =>
-      updateConfigurationOptions(queryClient, configurationId, (options) =>
-        mapChanged(options, (item) => (item.id === optimisticId(option.id) ? saved : item)),
-      ),
+    onError: (_error, _input, previous) => rollbackOptions(queryClient, configurationId, previous),
+    // Swap each placeholder for the server's row: same position, real ids.
+    onSuccess: (saved) =>
+      updateConfigurationOptions(queryClient, configurationId, (options) => {
+        const byOptionId = new Map(saved.map((row) => [row.optionId, row]));
+        return mapChanged(options, (item) => byOptionId.get(item.optionId) ?? item);
+      }),
   });
 }
 

@@ -202,10 +202,12 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
     });
 
     expect(planOption.values).toHaveLength(3);
-    await db().insuranceOption.delete({ where: { id: invented.id } }).catch(async () => {
-      await db().planOption.delete({ where: { id: planOption.id } });
-      await db().insuranceOption.delete({ where: { id: invented.id } });
-    });
+    await db()
+      .insuranceOption.delete({ where: { id: invented.id } })
+      .catch(async () => {
+        await db().planOption.delete({ where: { id: planOption.id } });
+        await db().insuranceOption.delete({ where: { id: invented.id } });
+      });
   });
 
   it('lets one plan price two age bands for the same customer type and coverage', async () => {
@@ -268,6 +270,51 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
     });
     expect(matches.length).toBeGreaterThanOrEqual(1);
     expect(matches[0]?.plan.company.id).toBeTruthy();
+  });
+});
+
+describe.skipIf(!url)('a benefit that groups other benefits', () => {
+  const names = { group: `${PREFIX}_group`, child: `${PREFIX}_child` };
+
+  afterAll(async () => {
+    if (!prisma) return;
+    // Children first: the parent cannot go while one still names it.
+    await prisma.insuranceOption.deleteMany({ where: { name: names.child } });
+    await prisma.insuranceOption.deleteMany({ where: { name: names.group } });
+  });
+
+  it('holds sub-benefits through a self-relation and keeps them valuable', async () => {
+    // An umbrella carries no value of its own, so it is created with no fields.
+    const group = await db().insuranceOption.create({
+      data: { name: names.group, isUmbrella: true },
+    });
+    const child = await db().insuranceOption.create({
+      data: {
+        name: names.child,
+        parentId: group.id,
+        fields: { create: [{ label: 'Limit', key: 'limit', dataType: 'CURRENCY' }] },
+      },
+      include: { fields: true },
+    });
+
+    expect(await db().optionField.count({ where: { optionId: group.id } })).toBe(0);
+    expect(child.parentId).toBe(group.id);
+    // A sub-benefit is an ordinary benefit: it carries its own value.
+    expect(child.fields).toHaveLength(1);
+  });
+
+  it('refuses to delete a group while a sub-benefit still names it', async () => {
+    const group = await db().insuranceOption.findFirstOrThrow({ where: { name: names.group } });
+    // The foreign key is ON DELETE RESTRICT, so the database itself refuses.
+    await expect(db().insuranceOption.delete({ where: { id: group.id } })).rejects.toThrow();
+    expect(await db().insuranceOption.count({ where: { id: group.id } })).toBe(1);
+  });
+
+  it('refuses a benefit that is its own parent', async () => {
+    const child = await db().insuranceOption.findFirstOrThrow({ where: { name: names.child } });
+    await expect(
+      db().insuranceOption.update({ where: { id: child.id }, data: { parentId: child.id } }),
+    ).rejects.toThrow();
   });
 });
 

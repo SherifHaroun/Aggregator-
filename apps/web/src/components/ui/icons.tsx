@@ -176,3 +176,11 @@ export const IconLock = (p: IconProps) => (
     <path d="M7.2 8.8V6.6a2.8 2.8 0 0 1 5.6 0v2.2" />
   </Icon>
 );
+
+/** Two stacked sheets: copying a configuration to another age band. */
+export const IconCopy = (p: IconProps) => (
+  <Icon {...p}>
+    <rect x="7" y="7" width="10.5" height="10.5" rx="2" />
+    <path d="M13 4.5a2 2 0 0 0-2-2H4.5a2 2 0 0 0-2 2V11a2 2 0 0 0 2 2" />
+  </Icon>
+);

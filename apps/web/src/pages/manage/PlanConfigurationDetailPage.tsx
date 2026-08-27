@@ -1,14 +1,19 @@
+import { formatPercentage } from '@aggregator/shared';
+import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import {
   Badge,
+  Button,
   Card,
   CardBody,
   DataState,
+  IconCopy,
   IconGlobe,
   IconUsers,
   PageHeader,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
+import { ConfigurationDialog } from '@/features/company-setup/ConfigurationDialog';
 import {
   useCompany,
   useInsuranceOptions,
@@ -35,6 +40,7 @@ export function PlanConfigurationDetailPage() {
   const configuration = usePlanConfiguration(configurationId);
   const company = useCompany(companyId);
   const plan = usePlan(planId);
+  const [duplicating, setDuplicating] = useState(false);
 
   // The global benefit catalogue: the same list whichever company this is.
   const options = useInsuranceOptions({ isActive: true });
@@ -63,6 +69,14 @@ export function PlanConfigurationDetailPage() {
           },
           { label: 'Benefits' },
         ]}
+        actions={
+          configuration.data ? (
+            <Button variant="secondary" onClick={() => setDuplicating(true)}>
+              <IconCopy className="size-4" />
+              Add different age
+            </Button>
+          ) : undefined
+        }
       />
 
       <DataState
@@ -87,14 +101,22 @@ export function PlanConfigurationDetailPage() {
                   label="Coverage"
                   value={coverageLabel(current!.geographicalCoverage)}
                 />
-                <div>
-                  <p className="text-content-subtle text-xs font-medium tracking-wide uppercase">
-                    Annual price
-                  </p>
-                  <p className="text-content mt-1 text-lg font-bold">
-                    {formatMoney(current!.annualPrice, current!.currency)}
-                  </p>
-                </div>
+                <Figure label="Ages" value={`${current!.ageFrom}–${current!.ageTo}`} />
+                <Figure
+                  label="Annual price"
+                  value={formatMoney(current!.annualPrice, current!.currency)}
+                />
+                {/* Blank figures read as the plan's own silence rather than as
+                    zero — the wording comes from the business rules. */}
+                <Figure
+                  label="Annual limit"
+                  value={formatMoney(current!.annualLimit, current!.currency)}
+                />
+                <Figure
+                  label="Deductible"
+                  value={formatMoney(current!.deductible, current!.currency)}
+                />
+                <Figure label="Co-payment" value={formatPercentage(current!.coPayment)} />
                 <div className="flex flex-col items-start gap-2">
                   <p className="text-content-subtle text-xs font-medium tracking-wide uppercase">
                     Status
@@ -124,10 +146,30 @@ export function PlanConfigurationDetailPage() {
               attached={current!.options ?? []}
               available={options.data ?? []}
             />
+
+            {/* Every benefit and value below is copied to the new band. */}
+            {duplicating && planId ? (
+              <ConfigurationDialog
+                planId={planId}
+                configuration={null}
+                duplicateOf={current!}
+                onClose={() => setDuplicating(false)}
+              />
+            ) : null}
           </div>
         )}
       </DataState>
     </>
+  );
+}
+
+/** A figure of the configuration, or what the plan says instead of one. */
+function Figure({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-content-subtle text-xs font-medium tracking-wide uppercase">{label}</p>
+      <p className="text-content mt-1 text-lg font-bold">{value}</p>
+    </div>
   );
 }
 

@@ -142,6 +142,23 @@ model InsuranceOption {
   /// Display order of the option in the catalogue.
   sortOrder   Int     @default(0)
 
+  /// An UMBRELLA groups other benefits and carries no value of its own, e.g.
+  /// "Life & Accident Coverage" over death, disability and the rest. It is
+  /// created with no `OptionField`, so there is nothing to fill in on it; the
+  /// sub-benefits underneath are ordinary benefits that happen to have a
+  /// parent.
+  isUmbrella Boolean @default(false)
+
+  /// The umbrella this benefit sits under. `null` for a top-level benefit.
+  ///
+  /// One level deep on purpose: a sub-benefit cannot itself be an umbrella, so
+  /// every screen can render the whole catalogue without recursion. The service
+  /// enforces that; `onDelete: Restrict` stops an umbrella disappearing out
+  /// from under its children.
+  parentId String?
+  parent   InsuranceOption?  @relation("BenefitHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children InsuranceOption[] @relation("BenefitHierarchy")
+
   /// Deactivate rather than delete once the option is used by any plan.
   isActive Boolean @default(true)
 
@@ -149,10 +166,12 @@ model InsuranceOption {
   updatedAt DateTime @updatedAt
 
   /// The information THIS option requires. Every option defines its own.
+  /// An umbrella defines none.
   fields      OptionField[]
   planOptions PlanOption[]
 
   @@index([isActive])
+  @@index([parentId, sortOrder])
   @@map("insurance_options")
 }
 

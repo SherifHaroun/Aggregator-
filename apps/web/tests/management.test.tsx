@@ -83,6 +83,8 @@ function givenOption(id = 'option_1', name = 'Aurora Wellness Programme') {
     name,
     description: null,
     sortOrder: 0,
+    isUmbrella: false,
+    parentId: null,
     isActive: true,
     ...timestamps,
     fields: [
@@ -857,6 +859,103 @@ describe('plan configurations', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Figures: grouped as typed, and blank when the plan says nothing
+// ---------------------------------------------------------------------------
+
+describe('figures', () => {
+  it('groups a limit in thousands as it is typed, and stores the plain number', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+
+    renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
+    await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
+
+    const who = await screen.findByRole('group', { name: /Who is this for/i });
+    await user.click(within(who).getAllByRole('radio')[0]!);
+    const where = screen.getByRole('group', { name: /Geographical coverage/i });
+    await user.click(within(where).getAllByRole('radio')[0]!);
+
+    await user.type(screen.getByLabelText(/Age from/i), '18');
+    await user.type(screen.getByLabelText(/Age to/i), '40');
+
+    const limit = screen.getByLabelText(/Annual limit/i);
+    await user.type(limit, '100000');
+    // Read back the way the plan document writes it.
+    expect(limit).toHaveValue('100,000');
+
+    await user.click(screen.getByRole('button', { name: /Save configuration/i }));
+
+    await waitFor(() => expect(store.configurations).toHaveLength(1));
+    // What is stored is a number, never the separators.
+    expect(store.configurations[0]?.annualLimit).toBe(100000);
+  });
+
+  it('reads a figure the plan never stated as not specified, never as zero', async () => {
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    store.configurations[0]!.deductible = null;
+    store.configurations[0]!.coPayment = null;
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const summary = await screen.findByText('Deductible');
+    expect(summary.parentElement).toHaveTextContent('Not specified in plan');
+    expect(screen.queryByText('0 EGP')).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The same cover at another age
+// ---------------------------------------------------------------------------
+
+describe('add different age', () => {
+  it('copies a configuration to a new band with its benefits and their values', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+    store.values.push({
+      planOptionId: 'planOption_1',
+      optionFieldId: 'option_1_percentage',
+      value: 80,
+    });
+
+    renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
+
+    await user.click(await screen.findByRole('button', { name: /Add different age/i }));
+    await user.type(await screen.findByLabelText(/Age from/i), '41');
+    await user.type(screen.getByLabelText(/Age to/i), '45');
+    // The premium is the one thing that changes with the band.
+    const price = screen.getByLabelText(/Annual price/i);
+    await user.clear(price);
+    await user.type(price, '15984');
+    await user.click(screen.getByRole('button', { name: /Add this age/i }));
+
+    await waitFor(() => expect(store.configurations).toHaveLength(2));
+    const copy = store.configurations[1]!;
+    expect(copy.ageFrom).toBe(41);
+    expect(copy.ageTo).toBe(45);
+    expect(copy.annualPrice).toBe(15984);
+    // Nothing was re-entered: the benefit and its value came across.
+    const copied = store.planOptions.filter((item) => item.planConfigurationId === copy.id);
+    expect(copied).toHaveLength(1);
+    expect(store.values.filter((value) => value.planOptionId === copied[0]!.id)[0]?.value).toBe(80);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Dynamic benefits
 // ---------------------------------------------------------------------------
 
@@ -880,6 +979,84 @@ describe('dynamic insurance options', () => {
     expect(store.options[0]?.name).toBe('Aurora Wellness Programme');
     // The employee never chose this — the benefit is a percentage by definition.
     expect(store.options[0]?.fields?.map((f) => f.dataType)).toEqual(['PERCENTAGE']);
+  });
+
+  it('creates a benefit that carries a limit instead of a percentage', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(await screen.findByRole('button', { name: /New benefit/i }));
+    await user.type(await screen.findByLabelText(/Benefit name/i), 'Optical Limit');
+
+    const kinds = await screen.findByRole('group', { name: /What does it carry/i });
+    const limit = within(kinds)
+      .getAllByRole('radio')
+      .find((radio) => (radio.closest('label')?.textContent ?? '').includes('Limit'))!;
+    await user.click(limit);
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    await waitFor(() => expect(store.options).toHaveLength(1));
+    expect(store.options[0]?.fields?.map((f) => f.dataType)).toEqual(['CURRENCY']);
+  });
+
+  it('creates a group of benefits and a sub-benefit inside it', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(await screen.findByRole('button', { name: /New benefit/i }));
+    await user.type(await screen.findByLabelText(/Benefit name/i), 'Life & Accident Coverage');
+    await user.click(screen.getByRole('checkbox', { name: /groups others under it/i }));
+    // A group carries nothing, so it is never asked what it carries.
+    expect(screen.queryByRole('group', { name: /What does it carry/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    await waitFor(() => expect(store.options).toHaveLength(1));
+    expect(store.options[0]?.isUmbrella).toBe(true);
+    expect(store.options[0]?.fields).toEqual([]);
+
+    await user.click(await screen.findByRole('button', { name: /New benefit in this group/i }));
+    await user.type(await screen.findByLabelText(/Benefit name/i), 'Death (Natural)');
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    await waitFor(() => expect(store.options).toHaveLength(2));
+    expect(store.options[1]?.parentId).toBe(store.options[0]?.id);
+  });
+
+  it('attaches a group with everything under it, and takes it all away again', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+
+    givenOption('option_group', 'Life & Accident Coverage');
+    store.options[0]!.isUmbrella = true;
+    store.options[0]!.fields = [];
+    givenOption('option_death', 'Death (Natural)');
+    store.options[1]!.parentId = 'option_group';
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(await screen.findByRole('button', { name: 'Add Life & Accident Coverage' }));
+
+    // One gesture, two rows: the heading and the benefit that belongs under it.
+    await waitFor(() => expect(store.planOptions).toHaveLength(2));
+    expect(await screen.findByLabelText('Death (Natural) value')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Remove Life & Accident Coverage' }));
+
+    // Removing the heading cannot strand its parts on the configuration.
+    await waitFor(() => expect(store.planOptions).toHaveLength(0));
   });
 
   it('offers a saved benefit under Available benefits, draggable and labelled Percentage', async () => {
@@ -965,7 +1142,8 @@ describe('dynamic insurance options', () => {
     const retry = await screen.findByRole('button', {
       name: 'Retry saving Aurora Wellness Programme',
     });
-    expect(input).toHaveValue(90);
+    // A figure is entered through a text control so it can carry separators.
+    expect(input).toHaveValue('90');
     expect(store.values).toHaveLength(0);
 
     await user.click(retry);

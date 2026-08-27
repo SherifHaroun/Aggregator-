@@ -18,7 +18,12 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { benefitTypeLabel, type InsuranceOptionDto, type PlanOptionDto } from '@aggregator/shared';
+import {
+  UMBRELLA_BENEFIT_LABEL,
+  benefitTypeLabel,
+  type InsuranceOptionDto,
+  type PlanOptionDto,
+} from '@aggregator/shared';
 import { memo, useCallback, useMemo, useState } from 'react';
 import {
   Badge,
@@ -49,8 +54,50 @@ const AVAILABLE = 'available:';
 const DROP_ZONE = 'plan-coverage-drop-zone';
 
 /**
+ * A benefit on the configuration together with the sub-benefits it heads.
+ *
+ * The API returns one flat list — every attachment is an ordinary row — and
+ * this is where it becomes the tree the business describes. A sub-benefit whose
+ * group is not attached stands on its own rather than disappearing.
+ */
+interface CoverageGroup {
+  row: PlanOptionDto;
+  children: PlanOptionDto[];
+}
+
+function groupAttached(attached: PlanOptionDto[]): CoverageGroup[] {
+  const attachedOptionIds = new Set(attached.map((item) => item.optionId));
+
+  const groups: CoverageGroup[] = [];
+  const byOptionId = new Map<string, CoverageGroup>();
+
+  for (const item of attached) {
+    // A sub-benefit is rendered inside its group, never beside it.
+    if (item.parentOptionId && attachedOptionIds.has(item.parentOptionId)) continue;
+    const group: CoverageGroup = { row: item, children: [] };
+    groups.push(group);
+    byOptionId.set(item.optionId, group);
+  }
+
+  for (const item of attached) {
+    if (!item.parentOptionId) continue;
+    byOptionId.get(item.parentOptionId)?.children.push(item);
+  }
+
+  return groups;
+}
+
+/** Every attached row, groups first and their parts directly after them. */
+const flattenGroups = (groups: CoverageGroup[]): PlanOptionDto[] =>
+  groups.flatMap((group) => [group.row, ...group.children]);
+
+/**
  * Drag benefits from the catalogue into this configuration's coverage,
- * reorder them, and set their percentage.
+ * reorder them, and set their values.
+ *
+ * A group of benefits and its parts move as one: dropping "Life & Accident
+ * Coverage" brings death, disability and the rest with it, each with its own
+ * value to fill in here.
  *
  * Dragging is purely local: no request is made until the drop, and the drop
  * updates the query cache immediately, so a benefit appears in the coverage
@@ -64,7 +111,7 @@ export function ConfigurationOptionsBoard({
 }: {
   configurationId: string;
   attached: PlanOptionDto[];
-  /** The global catalogue — the same list for every company. */
+  /** The global catalogue — the same list for every company, groups included. */
   available: InsuranceOptionDto[];
 }) {
   const { notify } = useToast();
@@ -73,7 +120,10 @@ export function ConfigurationOptionsBoard({
   const reorder = useReorderPlanOptions(configurationId);
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  /** The group a new benefit is being created inside, or `null` at top level. */
+  const [creating, setCreating] = useState<{ id: string; name: string } | null | undefined>(
+    undefined,
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -85,22 +135,53 @@ export function ConfigurationOptionsBoard({
    * and of every row: rebuilding them on each render would hand dnd-kit a new
    * array on every pointer move and rerender the whole list with it.
    */
-  const catalogue = useMemo(() => {
-    const attachedOptionIds = new Set(attached.map((item) => item.optionId));
-    return available.filter((option) => !attachedOptionIds.has(option.id));
-  }, [attached, available]);
+  const groups = useMemo(() => groupAttached(attached), [attached]);
 
-  const sortableIds = useMemo(() => attached.map((item) => item.id), [attached]);
+  const attachedOptionIds = useMemo(
+    () => new Set(attached.map((item) => item.optionId)),
+    [attached],
+  );
+
+  /** What is still addable, with an attached group's remaining parts kept. */
+  const catalogue = useMemo(
+    () =>
+      available.flatMap((option) => {
+        const children = (option.children ?? []).filter(
+          (child) => !attachedOptionIds.has(child.id),
+        );
+        if (attachedOptionIds.has(option.id) && children.length === 0) return [];
+        return [{ option, children }];
+      }),
+    [attachedOptionIds, available],
+  );
+
+  /** Only groups reorder; their parts stay with the group that heads them. */
+  const sortableIds = useMemo(() => groups.map((group) => group.row.id), [groups]);
 
   const attach = useCallback(
-    (option: InsuranceOptionDto) => {
-      addOption.mutate(option, {
-        onSuccess: () => notify(`${option.name} was added to this configuration.`),
-        // The cache has already been put back; say why the row disappeared.
-        onError: (error) => notify(describeError(error, 'the benefit'), 'error'),
-      });
+    (option: InsuranceOptionDto, rows: InsuranceOptionDto[]) => {
+      addOption.mutate(
+        { option, rows },
+        {
+          onSuccess: () => notify(`${option.name} was added to this configuration.`),
+          // The cache has already been put back; say why the row disappeared.
+          onError: (error) => notify(describeError(error, 'the benefit'), 'error'),
+        },
+      );
     },
     [addOption, notify],
+  );
+
+  /** Dropping a group attaches it with everything under it. */
+  const attachWithGroup = useCallback(
+    (option: InsuranceOptionDto) => attach(option, [option, ...(option.children ?? [])]),
+    [attach],
+  );
+
+  /** Adding one part of a group brings the group's heading with it. */
+  const attachChild = useCallback(
+    (parent: InsuranceOptionDto, child: InsuranceOptionDto) => attach(child, [parent, child]),
+    [attach],
   );
 
   const remove = useCallback(
@@ -124,11 +205,11 @@ export function ConfigurationOptionsBoard({
 
       // Catalogue item dropped onto the coverage list.
       if (activeId.startsWith(AVAILABLE)) {
-        const droppedInside = overId === DROP_ZONE || attached.some((item) => item.id === overId);
+        const droppedInside = overId === DROP_ZONE || sortableIds.includes(overId);
         if (!droppedInside) return;
         const optionId = activeId.slice(AVAILABLE.length);
         const option = available.find((item) => item.id === optionId);
-        if (option) attach(option);
+        if (option) attachWithGroup(option);
         return;
       }
 
@@ -138,11 +219,13 @@ export function ConfigurationOptionsBoard({
       const to = sortableIds.indexOf(overId);
       if (from === -1 || to === -1) return;
 
-      reorder.mutate(arrayMove(sortableIds, from, to), {
+      // The server is sent every row, so a group's parts follow it.
+      const ordered = flattenGroups(arrayMove(groups, from, to)).map((item) => item.id);
+      reorder.mutate(ordered, {
         onError: (error) => notify(describeError(error, 'the benefit order'), 'error'),
       });
     },
-    [attach, attached, available, notify, reorder, sortableIds],
+    [attachWithGroup, available, groups, notify, reorder, sortableIds],
   );
 
   const handleDragStart = useCallback(
@@ -173,14 +256,16 @@ export function ConfigurationOptionsBoard({
             icon={<IconShield className="size-5" />}
           />
           <CardBody>
-            <CoverageDropZone isEmpty={attached.length === 0} isDragging={draggingId !== null}>
+            <CoverageDropZone isEmpty={groups.length === 0} isDragging={draggingId !== null}>
               <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
                 <div className="space-y-3">
-                  {attached.map((planOption) => (
+                  {groups.map((group) => (
                     <AttachedBenefit
-                      key={planOption.id}
-                      planOption={planOption}
+                      key={group.row.id}
+                      planOption={group.row}
+                      subBenefits={group.children}
                       onRemove={remove}
+                      onAddSubBenefit={setCreating}
                     />
                   ))}
                 </div>
@@ -204,24 +289,37 @@ export function ConfigurationOptionsBoard({
                   : 'Every available benefit is already on this configuration.'}
               </p>
             ) : (
-              catalogue.map((option) => (
-                <AvailableBenefit key={option.id} option={option} onAdd={attach} />
+              catalogue.map((entry) => (
+                <AvailableBenefit
+                  key={entry.option.id}
+                  option={entry.option}
+                  subBenefits={entry.children}
+                  isAttached={attachedOptionIds.has(entry.option.id)}
+                  onAdd={attachWithGroup}
+                  onAddChild={attachChild}
+                  onAddSubBenefit={setCreating}
+                />
               ))
             )}
 
-            <Button variant="soft" fullWidth className="mt-3" onClick={() => setCreating(true)}>
+            <Button variant="soft" fullWidth className="mt-3" onClick={() => setCreating(null)}>
               <IconAdd className="size-4" />
               New benefit
             </Button>
 
             <p className="text-content-subtle mt-2 text-center text-[0.7rem] leading-relaxed">
-              Benefits are shared by every company. Only the percentage is set here.
+              Benefits are shared by every company. Only their values are set here.
             </p>
           </CardBody>
         </Card>
       </div>
 
-      {creating ? <NewBenefitDialog onClose={() => setCreating(false)} /> : null}
+      {creating !== undefined ? (
+        <NewBenefitDialog
+          {...(creating ? { parent: creating } : {})}
+          onClose={() => setCreating(undefined)}
+        />
+      ) : null}
     </DndContext>
   );
 }
@@ -270,52 +368,113 @@ function CoverageDropZone({
  *
  * The card itself is the draggable item, so the employee grabs the benefit
  * rather than a handle beside it. dnd-kit's attributes make it keyboard
- * operable, and Add stays as the pointer-free path.
+ * operable, and Add stays as the pointer-free path. A group lists the parts it
+ * would bring with it, each addable on its own.
  */
 const AvailableBenefit = memo(function AvailableBenefit({
   option,
+  subBenefits,
+  isAttached,
   onAdd,
+  onAddChild,
+  onAddSubBenefit,
 }: {
   option: InsuranceOptionDto;
+  /** Sub-benefits not yet on this configuration. */
+  subBenefits: InsuranceOptionDto[];
+  /** True when only the group's remaining parts are still addable. */
+  isAttached: boolean;
   onAdd: (option: InsuranceOptionDto) => void;
+  onAddChild: (parent: InsuranceOptionDto, child: InsuranceOptionDto) => void;
+  onAddSubBenefit: (parent: { id: string; name: string }) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `${AVAILABLE}${option.id}`,
+    disabled: isAttached,
   });
 
   return (
     <div
       ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      aria-label={`Drag ${option.name}`}
       style={transform ? { transform: CSS.Translate.toString(transform) } : undefined}
       className={cn(
-        'border-border-subtle bg-surface hover:border-brand-border flex cursor-grab touch-none items-center gap-2 rounded-(--radius-control) border p-3 transition-colors',
+        'border-border-subtle bg-surface hover:border-brand-border rounded-(--radius-control) border transition-colors',
         isDragging && 'opacity-50 shadow-(--shadow-raised)',
       )}
     >
-      <span className="min-w-0 flex-1">
-        <span className="text-content block truncate text-sm font-medium">{option.name}</span>
-        <span className="text-content-subtle block text-xs">{benefitTypeLabel(option.fields)}</span>
-      </span>
-
-      {/* Named per benefit: several Add buttons share this list. */}
-      <button
-        type="button"
-        onClick={() => onAdd(option)}
-        onPointerDown={(event) => event.stopPropagation()}
-        aria-label={`Add ${option.name}`}
-        className="text-brand-strong hover:bg-brand-soft rounded-(--radius-control) p-1.5"
+      <div
+        {...(isAttached ? {} : listeners)}
+        {...attributes}
+        aria-label={isAttached ? undefined : `Drag ${option.name}`}
+        className={cn(
+          'flex items-center gap-2 p-3',
+          isAttached ? 'cursor-default' : 'cursor-grab touch-none',
+        )}
       >
-        <IconAdd className="size-4" />
-      </button>
+        <span className="min-w-0 flex-1">
+          <span className="text-content block truncate text-sm font-medium">{option.name}</span>
+          <span className="text-content-subtle block text-xs">
+            {option.isUmbrella
+              ? isAttached
+                ? 'On this plan — parts below are not'
+                : `${UMBRELLA_BENEFIT_LABEL} · ${subBenefits.length}`
+              : benefitTypeLabel(option.fields)}
+          </span>
+        </span>
+
+        {/* Named per benefit: several Add buttons share this list. */}
+        {isAttached ? null : (
+          <button
+            type="button"
+            onClick={() => onAdd(option)}
+            onPointerDown={(event) => event.stopPropagation()}
+            aria-label={`Add ${option.name}`}
+            className="text-brand-strong hover:bg-brand-soft rounded-(--radius-control) p-1.5"
+          >
+            <IconAdd className="size-4" />
+          </button>
+        )}
+      </div>
+
+      {option.isUmbrella ? (
+        <div className="border-border-subtle space-y-1 border-t px-3 py-2">
+          {subBenefits.map((child) => (
+            <div key={child.id} className="flex items-center gap-2">
+              <span className="min-w-0 flex-1">
+                <span className="text-content-muted block truncate text-xs">{child.name}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onAddChild(option, child)}
+                onPointerDown={(event) => event.stopPropagation()}
+                aria-label={`Add ${child.name}`}
+                className="text-brand-strong hover:bg-brand-soft rounded-(--radius-control) p-1"
+              >
+                <IconAdd className="size-3.5" />
+              </button>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={() => onAddSubBenefit({ id: option.id, name: option.name })}
+            onPointerDown={(event) => event.stopPropagation()}
+            className="text-brand-strong hover:bg-brand-soft w-full rounded-(--radius-control) px-1 py-1 text-left text-xs font-semibold"
+          >
+            + New benefit in this group
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 });
 
 /**
- * An attached benefit: sortable, removable, with its percentage on the row.
+ * An attached benefit: sortable, removable, with its value on the row.
+ *
+ * A group renders its parts beneath it, indented, each an ordinary benefit row
+ * with its own value and its own remove. Removing the group removes them too —
+ * the API applies that rule, so it cannot be got round by another client.
  *
  * dnd-kit rerenders every sortable on each pointer move, so this component is
  * kept to markup only. The value control below it is memoized on primitive
@@ -324,10 +483,14 @@ const AvailableBenefit = memo(function AvailableBenefit({
  */
 const AttachedBenefit = memo(function AttachedBenefit({
   planOption,
+  subBenefits,
   onRemove,
+  onAddSubBenefit,
 }: {
   planOption: PlanOptionDto;
+  subBenefits: PlanOptionDto[];
   onRemove: (planOptionId: string, optionName: string) => void;
+  onAddSubBenefit: (parent: { id: string; name: string }) => void;
 }) {
   // A row the server has not confirmed yet has no id to reorder or save against.
   const pending = isOptimisticPlanOption(planOption);
@@ -336,12 +499,6 @@ const AttachedBenefit = memo(function AttachedBenefit({
     id: planOption.id,
     disabled: pending,
   });
-
-  /**
-   * A benefit carries one value, so it renders inline. Anything else is a
-   * record from before the percentage-only workflow and keeps its full form.
-   */
-  const single = planOption.values.length === 1 ? planOption.values[0] : undefined;
 
   return (
     <div
@@ -367,22 +524,13 @@ const AttachedBenefit = memo(function AttachedBenefit({
         <span className="min-w-0 flex-1">
           <span className="text-content block truncate font-semibold">{planOption.optionName}</span>
           <span className="text-content-subtle block text-xs">
-            {benefitTypeLabel(planOption.values)}
+            {planOption.isUmbrella
+              ? `${UMBRELLA_BENEFIT_LABEL} · ${subBenefits.length}`
+              : benefitTypeLabel(planOption.values)}
           </span>
         </span>
 
-        {single ? (
-          <PlanOptionValueInline
-            planOptionId={planOption.id}
-            planConfigurationId={planOption.planConfigurationId}
-            optionName={planOption.optionName}
-            optionFieldId={single.optionFieldId}
-            dataType={single.dataType}
-            unit={single.unit}
-            value={valueAsText(single)}
-            disabled={pending}
-          />
-        ) : null}
+        <BenefitValue planOption={planOption} pending={pending} />
 
         <button
           type="button"
@@ -394,7 +542,46 @@ const AttachedBenefit = memo(function AttachedBenefit({
         </button>
       </div>
 
-      {single ? null : (
+      {planOption.isUmbrella ? (
+        <div className="border-border-subtle mt-3 space-y-2 border-l-2 pl-3">
+          {subBenefits.map((child) => (
+            <div key={child.id} className="flex flex-wrap items-center gap-2">
+              <span className="min-w-0 flex-1">
+                <span className="text-content block truncate text-sm font-medium">
+                  {child.optionName}
+                </span>
+                <span className="text-content-subtle block text-xs">
+                  {benefitTypeLabel(child.values)}
+                </span>
+              </span>
+
+              <BenefitValue planOption={child} pending={isOptimisticPlanOption(child)} />
+
+              <button
+                type="button"
+                onClick={() => onRemove(child.id, child.optionName)}
+                aria-label={`Remove ${child.optionName}`}
+                className="text-danger hover:bg-danger-soft rounded-(--radius-control) p-1.5"
+              >
+                <IconTrash className="size-3.5" />
+              </button>
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={() =>
+              onAddSubBenefit({ id: planOption.optionId, name: planOption.optionName })
+            }
+            className="text-brand-strong hover:bg-brand-soft rounded-(--radius-control) px-1.5 py-1 text-xs font-semibold"
+          >
+            + Add a benefit to this group
+          </button>
+        </div>
+      ) : null}
+
+      {/* A benefit with several values keeps its full form below the row. */}
+      {planOption.isUmbrella || planOption.values.length <= 1 ? null : (
         <div className="mt-4">
           <PlanOptionValuesForm planOption={planOption} />
         </div>
@@ -402,3 +589,27 @@ const AttachedBenefit = memo(function AttachedBenefit({
     </div>
   );
 });
+
+/**
+ * The single value a benefit carries, edited inline.
+ *
+ * A group carries none, and a benefit with several values is edited in the form
+ * below its row instead — both render nothing here.
+ */
+function BenefitValue({ planOption, pending }: { planOption: PlanOptionDto; pending: boolean }) {
+  const single = planOption.values.length === 1 ? planOption.values[0] : undefined;
+  if (!single) return null;
+
+  return (
+    <PlanOptionValueInline
+      planOptionId={planOption.id}
+      planConfigurationId={planOption.planConfigurationId}
+      optionName={planOption.optionName}
+      optionFieldId={single.optionFieldId}
+      dataType={single.dataType}
+      unit={single.unit}
+      value={valueAsText(single)}
+      disabled={pending}
+    />
+  );
+}

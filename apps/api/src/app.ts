@@ -42,10 +42,7 @@ export function createApp(): Express {
 
   // Uploaded images (company logos). `crossOriginResourcePolicy` is relaxed so
   // the web client on another origin can render them.
-  app.use(
-    env.uploadPublicPath,
-    express.static(env.uploadDir, { fallthrough: true, maxAge: '1h' }),
-  );
+  app.use(env.uploadPublicPath, express.static(env.uploadDir, { fallthrough: true, maxAge: '1h' }));
 
   app.use(API_BASE_PATH, apiRouter);
 

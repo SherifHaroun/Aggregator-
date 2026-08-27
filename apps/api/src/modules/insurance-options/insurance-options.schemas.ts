@@ -1,4 +1,4 @@
-import { OPTION_FIELD_DATA_TYPES_IDS } from '@aggregator/shared';
+import { BENEFIT_VALUE_KIND_IDS, OPTION_FIELD_DATA_TYPES_IDS } from '@aggregator/shared';
 import { z } from 'zod';
 
 /** Definition of one field an option requires. */
@@ -27,16 +27,36 @@ export const createInsuranceOptionSchema = z.object({
   description: z.string().trim().max(2000).nullable().optional(),
   isActive: z.boolean().optional(),
   /**
+   * What the benefit carries: a percentage, a limit or text. This is the only
+   * thing the web client sends besides the name — the field definition behind
+   * it comes from `BENEFIT_VALUE_KINDS`, so no employee configures a data type.
+   * Ignored for an umbrella, which carries nothing.
+   */
+  valueKind: z.enum(BENEFIT_VALUE_KIND_IDS).optional(),
+  /**
+   * An umbrella groups sub-benefits and holds no value of its own, so it is
+   * created with no fields at all.
+   */
+  isUmbrella: z.boolean().optional(),
+  /** The umbrella this benefit belongs under. Omitted for a top-level benefit. */
+  parentId: z.string().min(1).nullable().optional(),
+  /**
    * Optional. Omitted — which is what the web client always does — the benefit
-   * is created with the standard single percentage value. Supplying fields
+   * is created with the single value its kind describes. Supplying fields
    * explicitly remains possible for benefits that need another shape.
    */
   fields: z.array(optionFieldInputSchema).max(50).optional(),
 });
 
-/** Fields are managed through their own endpoints, never on the option body. */
+/**
+ * Fields are managed through their own endpoints, never on the option body.
+ *
+ * Neither is the benefit's place in the hierarchy editable: moving a benefit
+ * between umbrellas would silently rearrange every configuration that carries
+ * it. Create the benefit where it belongs.
+ */
 export const updateInsuranceOptionSchema = createInsuranceOptionSchema
-  .omit({ fields: true })
+  .omit({ fields: true, valueKind: true, isUmbrella: true, parentId: true })
   .partial();
 
 export type OptionFieldInput = z.infer<typeof optionFieldInputSchema>;

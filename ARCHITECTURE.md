@@ -120,6 +120,40 @@ is rows in `OptionField`; what a configuration says about it is rows in
 `PlanOptionValue`. An employee can define a benefit that has never existed
 before, with fields nobody anticipated, without a schema change or a deploy.
 
+### What a benefit carries
+
+Creating a benefit asks for a name and one decision: does it carry a
+**percentage** (80% coverage), a **limit** (600 EGP) or **text** (a provider
+network)? Those three kinds live in
+[`config/benefits.ts`](packages/shared/src/config/benefits.ts); each names the
+single `OptionField` the API creates behind it, which is why no employee is ever
+asked about a data type or a unit. Adding a kind is an entry in that registry.
+
+### A benefit can group other benefits
+
+"Life & Accident Coverage" is not one figure — it is death, disability and the
+rest, each with its own value. `InsuranceOption` therefore has a self-relation:
+
+```
+InsuranceOption  isUmbrella = true      "Life & Accident Coverage"   no fields
+      └── parentId ──> InsuranceOption  "Death (Natural)"            one field
+```
+
+- An **umbrella** carries no value, so it is created with no `OptionField`.
+- A **sub-benefit** is an ordinary benefit that names a parent. It is attached,
+  valued and compared exactly like any other; nothing about the hierarchy
+  reaches `PlanOption` or `PlanOptionValue`.
+- Nesting is **one level**: a sub-benefit cannot itself be an umbrella. The
+  service refuses it, and every screen can therefore render the whole catalogue
+  without recursion. `MAX_BENEFIT_DEPTH` records the intent.
+
+A group travels with its parts. Attaching an umbrella attaches its
+sub-benefits; attaching a sub-benefit attaches its umbrella; removing the
+umbrella removes them from that configuration. That is why
+`POST /plan-configurations/:id/options` answers with a **list** of
+`PlanOptionDto`. The comparison skips umbrellas — a heading is not cover, and a
+column for it would read "not covered" against every plan.
+
 ### Plan vs PlanConfiguration
 
 A **`Plan`** is the product — name, code, category, company, insurance type.
@@ -178,13 +212,43 @@ a **build failure**: a type-level assertion stops compiling if the two lists
 disagree. Adding a value means editing the shared config, the Prisma enum, and
 adding a migration — together, or the build breaks.
 
+### The same cover at another age
+
+Health insurance is priced age band by age band: one plan is the identical
+benefit set sold ten times over at ten premiums. Re-entering thirty benefits per
+band is where mistakes come from, so
+`POST /plan-configurations/:id/duplicate` copies a configuration to a new band —
+every attached benefit, in its order, with the value it holds — and takes the
+new band plus anything the caller wants to override. Whatever is omitted is
+inherited. The copy is then independent: each configuration owns its own
+`PlanOption` rows and values, so it can diverge wherever the ages actually
+differ. "Add different age" on a configuration card is this endpoint.
+
+The copy is deliberately three statements — the attachments in one
+`createManyAndReturn`, their values in one `createMany` — because a round trip
+per benefit runs past the transaction timeout on exactly the plans that have
+most of them.
+
+### Figures the plan never stated
+
+A blank deductible does not mean zero. `NOT_SPECIFIED_LABEL` in
+`business-rules.ts` is what every screen shows for a missing figure, through
+`formatMoney` and `formatPercentage`. And every figure is entered through
+`NumberInput`, which groups digits as they are typed (`100,000`) and hands the
+plain number back to the API — `rules/number-format.ts` is the only
+implementation of both directions.
+
 ### Age
 
-`PlanConfiguration` stores **no age column**. The SME average age remains the
-single constant in `business-rules.ts`; the API resolves it per configuration in
-`plan-configurations.mapper.ts` and returns it as `averageAge`. Age-based
-pricing has not been specified — adding it later means new columns here, not a
-redesign.
+`PlanConfiguration` stores the band it applies to (`ageFrom`..`ageTo`) and
+**never the customer's own age** — that is a number they type on the comparison
+screen and it is matched against the band. Age-based pricing is therefore one
+configuration per band, which is what the duplicate endpoint above exists to
+make bearable.
+
+The SME average age remains the single constant in `business-rules.ts`; the API
+resolves it per configuration in `plan-configurations.mapper.ts` and returns it
+as `averageAge`.
 
 ### How a dynamic value is stored
 

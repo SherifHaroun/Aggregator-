@@ -11,7 +11,7 @@ import {
   Callout,
   Field,
   Input,
-  InputWithSuffix,
+  NumberInput,
   Select,
   describeError,
   useToast,
@@ -298,38 +298,22 @@ function ValueInput({
       return <Input {...props} value={value} onChange={(event) => onChange(event.target.value)} />;
 
     case 'PERCENTAGE':
-      return (
-        <InputWithSuffix
-          {...props}
-          type="number"
-          min={0}
-          max={100}
-          step="0.01"
-          suffix={unit ?? '%'}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      );
+      return <NumberInput {...props} suffix={unit ?? '%'} value={value} onChange={onChange} />;
 
+    /**
+     * A limit is the figure most likely to have five digits in it, so it is
+     * grouped as it is typed — 100,000, never 100000 counted by eye. The value
+     * that leaves the control is still the plain number.
+     */
     case 'CURRENCY':
     case 'NUMBER':
     default:
-      return unit ? (
-        <InputWithSuffix
+      return (
+        <NumberInput
           {...props}
-          type="number"
-          step="0.01"
-          suffix={unit}
+          {...(unit ? { suffix: unit } : {})}
           value={value}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      ) : (
-        <Input
-          {...props}
-          type="number"
-          step="0.01"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
+          onChange={onChange}
         />
       );
   }

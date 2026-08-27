@@ -34,6 +34,13 @@ export function toPlanOptionDto(planOption: PlanOptionWithRelations): PlanOption
     planConfigurationId: planOption.planConfigurationId,
     optionId: planOption.optionId,
     optionName: planOption.option.name,
+    /**
+     * Copied from the benefit so a client can nest sub-benefits under their
+     * group without fetching the catalogue as well. An umbrella has no fields,
+     * so `values` below is empty for it — the value lives on its children.
+     */
+    isUmbrella: planOption.option.isUmbrella,
+    parentOptionId: planOption.option.parentId,
     sortOrder: planOption.sortOrder,
     createdAt: toIso(planOption.createdAt),
     updatedAt: toIso(planOption.updatedAt),

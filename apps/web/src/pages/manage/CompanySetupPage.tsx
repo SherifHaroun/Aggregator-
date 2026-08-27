@@ -100,7 +100,10 @@ export function CompanySetupPage() {
               <Button variant="secondary" onClick={() => navigate(ROUTES.companies.list)}>
                 Skip for now
               </Button>
-              <Button onClick={() => navigate(ROUTES.companies.list)} disabled={existing.length === 0}>
+              <Button
+                onClick={() => navigate(ROUTES.companies.list)}
+                disabled={existing.length === 0}
+              >
                 <IconCheck className="size-4" />
                 Done
               </Button>

@@ -47,9 +47,11 @@ export function errorHandler(
       const key = issue.path.join('.') || '_';
       (details[key] ??= []).push(issue.message);
     }
-    res.status(400).json(
-      failure({ code: 'VALIDATION_ERROR', message: 'The request payload is invalid.', details }),
-    );
+    res
+      .status(400)
+      .json(
+        failure({ code: 'VALIDATION_ERROR', message: 'The request payload is invalid.', details }),
+      );
     return;
   }
 
@@ -88,7 +90,7 @@ export function errorHandler(
     console.error(error);
   }
 
-  res.status(500).json(
-    failure({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' }),
-  );
+  res
+    .status(500)
+    .json(failure({ code: 'INTERNAL_ERROR', message: 'An unexpected error occurred.' }));
 }

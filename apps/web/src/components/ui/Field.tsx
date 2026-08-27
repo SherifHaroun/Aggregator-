@@ -19,7 +19,11 @@ export function Field({
   hint?: ReactNode;
   error?: string | undefined;
   required?: boolean;
-  children: (props: { id: string; 'aria-invalid'?: true; 'aria-describedby'?: string }) => ReactNode;
+  children: (props: {
+    id: string;
+    'aria-invalid'?: true;
+    'aria-describedby'?: string;
+  }) => ReactNode;
   className?: string;
 }) {
   const id = useId();

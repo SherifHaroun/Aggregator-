@@ -12,19 +12,24 @@ import { ApiError } from '@/lib/api-client';
  */
 export function useRecordForm<TValues extends object>(initialValues: TValues) {
   const [values, setValues] = useState<TValues>(initialValues);
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof TValues & string, string>>>({});
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof TValues & string, string>>>(
+    {},
+  );
   const [formError, setFormError] = useState<string | null>(null);
 
-  const setValue = useCallback(<TKey extends keyof TValues & string>(key: TKey, value: TValues[TKey]) => {
-    setValues((current) => ({ ...current, [key]: value }));
-    // Clear the field's error as soon as the employee edits it.
-    setFieldErrors((current) => {
-      if (!(key in current)) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-  }, []);
+  const setValue = useCallback(
+    <TKey extends keyof TValues & string>(key: TKey, value: TValues[TKey]) => {
+      setValues((current) => ({ ...current, [key]: value }));
+      // Clear the field's error as soon as the employee edits it.
+      setFieldErrors((current) => {
+        if (!(key in current)) return current;
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+    },
+    [],
+  );
 
   /** Replace all values, e.g. once an existing record has loaded. */
   const reset = useCallback((next: TValues) => {

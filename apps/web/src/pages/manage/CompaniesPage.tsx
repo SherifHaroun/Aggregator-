@@ -69,8 +69,7 @@ export function CompaniesPage() {
         onRetry={() => void companies.refetch()}
         empty={{
           title: 'No insurance companies yet',
-          description:
-            'Add your first insurance company to start building the insurance database.',
+          description: 'Add your first insurance company to start building the insurance database.',
           action: (
             <ButtonLink to={ROUTES.companies.new}>
               <IconAdd className="size-4" />

@@ -40,7 +40,5 @@ export const requireWriteAccess: RequestHandler = (req, _res, next) => {
 
   if (provided !== '' && matchesToken(provided, expected)) return next();
 
-  next(
-    new HttpError(403, 'FORBIDDEN', 'You do not have permission to change insurance data.'),
-  );
+  next(new HttpError(403, 'FORBIDDEN', 'You do not have permission to change insurance data.'));
 };
