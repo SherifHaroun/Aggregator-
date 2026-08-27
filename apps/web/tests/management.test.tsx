@@ -952,6 +952,94 @@ describe('figures', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Copying a plan
+// ---------------------------------------------------------------------------
+
+describe('copying a plan', () => {
+  /** A plan priced for two age bands, the first carrying a benefit. */
+  function givenPricedPlan() {
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const younger = givenConfiguration('cfg_1', 'plan_1');
+    store.configurations.push({
+      ...store.configurations[0]!,
+      id: 'cfg_2',
+      ageFrom: 41,
+      ageTo: 60,
+      annualPrice: 15984,
+    });
+    givenOption();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: younger,
+      optionId: 'option_1',
+      sortOrder: 0,
+      note: '1 in 10 members ratio',
+    });
+    store.values.push({
+      planOptionId: 'planOption_1',
+      optionFieldId: 'option_1_percentage',
+      value: 80,
+    });
+  }
+
+  it('refuses to copy a plan under the same name', async () => {
+    const user = userEvent.setup();
+    givenPricedPlan();
+
+    renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
+    await user.click(await screen.findByRole('button', { name: /Copy plan/i }));
+
+    await user.type(await screen.findByLabelText(/New plan name/i), 'Tier One');
+
+    // Nothing is sent: the name is the one thing a copy must change.
+    expect(await screen.findByText(/different name/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Create the copy/i })).toBeDisabled();
+    expect(store.plans).toHaveLength(1);
+  });
+
+  it('copies only the configurations chosen, with their benefits and notes', async () => {
+    const user = userEvent.setup();
+    givenPricedPlan();
+
+    renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
+    await user.click(await screen.findByRole('button', { name: /Copy plan/i }));
+
+    await user.type(await screen.findByLabelText(/New plan name/i), 'Tier Two');
+    // The code follows the name unless one is typed.
+    expect(screen.getByLabelText(/Plan code/i)).toHaveValue('TIER-TWO');
+
+    // Everything is selected by default; drop the older band.
+    const choices = screen.getAllByRole('checkbox');
+    expect(choices).toHaveLength(2);
+    await user.click(choices[1]!);
+
+    await user.click(screen.getByRole('button', { name: /Create the copy/i }));
+
+    await waitFor(() => expect(store.plans).toHaveLength(2));
+    const copy = store.plans[1]!;
+    expect(copy.name).toBe('Tier Two');
+    expect(copy.code).toBe('TIER-TWO');
+
+    // One configuration came across, with its benefit, value and note.
+    const copied = store.configurations.filter((item) => item.planId === copy.id);
+    expect(copied).toHaveLength(1);
+    expect(copied[0]?.ageFrom).toBe(18);
+
+    const attachments = store.planOptions.filter(
+      (item) => item.planConfigurationId === copied[0]!.id,
+    );
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0]?.note).toBe('1 in 10 members ratio');
+    expect(store.values.find((v) => v.planOptionId === attachments[0]!.id)?.value).toBe(80);
+
+    // The plan it was copied from is untouched.
+    expect(store.configurations.filter((item) => item.planId === 'plan_1')).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // The same cover at another age
 // ---------------------------------------------------------------------------
 

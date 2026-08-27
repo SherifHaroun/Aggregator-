@@ -285,6 +285,18 @@ export function useSavePlan(id?: string) {
   );
 }
 
+/**
+ * Copy a plan under a new name, with the configurations the employee picked.
+ *
+ * Everything those configurations carry — benefits, values, notes — comes with
+ * them, and the copy is independent from the moment it exists.
+ */
+export function useDuplicatePlan(sourceId: string) {
+  return useInvalidatingMutation(keys.plans, (input: Record<string, unknown>) =>
+    api.post<PlanDto>(`/plans/${sourceId}/duplicate`, input),
+  );
+}
+
 export function useDeletePlan() {
   return useInvalidatingMutation(keys.plans, (id: string) => api.delete<void>(`/plans/${id}`));
 }

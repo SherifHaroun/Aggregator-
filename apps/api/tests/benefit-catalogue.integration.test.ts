@@ -20,6 +20,7 @@ import {
   deleteInsuranceOption,
   updateInsuranceOption,
 } from '../src/modules/insurance-options/insurance-options.service.js';
+import { duplicatePlan } from '../src/modules/plans/plans.service.js';
 import {
   addPlanOption,
   removePlanOption,
@@ -36,6 +37,9 @@ const db = () => {
   if (!prisma) throw new Error('TEST_DATABASE_URL is not set.');
   return prisma;
 };
+
+/** The plan behind `givenConfiguration`, for the tests that need its id. */
+let planId = '';
 
 /** A plan configuration to attach benefits to. Rebuilt for every test. */
 async function givenConfiguration(): Promise<string> {
@@ -58,8 +62,11 @@ async function givenConfiguration(): Promise<string> {
       geographicalCoverage: 'LOCAL',
       ageFrom: 18,
       ageTo: 60,
+      currency: 'EGP',
+      annualPrice: 7287,
     },
   });
+  planId = plan.id;
   return configuration.id;
 }
 
@@ -348,6 +355,62 @@ describe.skipIf(!url)('managing the benefit catalogue', () => {
     // Blank clears it rather than storing an empty remark.
     const cleared = await setPlanOptionNote(attached!.id, null);
     expect(cleared.note).toBeNull();
+  });
+
+  it('copies a plan under a new name, with the configurations chosen', async () => {
+    const configurationId = await givenConfiguration();
+    const benefit = await createInsuranceOption({ name: `${PREFIX}_copied_benefit` });
+    const [attached] = await addPlanOption(configurationId, { optionId: benefit.id });
+    await setPlanOptionValue(attached!.id, attached!.values[0]!.optionFieldId, 80);
+    await setPlanOptionNote(attached!.id, 'basic procedures only');
+
+    // A second band the copy will deliberately leave behind.
+    const older = await db().planConfiguration.create({
+      data: {
+        planId,
+        customerType: 'INDIVIDUAL',
+        geographicalCoverage: 'LOCAL',
+        ageFrom: 61,
+        ageTo: 75,
+        currency: 'EGP',
+        annualPrice: 40000,
+      },
+    });
+
+    const copy = await duplicatePlan(planId, {
+      name: `${PREFIX}_plan_tier_two`,
+      configurationIds: [configurationId],
+    });
+
+    expect(copy.id).not.toBe(planId);
+    expect(copy.configurations).toHaveLength(1);
+    expect(copy.configurations?.[0]?.ageFrom).toBe(18);
+
+    // The benefit, its figure and its remark all came across.
+    const copiedOption = copy.configurations?.[0]?.options?.[0];
+    expect(copiedOption?.optionId).toBe(benefit.id);
+    expect(copiedOption?.values[0]?.value).toBe(80);
+    expect(copiedOption?.note).toBe('basic procedures only');
+
+    // ...and the plan it came from still has both of its bands.
+    expect(await db().planConfiguration.count({ where: { planId } })).toBe(2);
+
+    await db().planConfiguration.deleteMany({ where: { id: older.id } });
+  });
+
+  it('refuses a copy that keeps the name of the plan it came from', async () => {
+    await givenConfiguration();
+    const source = await db().plan.findUniqueOrThrow({ where: { id: planId } });
+
+    await expect(duplicatePlan(planId, { name: source.name })).rejects.toMatchObject({
+      status: 400,
+    });
+    // Case is not a difference: "TIER ONE" is the same name as "tier one".
+    await expect(duplicatePlan(planId, { name: source.name.toUpperCase() })).rejects.toMatchObject({
+      status: 400,
+    });
+
+    expect(await db().plan.count({ where: { name: { startsWith: PREFIX } } })).toBe(1);
   });
 
   it('leaves the group standing when only one sub-benefit is deleted', async () => {

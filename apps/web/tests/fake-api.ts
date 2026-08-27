@@ -13,6 +13,7 @@ import {
   alternativeValueField,
   benefitValueField,
   DEFAULT_BENEFIT_VALUE_KIND,
+  derivePlanCode,
   resolveAverageAgeForCustomerType,
   type BenefitValueKind,
   type CompanyDto,
@@ -553,6 +554,66 @@ function route({
     }
     const plan = store.plans.find((item) => item.id === first);
     if (!plan) return fail(404, 'NOT_FOUND', 'The record was not found.');
+
+    /** Copy the plan with the configurations named, as the real API does. */
+    if (second === 'duplicate' && method === 'POST') {
+      const name = String(body.name ?? '').trim();
+      if (name.toLowerCase() === plan.name.trim().toLowerCase()) {
+        return fail(400, 'BAD_REQUEST', 'Give the copy a different name.', {
+          name: ['This is the name of the plan being copied. Enter a different one.'],
+        });
+      }
+
+      const code = (body.code as string | undefined) ?? derivePlanCode(name);
+      if (store.plans.some((item) => item.companyId === plan.companyId && item.code === code)) {
+        return fail(409, 'CONFLICT', `This company already has a plan with the code "${code}".`);
+      }
+
+      const copy: PlanDto = {
+        ...plan,
+        id: id('plan'),
+        name,
+        code,
+        description: (body.description as string | null) ?? plan.description,
+      };
+      store.plans.push(copy);
+
+      const wanted = (body.configurationIds as string[] | undefined) ?? null;
+      for (const configuration of store.configurations.filter(
+        (item) => item.planId === plan.id && (wanted === null || wanted.includes(item.id)),
+      )) {
+        const copiedConfiguration: PlanConfigurationDto = {
+          ...configuration,
+          id: id('configuration'),
+          planId: copy.id,
+        };
+        store.configurations.push(copiedConfiguration);
+
+        for (const planOption of store.planOptions.filter(
+          (item) => item.planConfigurationId === configuration.id,
+        )) {
+          const copiedOption: StoredPlanOption = {
+            ...planOption,
+            id: id('planOption'),
+            planConfigurationId: copiedConfiguration.id,
+          };
+          store.planOptions.push(copiedOption);
+          for (const value of store.values.filter((item) => item.planOptionId === planOption.id)) {
+            store.values.push({ ...value, planOptionId: copiedOption.id });
+          }
+        }
+      }
+
+      return ok(
+        {
+          ...copy,
+          configurations: store.configurations
+            .filter((item) => item.planId === copy.id)
+            .map((item) => hydrateConfiguration(store, item)),
+        },
+        201,
+      );
+    }
     if (method === 'GET') {
       return ok({
         ...plan,

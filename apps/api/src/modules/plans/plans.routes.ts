@@ -4,8 +4,20 @@ import { listQuerySchema } from '../../lib/pagination.js';
 import { param } from '../../lib/request.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
 import { listPlanConfigurations } from '../plan-configurations/plan-configurations.service.js';
-import { createPlanSchema, listPlansQueryExtension, updatePlanSchema } from './plans.schemas.js';
-import { createPlan, deletePlan, getPlan, listPlans, updatePlan } from './plans.service.js';
+import {
+  createPlanSchema,
+  duplicatePlanSchema,
+  listPlansQueryExtension,
+  updatePlanSchema,
+} from './plans.schemas.js';
+import {
+  createPlan,
+  deletePlan,
+  duplicatePlan,
+  getPlan,
+  listPlans,
+  updatePlan,
+} from './plans.service.js';
 
 const listQuery = listQuerySchema.merge(listPlansQueryExtension);
 
@@ -29,6 +41,22 @@ plansRouter.get(
   '/:planId',
   asyncHandler(async (req, res) => {
     res.json(success(await getPlan(param(req, 'planId'))));
+  }),
+);
+
+/**
+ * Copy the plan under a NEW NAME, with the configurations named in the body —
+ * all of them when none are named. Everything they carry comes across: options,
+ * their values and their notes.
+ */
+plansRouter.post(
+  '/:planId/duplicate',
+  asyncHandler(async (req, res) => {
+    res
+      .status(201)
+      .json(
+        success(await duplicatePlan(param(req, 'planId'), duplicatePlanSchema.parse(req.body))),
+      );
   }),
 );
 

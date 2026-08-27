@@ -253,6 +253,30 @@ one value, `PATCH /plan-options/:id/note` for the remark. The bulk
 `PUT /values` remains, and still replaces — but a self-saving box must never
 send back values it does not own, or two boxes on one row will wipe each other.
 
+### Copying a plan
+
+A company's plans are usually ONE PRODUCT PRICED SEVERAL WAYS — the same
+benefits and the same age bands at different premiums. `POST /plans/:id/duplicate`
+copies the plan with whichever configurations the employee picked
+(`configurationIds`, or all of them when omitted), and each brings its options,
+their values and their notes.
+
+Two rules the endpoint enforces rather than the form:
+
+- **The name must change.** A copy that keeps the source's name is refused
+  (400), case-insensitively. Two identically-named plans in one company is how
+  the wrong one gets quoted, and the schema does not make plan names unique.
+- **The code must be free within the company**, since `@@unique([companyId, code])`
+  would otherwise fail with a message about a constraint. It is derived from the
+  new name by `derivePlanCode` when not supplied — the same rule the create form
+  uses.
+
+The copy is independent from the moment it exists: it owns its configurations,
+option rows and values, so editing it never touches the plan it came from. Like
+the age-band copy, it runs a fixed number of statements — configurations, then
+attachments, then values — rather than one per row, because the plans worth
+copying are exactly the ones with hundreds of rows.
+
 ### Figures the plan never stated
 
 A blank deductible does not mean zero. `NOT_SPECIFIED_LABEL` in

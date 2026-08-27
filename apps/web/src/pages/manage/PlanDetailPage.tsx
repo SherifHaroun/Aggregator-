@@ -24,6 +24,7 @@ import {
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
 import { ConfigurationDialog } from '@/features/company-setup/ConfigurationDialog';
+import { CopyPlanDialog } from '@/features/company-setup/CopyPlanDialog';
 import { PlanDialog } from '@/features/company-setup/PlanDialog';
 import {
   useCompany,
@@ -50,6 +51,8 @@ export function PlanDetailPage() {
   const deleteConfiguration = useDeletePlanConfiguration();
 
   const [editingPlan, setEditingPlan] = useState(false);
+  /** True while the employee is copying this plan into a new one. */
+  const [copyingPlan, setCopyingPlan] = useState(false);
   const [editingConfiguration, setEditingConfiguration] = useState<
     PlanConfigurationDto | null | undefined
   >(undefined);
@@ -86,10 +89,18 @@ export function PlanDetailPage() {
         }
         actions={
           plan.data ? (
-            <Button variant="secondary" onClick={() => setEditingPlan(true)}>
-              <IconEdit className="size-4" />
-              Edit plan
-            </Button>
+            <>
+              {/* One product priced several ways is the norm: copy it rather
+                  than re-enter every benefit for the next tier. */}
+              <Button variant="secondary" onClick={() => setCopyingPlan(true)}>
+                <IconCopy className="size-4" />
+                Copy plan
+              </Button>
+              <Button variant="secondary" onClick={() => setEditingPlan(true)}>
+                <IconEdit className="size-4" />
+                Edit plan
+              </Button>
+            </>
           ) : undefined
         }
       />
@@ -166,6 +177,14 @@ export function PlanDetailPage() {
           </div>
         )}
       </DataState>
+
+      {copyingPlan && companyId && plan.data ? (
+        <CopyPlanDialog
+          companyId={companyId}
+          plan={plan.data}
+          onClose={() => setCopyingPlan(false)}
+        />
+      ) : null}
 
       {editingPlan && companyId && plan.data ? (
         <PlanDialog companyId={companyId} plan={plan.data} onClose={() => setEditingPlan(false)} />

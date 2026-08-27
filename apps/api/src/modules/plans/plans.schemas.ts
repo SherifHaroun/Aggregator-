@@ -21,6 +21,26 @@ export const updatePlanSchema = createPlanSchema
   .omit({ companyId: true, insuranceTypeId: true })
   .partial();
 
+/**
+ * Copy a plan, with the configurations the employee picked.
+ *
+ * The name is REQUIRED and must differ from the plan being copied — that is the
+ * whole point of a copy, and two plans of one company reading the same is how
+ * an employee prices the wrong one. The code is derived from the new name when
+ * it is not given, exactly as it is when a plan is created.
+ *
+ * `configurationIds` selects what comes across. Omitted, every configuration
+ * comes; an empty list copies the plan on its own, which is a legitimate way to
+ * start a plan that shares only its description.
+ */
+export const duplicatePlanSchema = z.object({
+  name: z.string().trim().min(1).max(200),
+  code: z.string().trim().min(1).max(60).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
+  configurationIds: z.array(z.string().min(1)).max(100).optional(),
+  isActive: z.boolean().optional(),
+});
+
 export const listPlansQueryExtension = z.object({
   companyId: z.string().min(1).optional(),
   insuranceTypeId: z.string().min(1).optional(),
@@ -28,3 +48,4 @@ export const listPlansQueryExtension = z.object({
 
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;
 export type UpdatePlanInput = z.infer<typeof updatePlanSchema>;
+export type DuplicatePlanInput = z.infer<typeof duplicatePlanSchema>;
