@@ -266,17 +266,43 @@ there is no separate endpoint. `DELETE` means permanent removal and is refused
 (409) whenever other records depend on the row, so historical comparisons and
 reports keep resolving:
 
-| Deleting           | Refused when                                              |
-| ------------------ | --------------------------------------------------------- |
-| Company            | it has plans                                               |
-| Insurance type     | it has plans or options                                    |
-| Option             | any configuration uses it                                  |
-| Option field       | any configuration has supplied a value for it              |
-| Plan               | never — configurations, options and values cascade with it |
-| Plan configuration | never — its options and values cascade with it             |
+| Deleting           | Refused when                                                       |
+| ------------------ | ------------------------------------------------------------------ |
+| Company            | it has plans                                                        |
+| Insurance type     | it has plans or options                                             |
+| Option             | any configuration uses it, or it groups sub-benefits — see below    |
+| Option field       | any configuration has supplied a value for it                       |
+| Plan               | never — configurations, options and values cascade with it          |
+| Plan configuration | never — its options and values cascade with it                      |
 
 `OptionField.dataType` cannot be changed once plans have supplied values for it,
 since existing values live in a column chosen by the old type.
+
+#### Renaming and deleting a benefit
+
+Two different things get called "delete" on the benefits board, and they are
+kept visibly apart:
+
+- **Remove from this configuration** — the trash on a coverage row. One
+  attachment goes; the benefit stays in the catalogue. Instant, no confirmation.
+- **Delete the benefit** — the trash in the Available benefits panel, which
+  lists the whole catalogue (attached entries included, greyed) precisely so
+  anything can be deleted. `DELETE /insurance-options/:id` refuses while a
+  configuration carries the benefit or a group still holds sub-benefits;
+  `?force=true` carries it through, detaching the benefit everywhere and taking
+  a group's sub-benefits with it.
+
+**Renaming** sits beside them, on the same rows: `PATCH /insurance-options/:id`
+changes the name on every plan of every company at once, because an attachment
+points at the record and nothing anywhere holds a copy of the name. What the
+benefit CARRIES is deliberately not editable — the recorded values were entered
+against that kind, so a wrong kind is a new benefit, not an edit.
+
+The refusal is the default because a benefit in use is normally deactivated, not
+destroyed. `force` is never sent on the client's own initiative: the confirm
+dialog states how many sub-benefits and configurations go with it — read from
+`usageCount` on the catalogue response — so the employee decides knowing the
+cost, rather than discovering it from a 409.
 
 ### Database
 

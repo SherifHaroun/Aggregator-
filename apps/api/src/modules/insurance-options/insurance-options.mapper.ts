@@ -22,6 +22,8 @@ export function toOptionFieldDto(field: OptionField): OptionFieldDto {
 export type InsuranceOptionWithRelations = InsuranceOption & {
   fields?: OptionField[];
   children?: InsuranceOptionWithRelations[];
+  /** From `_count: { select: { planOptions: true } }`. */
+  _count?: { planOptions: number };
 };
 
 export function toInsuranceOptionDto(option: InsuranceOptionWithRelations): InsuranceOptionDto {
@@ -37,5 +39,6 @@ export function toInsuranceOptionDto(option: InsuranceOptionWithRelations): Insu
     updatedAt: toIso(option.updatedAt),
     ...(option.fields ? { fields: option.fields.map(toOptionFieldDto) } : {}),
     ...(option.children ? { children: option.children.map(toInsuranceOptionDto) } : {}),
+    ...(option._count ? { usageCount: option._count.planOptions } : {}),
   };
 }

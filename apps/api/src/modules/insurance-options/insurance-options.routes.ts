@@ -6,6 +6,7 @@ import { param } from '../../lib/request.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
 import {
   createInsuranceOptionSchema,
+  deleteInsuranceOptionQuerySchema,
   optionFieldInputSchema,
   updateInsuranceOptionSchema,
   updateOptionFieldSchema,
@@ -69,10 +70,18 @@ insuranceOptionsRouter.patch(
   }),
 );
 
+/**
+ * Delete a benefit from the catalogue.
+ *
+ * `?force=true` carries the deletion through when configurations still carry
+ * the benefit, or when a group still holds sub-benefits. Without it, either
+ * case is refused with a message saying what depends on it.
+ */
 insuranceOptionsRouter.delete(
   '/:id',
   asyncHandler(async (req, res) => {
-    await deleteInsuranceOption(param(req, 'id'));
+    const { force } = deleteInsuranceOptionQuerySchema.parse(req.query);
+    await deleteInsuranceOption(param(req, 'id'), { force });
     res.status(204).send();
   }),
 );

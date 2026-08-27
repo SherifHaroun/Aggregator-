@@ -1059,6 +1059,157 @@ describe('dynamic insurance options', () => {
     await waitFor(() => expect(store.planOptions).toHaveLength(0));
   });
 
+  it('renames a benefit, and the coverage row follows', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Rename Aurora Wellness Programme' }),
+    );
+    const field = await screen.findByLabelText(/Benefit name/i);
+    await user.clear(field);
+    await user.type(field, 'Wellness Programme');
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    await waitFor(() => expect(store.options[0]?.name).toBe('Wellness Programme'));
+    // The benefit is one record, so the row on the plan reads the new name.
+    expect(await screen.findByLabelText('Wellness Programme value')).toBeInTheDocument();
+  });
+
+  it('renames a sub-benefit without touching its group', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+
+    givenOption('option_group', 'Life & Accident Coverage');
+    store.options[0]!.isUmbrella = true;
+    store.options[0]!.fields = [];
+    givenOption('option_death', 'Death (Natural)');
+    store.options[1]!.parentId = 'option_group';
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(await screen.findByRole('button', { name: 'Rename Death (Natural)' }));
+    const field = await screen.findByLabelText(/Benefit name/i);
+    await user.clear(field);
+    await user.type(field, 'Death by natural causes');
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    await waitFor(() => expect(store.options[1]?.name).toBe('Death by natural causes'));
+    expect(store.options[0]?.name).toBe('Life & Accident Coverage');
+    expect(store.options[1]?.parentId).toBe('option_group');
+  });
+
+  it('refuses to rename a benefit onto a name that already exists', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption('option_1', 'Optical');
+    givenOption('option_2', 'Dental');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(await screen.findByRole('button', { name: 'Rename Optical' }));
+    const field = await screen.findByLabelText(/Benefit name/i);
+    await user.clear(field);
+    await user.type(field, 'Dental');
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    expect(await screen.findByText(/already exists/i)).toBeInTheDocument();
+    expect(store.options[0]?.name).toBe('Optical');
+  });
+
+  it('deletes a benefit from the catalogue when nothing is using it', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Delete Aurora Wellness Programme' }),
+    );
+    // The dialog says what this is, so it is not mistaken for "remove from this plan".
+    expect(await screen.findByText(/catalogue for every company/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Delete$/ }));
+
+    await waitFor(() => expect(store.options).toHaveLength(0));
+  });
+
+  it('warns what a benefit in use takes with it, then deletes it everywhere', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+    store.values.push({
+      planOptionId: 'planOption_1',
+      optionFieldId: 'option_1_percentage',
+      value: 80,
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Delete Aurora Wellness Programme' }),
+    );
+    expect(await screen.findByText(/1 plan configuration that carries it/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Delete everywhere/i }));
+
+    // The benefit, its attachment and its recorded value all go.
+    await waitFor(() => expect(store.options).toHaveLength(0));
+    expect(store.planOptions).toHaveLength(0);
+    expect(store.values).toHaveLength(0);
+  });
+
+  it('deletes a single sub-benefit and leaves its group standing', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+
+    givenOption('option_group', 'Life & Accident Coverage');
+    store.options[0]!.isUmbrella = true;
+    store.options[0]!.fields = [];
+    givenOption('option_death', 'Death (Natural)');
+    store.options[1]!.parentId = 'option_group';
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(await screen.findByRole('button', { name: 'Delete Death (Natural)' }));
+    await user.click(await screen.findByRole('button', { name: /^Delete$/ }));
+
+    await waitFor(() => expect(store.options).toHaveLength(1));
+    expect(store.options[0]?.name).toBe('Life & Accident Coverage');
+  });
+
   it('offers a saved benefit under Available benefits, draggable and labelled Percentage', async () => {
     givenCompany();
     givenInsuranceType();

@@ -31,7 +31,9 @@ import {
   Card,
   CardBody,
   CardHeader,
+  ConfirmDialog,
   IconAdd,
+  IconEdit,
   IconGrip,
   IconLayers,
   IconShield,
@@ -42,11 +44,13 @@ import {
 import {
   isOptimisticPlanOption,
   useAddPlanOption,
+  useDeleteInsuranceOption,
   useRemovePlanOption,
   useReorderPlanOptions,
 } from '@/features/insurance-data/insurance-data.api';
 import { cn } from '@/lib/cn';
 import { NewBenefitDialog } from './NewBenefitDialog';
+import { RenameBenefitDialog } from './RenameBenefitDialog';
 import { PlanOptionValueInline, PlanOptionValuesForm, valueAsText } from './PlanOptionValuesForm';
 
 /** Prefix distinguishing a catalogue item from an already-attached benefit. */
@@ -118,12 +122,17 @@ export function ConfigurationOptionsBoard({
   const addOption = useAddPlanOption(configurationId);
   const removeOption = useRemovePlanOption(configurationId);
   const reorder = useReorderPlanOptions(configurationId);
+  const deleteBenefit = useDeleteInsuranceOption();
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   /** The group a new benefit is being created inside, or `null` at top level. */
   const [creating, setCreating] = useState<{ id: string; name: string } | null | undefined>(
     undefined,
   );
+  /** The catalogue benefit the employee has asked to delete outright. */
+  const [deleting, setDeleting] = useState<InsuranceOptionDto | null>(null);
+  /** The catalogue benefit being renamed. */
+  const [renaming, setRenaming] = useState<InsuranceOptionDto | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -142,16 +151,23 @@ export function ConfigurationOptionsBoard({
     [attached],
   );
 
-  /** What is still addable, with an attached group's remaining parts kept. */
+  /**
+   * The whole catalogue, not just what is addable.
+   *
+   * A benefit already on this configuration stays listed — greyed, with no Add —
+   * because this panel is also where a benefit is DELETED, and a benefit you
+   * cannot see is a benefit you cannot get rid of. `addable` is what is still
+   * missing from the configuration.
+   */
   const catalogue = useMemo(
     () =>
-      available.flatMap((option) => {
-        const children = (option.children ?? []).filter(
+      available.map((option) => ({
+        option,
+        addableChildren: (option.children ?? []).filter(
           (child) => !attachedOptionIds.has(child.id),
-        );
-        if (attachedOptionIds.has(option.id) && children.length === 0) return [];
-        return [{ option, children }];
-      }),
+        ),
+        isAttached: attachedOptionIds.has(option.id),
+      })),
     [attachedOptionIds, available],
   );
 
@@ -183,6 +199,32 @@ export function ConfigurationOptionsBoard({
     (parent: InsuranceOptionDto, child: InsuranceOptionDto) => attach(child, [parent, child]),
     [attach],
   );
+
+  /**
+   * Delete a benefit from the catalogue.
+   *
+   * `force` is sent only when the employee has been told what depends on it —
+   * the confirm dialog states the number of configurations and sub-benefits
+   * that go with it, so the API's refusal is never what they find out from.
+   */
+  const confirmDelete = useCallback(() => {
+    if (!deleting) return;
+    const dependants = countDependants(deleting);
+
+    deleteBenefit.mutate(
+      { id: deleting.id, force: dependants.total > 0 },
+      {
+        onSuccess: () => {
+          notify(`${deleting.name} was deleted.`);
+          setDeleting(null);
+        },
+        onError: (error) => {
+          notify(describeError(error, 'the benefit'), 'error');
+          setDeleting(null);
+        },
+      },
+    );
+  }, [deleteBenefit, deleting, notify]);
 
   const remove = useCallback(
     (planOptionId: string, optionName: string) => {
@@ -278,26 +320,27 @@ export function ConfigurationOptionsBoard({
         <Card className="order-first lg:order-last lg:sticky lg:top-8">
           <CardHeader
             title="Available benefits"
-            description="Drag onto the plan, or use Add."
+            description="Drag onto the plan, or use Add. Delete removes a benefit from every plan."
             icon={<IconLayers className="size-5" />}
           />
           <CardBody className="space-y-2">
             {catalogue.length === 0 ? (
               <p className="text-content-subtle rounded-(--radius-control) border border-dashed px-3 py-5 text-center text-xs">
-                {available.length === 0
-                  ? 'No benefits exist yet. Create the first one below — it will be available to every company.'
-                  : 'Every available benefit is already on this configuration.'}
+                No benefits exist yet. Create the first one below — it will be available to every
+                company.
               </p>
             ) : (
               catalogue.map((entry) => (
                 <AvailableBenefit
                   key={entry.option.id}
                   option={entry.option}
-                  subBenefits={entry.children}
-                  isAttached={attachedOptionIds.has(entry.option.id)}
+                  subBenefits={entry.addableChildren}
+                  isAttached={entry.isAttached}
                   onAdd={attachWithGroup}
                   onAddChild={attachChild}
                   onAddSubBenefit={setCreating}
+                  onRename={setRenaming}
+                  onDelete={setDeleting}
                 />
               ))
             )}
@@ -320,8 +363,64 @@ export function ConfigurationOptionsBoard({
           onClose={() => setCreating(undefined)}
         />
       ) : null}
+
+      {renaming ? (
+        <RenameBenefitDialog benefit={renaming} onClose={() => setRenaming(null)} />
+      ) : null}
+
+      {/* Deleting a benefit is not deleting it from this plan — it leaves the
+          catalogue for every company, so the dialog spells out the damage. */}
+      <ConfirmDialog
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        busy={deleteBenefit.isPending}
+        title={deleting ? `Delete ${deleting.name}?` : 'Delete this benefit?'}
+        description={deleting ? describeDeletion(deleting) : ''}
+        confirmLabel={
+          deleting && countDependants(deleting).total > 0 ? 'Delete everywhere' : 'Delete'
+        }
+        onConfirm={confirmDelete}
+      />
     </DndContext>
   );
+}
+
+/**
+ * What a benefit takes with it: its sub-benefits, and the configurations
+ * carrying it.
+ *
+ * The benefit's OWN usage is the configuration count, never the sum across the
+ * group: a group and its parts are attached together, so adding the children's
+ * counts would report the same configuration several times over.
+ */
+function countDependants(option: InsuranceOptionDto): {
+  subBenefits: number;
+  configurations: number;
+  total: number;
+} {
+  const subBenefits = (option.children ?? []).length;
+  const configurations = option.usageCount ?? 0;
+  return { subBenefits, configurations, total: subBenefits + configurations };
+}
+
+/** The consequence of the deletion, in the employee's own terms. */
+function describeDeletion(option: InsuranceOptionDto): string {
+  const { subBenefits, configurations } = countDependants(option);
+
+  const takes = [
+    subBenefits > 0
+      ? `${subBenefits} sub-benefit${subBenefits === 1 ? '' : 's'} filed under it`
+      : null,
+    configurations > 0
+      ? `${configurations} plan configuration${configurations === 1 ? '' : 's'} that carr${configurations === 1 ? 'ies' : 'y'} it`
+      : null,
+  ].filter(Boolean);
+
+  if (takes.length === 0) {
+    return 'This removes the benefit from the catalogue for every company. Nothing is using it, and it cannot be undone.';
+  }
+
+  return `This removes the benefit from the catalogue for every company, along with ${takes.join(' and ')}. Their recorded values are lost and this cannot be undone. To take it off this configuration only, use the remove button on its row instead.`;
 }
 
 function CoverageDropZone({
@@ -378,20 +477,27 @@ const AvailableBenefit = memo(function AvailableBenefit({
   onAdd,
   onAddChild,
   onAddSubBenefit,
+  onRename,
+  onDelete,
 }: {
   option: InsuranceOptionDto;
-  /** Sub-benefits not yet on this configuration. */
+  /** Sub-benefits not yet on this configuration — the addable ones. */
   subBenefits: InsuranceOptionDto[];
-  /** True when only the group's remaining parts are still addable. */
+  /** True when the benefit itself is already on this configuration. */
   isAttached: boolean;
   onAdd: (option: InsuranceOptionDto) => void;
   onAddChild: (parent: InsuranceOptionDto, child: InsuranceOptionDto) => void;
   onAddSubBenefit: (parent: { id: string; name: string }) => void;
+  onRename: (option: InsuranceOptionDto) => void;
+  onDelete: (option: InsuranceOptionDto) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: `${AVAILABLE}${option.id}`,
     disabled: isAttached,
   });
+
+  /** Every part of a group is listed, so any of them can be deleted. */
+  const children = option.children ?? [];
 
   return (
     <div
@@ -400,6 +506,7 @@ const AvailableBenefit = memo(function AvailableBenefit({
       className={cn(
         'border-border-subtle bg-surface hover:border-brand-border rounded-(--radius-control) border transition-colors',
         isDragging && 'opacity-50 shadow-(--shadow-raised)',
+        isAttached && 'bg-surface-muted/40',
       )}
     >
       <div
@@ -407,18 +514,18 @@ const AvailableBenefit = memo(function AvailableBenefit({
         {...attributes}
         aria-label={isAttached ? undefined : `Drag ${option.name}`}
         className={cn(
-          'flex items-center gap-2 p-3',
+          'flex items-center gap-1 p-3',
           isAttached ? 'cursor-default' : 'cursor-grab touch-none',
         )}
       >
         <span className="min-w-0 flex-1">
           <span className="text-content block truncate text-sm font-medium">{option.name}</span>
           <span className="text-content-subtle block text-xs">
-            {option.isUmbrella
-              ? isAttached
-                ? 'On this plan — parts below are not'
-                : `${UMBRELLA_BENEFIT_LABEL} · ${subBenefits.length}`
-              : benefitTypeLabel(option.fields)}
+            {isAttached
+              ? 'On this configuration'
+              : option.isUmbrella
+                ? `${UMBRELLA_BENEFIT_LABEL} · ${children.length}`
+                : benefitTypeLabel(option.fields)}
           </span>
         </span>
 
@@ -434,26 +541,85 @@ const AvailableBenefit = memo(function AvailableBenefit({
             <IconAdd className="size-4" />
           </button>
         )}
+
+        {/* Renames the benefit itself: it is global, so every plan follows. */}
+        <button
+          type="button"
+          onClick={() => onRename(option)}
+          onPointerDown={(event) => event.stopPropagation()}
+          aria-label={`Rename ${option.name}`}
+          title={`Rename ${option.name} everywhere`}
+          className="text-content-subtle hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-1.5"
+        >
+          <IconEdit className="size-4" />
+        </button>
+
+        {/* Deletes the benefit itself, everywhere — not just from this plan. */}
+        <button
+          type="button"
+          onClick={() => onDelete(option)}
+          onPointerDown={(event) => event.stopPropagation()}
+          aria-label={`Delete ${option.name}`}
+          title={`Delete ${option.name} from every plan`}
+          className="text-content-subtle hover:bg-danger-soft hover:text-danger rounded-(--radius-control) p-1.5"
+        >
+          <IconTrash className="size-4" />
+        </button>
       </div>
 
       {option.isUmbrella ? (
         <div className="border-border-subtle space-y-1 border-t px-3 py-2">
-          {subBenefits.map((child) => (
-            <div key={child.id} className="flex items-center gap-2">
-              <span className="min-w-0 flex-1">
-                <span className="text-content-muted block truncate text-xs">{child.name}</span>
-              </span>
-              <button
-                type="button"
-                onClick={() => onAddChild(option, child)}
-                onPointerDown={(event) => event.stopPropagation()}
-                aria-label={`Add ${child.name}`}
-                className="text-brand-strong hover:bg-brand-soft rounded-(--radius-control) p-1"
-              >
-                <IconAdd className="size-3.5" />
-              </button>
-            </div>
-          ))}
+          {children.map((child) => {
+            const addable = subBenefits.some((item) => item.id === child.id);
+            return (
+              <div key={child.id} className="flex items-center gap-1">
+                <span className="min-w-0 flex-1">
+                  <span
+                    className={cn(
+                      'block truncate text-xs',
+                      addable ? 'text-content-muted' : 'text-content-subtle',
+                    )}
+                  >
+                    {child.name}
+                  </span>
+                </span>
+
+                {addable ? (
+                  <button
+                    type="button"
+                    onClick={() => onAddChild(option, child)}
+                    onPointerDown={(event) => event.stopPropagation()}
+                    aria-label={`Add ${child.name}`}
+                    className="text-brand-strong hover:bg-brand-soft rounded-(--radius-control) p-1"
+                  >
+                    <IconAdd className="size-3.5" />
+                  </button>
+                ) : null}
+
+                <button
+                  type="button"
+                  onClick={() => onRename(child)}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  aria-label={`Rename ${child.name}`}
+                  title={`Rename ${child.name} everywhere`}
+                  className="text-content-subtle hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-1"
+                >
+                  <IconEdit className="size-3.5" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onDelete(child)}
+                  onPointerDown={(event) => event.stopPropagation()}
+                  aria-label={`Delete ${child.name}`}
+                  title={`Delete ${child.name} from every plan`}
+                  className="text-content-subtle hover:bg-danger-soft hover:text-danger rounded-(--radius-control) p-1"
+                >
+                  <IconTrash className="size-3.5" />
+                </button>
+              </div>
+            );
+          })}
 
           <button
             type="button"

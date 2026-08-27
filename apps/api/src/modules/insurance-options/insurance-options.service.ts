@@ -31,9 +31,14 @@ const fieldsInclude = {
  */
 const catalogueInclude = {
   ...fieldsInclude,
+  /**
+   * How many configurations carry the benefit, so a client can tell an employee
+   * what deleting it would take with it rather than finding out from a 409.
+   */
+  _count: { select: { planOptions: true } },
   children: {
     where: { isActive: true },
-    include: fieldsInclude,
+    include: { ...fieldsInclude, _count: { select: { planOptions: true } } },
     orderBy: [{ sortOrder: 'asc' as const }, { name: 'asc' as const }],
   },
 };
@@ -185,11 +190,36 @@ export async function createInsuranceOption(
   return toInsuranceOptionDto(option);
 }
 
+/**
+ * Rename a benefit, or change its description or status.
+ *
+ * A rename is the whole point of this endpoint in the product: the benefit is
+ * global, so correcting its name corrects it on every plan of every company at
+ * once — the attachments point at the record, never at a copy of the name.
+ *
+ * The name check mirrors the one on creation, and for the same reason: the
+ * case-folded unique index is the guarantee, and this is what turns a
+ * constraint violation into a sentence an employee can act on.
+ */
 export async function updateInsuranceOption(
   id: string,
   input: UpdateInsuranceOptionInput,
 ): Promise<InsuranceOptionDto> {
-  const option = await getPrisma().insuranceOption.update({
+  const prisma = getPrisma();
+
+  if (input.name !== undefined) {
+    const existing = await prisma.insuranceOption.findFirst({
+      where: { name: { equals: input.name, mode: 'insensitive' }, id: { not: id } },
+      select: { name: true },
+    });
+    if (existing) {
+      throw conflict(
+        `This benefit already exists — "${existing.name}" is available to every plan.`,
+      );
+    }
+  }
+
+  const option = await prisma.insuranceOption.update({
     where: { id },
     data: input,
     include: catalogueInclude,
@@ -198,21 +228,55 @@ export async function updateInsuranceOption(
 }
 
 /**
- * Permanent delete, allowed only while no plan uses the option and — for an
- * umbrella — while nothing still sits under it. Deleting a group otherwise
- * would either orphan its sub-benefits or take their plan values with them, so
- * the employee empties it first.
+ * Permanently delete a benefit from the catalogue.
+ *
+ * Two levels, because the two things an employee means are different:
+ *
+ *  - **Without `force`** the benefit goes only if nothing depends on it — no
+ *    configuration carries it, and no sub-benefit sits under it. This is the
+ *    safe default and the historical policy: a benefit in use is normally
+ *    deactivated, not destroyed.
+ *  - **With `force`** the deletion is carried through: the benefit is detached
+ *    from every configuration that carries it and, if it is a group, its
+ *    sub-benefits are deleted with it. The employee is told the count first and
+ *    asks for this explicitly; nothing here decides it on their behalf.
+ *
+ * Either way this removes DEFINITIONS. Detaching a benefit from one
+ * configuration is a different operation entirely — see `removePlanOption`.
  */
-export async function deleteInsuranceOption(id: string): Promise<void> {
+export async function deleteInsuranceOption(
+  id: string,
+  { force = false }: { force?: boolean } = {},
+): Promise<void> {
   const prisma = getPrisma();
-  const [usage, children] = await Promise.all([
-    prisma.planOption.count({ where: { optionId: id } }),
-    prisma.insuranceOption.count({ where: { parentId: id } }),
-  ]);
-  if (usage > 0) throw inUse('option', `${usage} plan(s)`);
-  if (children > 0) throw inUse('group of benefits', `${children} sub-benefit(s)`);
-  // Field definitions are owned by the option and cascade with it.
-  await prisma.insuranceOption.delete({ where: { id } });
+
+  const option = await prisma.insuranceOption.findUnique({
+    where: { id },
+    select: { id: true, isUmbrella: true, children: { select: { id: true } } },
+  });
+  if (!option) throw notFound('Insurance option');
+
+  // A group is deleted as a whole: itself and everything filed under it.
+  const optionIds = [option.id, ...option.children.map((child) => child.id)];
+  const usage = await prisma.planOption.count({ where: { optionId: { in: optionIds } } });
+
+  if (!force) {
+    if (usage > 0) throw inUse('benefit', `${usage} plan configuration(s)`);
+    if (option.children.length > 0) {
+      throw conflict(
+        `This group holds ${option.children.length} sub-benefit(s). Deleting it deletes them too — confirm the deletion to go ahead.`,
+      );
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Attachments first: their values cascade with them.
+    await tx.planOption.deleteMany({ where: { optionId: { in: optionIds } } });
+    // Then the sub-benefits, so nothing is left pointing at a deleted parent.
+    await tx.insuranceOption.deleteMany({ where: { parentId: option.id } });
+    // Field definitions are owned by the option and cascade with it.
+    await tx.insuranceOption.delete({ where: { id: option.id } });
+  });
 }
 
 /** Reorder the catalogue (drag-and-drop of the available-options list). */

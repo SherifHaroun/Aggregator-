@@ -63,3 +63,14 @@ export type OptionFieldInput = z.infer<typeof optionFieldInputSchema>;
 export type UpdateOptionFieldInput = z.infer<typeof updateOptionFieldSchema>;
 export type CreateInsuranceOptionInput = z.infer<typeof createInsuranceOptionSchema>;
 export type UpdateInsuranceOptionInput = z.infer<typeof updateInsuranceOptionSchema>;
+
+/**
+ * Deleting a benefit that something depends on takes a deliberate `force=true`,
+ * so a stray DELETE can never quietly strip a benefit off every plan.
+ */
+export const deleteInsuranceOptionQuerySchema = z.object({
+  force: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => value === 'true'),
+});

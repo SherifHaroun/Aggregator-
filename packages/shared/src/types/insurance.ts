@@ -64,6 +64,12 @@ export interface InsuranceOptionDto extends RecordMeta {
   fields?: OptionFieldDto[];
   /** Present on an umbrella fetched with its sub-benefits, in display order. */
   children?: InsuranceOptionDto[];
+  /**
+   * How many plan configurations currently carry this benefit, across every
+   * company. Returned by the catalogue endpoints so a client can say what
+   * deleting it would actually cost before it asks.
+   */
+  usageCount?: number;
 }
 
 /** One piece of information an option requires, defined by an employee. */

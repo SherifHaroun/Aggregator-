@@ -191,14 +191,22 @@ function route({
      * returned inside their umbrella, exactly as the real API returns them.
      */
     if (method === 'GET' && !first) {
+      const withUsage = (option: InsuranceOptionDto): InsuranceOptionDto => ({
+        ...option,
+        usageCount: store.planOptions.filter((item) => item.optionId === option.id).length,
+      });
       return ok(
         page(
           store.options
             .filter((option) => !option.parentId)
             .map((option) => ({
-              ...option,
+              ...withUsage(option),
               ...(option.isUmbrella
-                ? { children: store.options.filter((child) => child.parentId === option.id) }
+                ? {
+                    children: store.options
+                      .filter((child) => child.parentId === option.id)
+                      .map(withUsage),
+                  }
                 : {}),
             })),
         ),
@@ -259,7 +267,51 @@ function route({
     const option = store.options.find((item) => item.id === first);
     if (!option) return fail(404, 'NOT_FOUND', 'The record was not found.');
     if (method === 'GET' && !second) return ok(option);
+    if (method === 'DELETE' && !second) {
+      /**
+       * As the real API: a group goes with everything filed under it, and
+       * anything still in use needs an explicit `force`.
+       */
+      const optionIds = [
+        option.id,
+        ...store.options.filter((item) => item.parentId === option.id).map((item) => item.id),
+      ];
+      const usage = store.planOptions.filter((item) => optionIds.includes(item.optionId));
+
+      if (search.get('force') !== 'true') {
+        if (usage.length > 0) {
+          return fail(
+            409,
+            'CONFLICT',
+            `This benefit is used by ${usage.length} plan configuration(s) and cannot be deleted. Deactivate it instead.`,
+          );
+        }
+        if (optionIds.length > 1) {
+          return fail(409, 'CONFLICT', 'This group holds sub-benefits.');
+        }
+      }
+
+      const removedPlanOptionIds = usage.map((item) => item.id);
+      store.planOptions = store.planOptions.filter(
+        (item) => !removedPlanOptionIds.includes(item.id),
+      );
+      store.values = store.values.filter(
+        (value) => !removedPlanOptionIds.includes(value.planOptionId),
+      );
+      store.options = store.options.filter((item) => !optionIds.includes(item.id));
+      return noContent();
+    }
     if (method === 'PATCH') {
+      // Global uniqueness applies to a rename too, as the real API enforces it.
+      const name = body.name as string | undefined;
+      if (
+        name !== undefined &&
+        store.options.some(
+          (item) => item.id !== option.id && item.name.toLowerCase() === name.toLowerCase(),
+        )
+      ) {
+        return fail(409, 'DUPLICATE', 'This benefit already exists.');
+      }
       Object.assign(option, body);
       return ok(option);
     }

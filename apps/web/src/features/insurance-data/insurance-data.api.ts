@@ -208,10 +208,51 @@ export function useCreateInsuranceOption() {
   );
 }
 
+/**
+ * Rename a benefit, or change anything else about the benefit itself.
+ *
+ * A benefit is global, so the new name is the name on every plan of every
+ * company the moment it saves — nothing holds a copy of it. Plans and
+ * configurations are refreshed alongside the catalogue because a coverage row
+ * shows the benefit's name.
+ */
+export function useSaveInsuranceOption(id: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<InsuranceOptionDto, unknown, { name: string }>({
+    mutationFn: (input) => api.patch<InsuranceOptionDto>(`/insurance-options/${id}`, input),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.insuranceOptions });
+      void queryClient.invalidateQueries({ queryKey: keys.planConfigurations });
+      void queryClient.invalidateQueries({ queryKey: keys.plans });
+    },
+  });
+}
+
+/**
+ * Delete a benefit from the catalogue for good.
+ *
+ * `force` carries the deletion through when configurations still carry the
+ * benefit, or when a group still holds sub-benefits — the API refuses both
+ * without it, so the employee is always told what depends on the benefit before
+ * anything is destroyed.
+ *
+ * Plans and configurations are refreshed alongside the catalogue: a forced
+ * delete detaches the benefit everywhere, so any screen showing a benefit count
+ * or a coverage list is now out of date.
+ */
 export function useDeleteInsuranceOption() {
-  return useInvalidatingMutation(keys.insuranceOptions, (id: string) =>
-    api.delete<void>(`/insurance-options/${id}`),
-  );
+  const queryClient = useQueryClient();
+
+  return useMutation<void, unknown, { id: string; force?: boolean }>({
+    mutationFn: ({ id, force }) =>
+      api.delete<void>(`/insurance-options/${id}${force ? '?force=true' : ''}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.insuranceOptions });
+      void queryClient.invalidateQueries({ queryKey: keys.planConfigurations });
+      void queryClient.invalidateQueries({ queryKey: keys.plans });
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
