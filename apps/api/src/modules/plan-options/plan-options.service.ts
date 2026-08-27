@@ -140,37 +140,28 @@ export async function addPlanOption(
 }
 
 /**
- * Detach an option from a configuration. Its values cascade away with it.
+ * Detach ONE option from a configuration. Its values cascade away with it.
  *
- * Removing an umbrella removes the sub-benefits it heads FROM THIS
- * CONFIGURATION — leaving them behind would strand values under a heading that
- * no longer exists. The catalogue is untouched: this deletes attachments, never
- * benefits.
+ * Exactly one attachment goes — never a sub-benefit alongside its group, and
+ * never a group alongside a part of it. Removing a heading used to take its
+ * parts with it, which meant one click silently removed six rows and their
+ * recorded values; each row is now removed by the click that names it.
+ *
+ * A sub-benefit whose group is no longer attached still renders, at the top
+ * level, so nothing disappears from view either.
+ *
+ * The catalogue is untouched: this deletes an attachment, never a benefit.
  */
 export async function removePlanOption(planOptionId: string): Promise<void> {
   const prisma = getPrisma();
 
   const planOption = await prisma.planOption.findUnique({
     where: { id: planOptionId },
-    select: {
-      id: true,
-      planConfigurationId: true,
-      option: { select: { id: true, isUmbrella: true } },
-    },
+    select: { id: true },
   });
   if (!planOption) throw notFound('Plan option');
 
-  if (!planOption.option.isUmbrella) {
-    await prisma.planOption.delete({ where: { id: planOptionId } });
-    return;
-  }
-
-  await prisma.planOption.deleteMany({
-    where: {
-      planConfigurationId: planOption.planConfigurationId,
-      OR: [{ id: planOptionId }, { option: { parentId: planOption.option.id } }],
-    },
-  });
+  await prisma.planOption.delete({ where: { id: planOptionId } });
 }
 
 /** Reorder the options inside one configuration (drag-and-drop). */

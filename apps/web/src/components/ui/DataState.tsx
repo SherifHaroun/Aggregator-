@@ -20,7 +20,8 @@ export function describeError(error: unknown, subject: string): string {
       case 'SERVER_ERROR':
         return `The server did not return ${subject}. Please try again.`;
       case 'NOT_FOUND':
-        return `We could not find the ${subject} you asked for. It may have been deleted.`;
+        // `subject` already reads as "the plan" / "the benefit": no second article.
+        return `We could not find ${subject} you asked for. It may have been deleted.`;
       case 'VALIDATION_ERROR':
         return 'Some of the information provided is not valid. Please check the highlighted fields.';
       case 'INTERNAL_ERROR':

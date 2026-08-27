@@ -49,14 +49,17 @@ export const createInsuranceOptionSchema = z.object({
 });
 
 /**
- * Fields are managed through their own endpoints, never on the option body.
+ * Fields are managed through their own endpoints, never on the option body —
+ * with one exception: `valueKind`, which says what the benefit carries. That is
+ * a product-level decision rather than a field definition, and changing it
+ * migrates the values already recorded (see the service).
  *
- * Neither is the benefit's place in the hierarchy editable: moving a benefit
+ * The benefit's place in the hierarchy is NOT editable: moving a benefit
  * between umbrellas would silently rearrange every configuration that carries
  * it. Create the benefit where it belongs.
  */
 export const updateInsuranceOptionSchema = createInsuranceOptionSchema
-  .omit({ fields: true, valueKind: true, isUmbrella: true, parentId: true })
+  .omit({ fields: true, isUmbrella: true, parentId: true })
   .partial();
 
 export type OptionFieldInput = z.infer<typeof optionFieldInputSchema>;

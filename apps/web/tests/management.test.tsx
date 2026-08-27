@@ -1055,8 +1055,51 @@ describe('dynamic insurance options', () => {
 
     await user.click(screen.getByRole('button', { name: 'Remove Life & Accident Coverage' }));
 
-    // Removing the heading cannot strand its parts on the configuration.
+    // One click removes one row: the sub-benefit and its value stay put.
+    await waitFor(() => expect(store.planOptions).toHaveLength(1));
+    expect(store.planOptions[0]?.optionId).toBe('option_death');
+    expect(await screen.findByLabelText('Death (Natural) value')).toBeInTheDocument();
+
+    // ...and the row that is left can still be removed on its own.
+    await user.click(screen.getByRole('button', { name: 'Remove Death (Natural)' }));
     await waitFor(() => expect(store.planOptions).toHaveLength(0));
+  });
+
+  it('changes what a benefit carries, keeping the figures already entered', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+    store.values.push({
+      planOptionId: 'planOption_1',
+      optionFieldId: 'option_1_percentage',
+      value: 80,
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(await screen.findByRole('button', { name: 'Edit Aurora Wellness Programme' }));
+    const kinds = await screen.findByRole('group', { name: /What does it carry/i });
+    const limit = within(kinds)
+      .getAllByRole('radio')
+      .find((radio) => (radio.closest('label')?.textContent ?? '').includes('Limit'))!;
+    await user.click(limit);
+
+    // The employee is told what becomes of the figures before they commit.
+    expect(await screen.findByText(/kept exactly as they are/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    await waitFor(() => expect(store.options[0]?.fields?.[0]?.dataType).toBe('CURRENCY'));
+    // Percentage and limit are the same figure in the same place: 80 survives.
+    expect(store.values[0]?.value).toBe(80);
   });
 
   it('renames a benefit, and the coverage row follows', async () => {
@@ -1075,9 +1118,7 @@ describe('dynamic insurance options', () => {
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    await user.click(
-      await screen.findByRole('button', { name: 'Rename Aurora Wellness Programme' }),
-    );
+    await user.click(await screen.findByRole('button', { name: 'Edit Aurora Wellness Programme' }));
     const field = await screen.findByLabelText(/Benefit name/i);
     await user.clear(field);
     await user.type(field, 'Wellness Programme');
@@ -1103,7 +1144,7 @@ describe('dynamic insurance options', () => {
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    await user.click(await screen.findByRole('button', { name: 'Rename Death (Natural)' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit Death (Natural)' }));
     const field = await screen.findByLabelText(/Benefit name/i);
     await user.clear(field);
     await user.type(field, 'Death by natural causes');
@@ -1125,7 +1166,7 @@ describe('dynamic insurance options', () => {
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    await user.click(await screen.findByRole('button', { name: 'Rename Optical' }));
+    await user.click(await screen.findByRole('button', { name: 'Edit Optical' }));
     const field = await screen.findByLabelText(/Benefit name/i);
     await user.clear(field);
     await user.type(field, 'Dental');

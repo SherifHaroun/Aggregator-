@@ -292,11 +292,30 @@ kept visibly apart:
   `?force=true` carries it through, detaching the benefit everywhere and taking
   a group's sub-benefits with it.
 
-**Renaming** sits beside them, on the same rows: `PATCH /insurance-options/:id`
-changes the name on every plan of every company at once, because an attachment
-points at the record and nothing anywhere holds a copy of the name. What the
-benefit CARRIES is deliberately not editable — the recorded values were entered
-against that kind, so a wrong kind is a new benefit, not an edit.
+Removing an attachment removes **exactly one row**. A group and its parts are
+attached together but detached one at a time, so a single click can never take
+six rows and their recorded values with it. A sub-benefit whose group is no
+longer attached renders at the top level, labelled with the group it came from.
+
+**Editing** sits beside them, on the same rows: `PATCH /insurance-options/:id`
+changes the benefit's name, or what it carries, on every plan of every company
+at once — an attachment points at the record and nothing anywhere holds a copy.
+
+Changing `valueKind` rewrites the benefit's one field in place, so every plan
+keeps pointing at the same field, and migrates the values already recorded:
+
+| Change | What happens to the figures |
+| ------ | --------------------------- |
+| percentage ↔ limit | Both live in `numberValue`: every figure survives, except one over 100 becoming a percentage, which is cleared rather than left invalid |
+| number → text | Each figure is written out, grouped as it read on screen |
+| text → number | Text that reads as a number is converted (separators stripped); wording that cannot — a network name — is cleared |
+
+The dialog states which of these applies, and how many configurations it
+touches, before the employee saves. Values are moved between the typed columns
+explicitly, because the column a value lives in is chosen by its data type —
+leaving them where they were would make them invisible rather than wrong. The
+migration runs one statement per distinct result rather than per row, for the
+same reason the age-band copy does.
 
 The refusal is the default because a benefit in use is normally deactivated, not
 destroyed. `force` is never sent on the client's own initiative: the confirm

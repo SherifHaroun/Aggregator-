@@ -209,17 +209,17 @@ export function useCreateInsuranceOption() {
 }
 
 /**
- * Rename a benefit, or change anything else about the benefit itself.
+ * Edit a benefit itself — its name, or what it carries.
  *
- * A benefit is global, so the new name is the name on every plan of every
- * company the moment it saves — nothing holds a copy of it. Plans and
- * configurations are refreshed alongside the catalogue because a coverage row
- * shows the benefit's name.
+ * A benefit is global, so a change lands on every plan of every company the
+ * moment it saves; nothing holds a copy of either. Changing `valueKind` also
+ * migrates the values already recorded against it, which is why plans and
+ * configurations are refreshed alongside the catalogue and not just the name.
  */
 export function useSaveInsuranceOption(id: string) {
   const queryClient = useQueryClient();
 
-  return useMutation<InsuranceOptionDto, unknown, { name: string }>({
+  return useMutation<InsuranceOptionDto, unknown, { name?: string; valueKind?: BenefitValueKind }>({
     mutationFn: (input) => api.patch<InsuranceOptionDto>(`/insurance-options/${id}`, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.insuranceOptions });

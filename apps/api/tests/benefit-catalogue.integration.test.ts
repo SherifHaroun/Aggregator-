@@ -19,7 +19,11 @@ import {
   deleteInsuranceOption,
   updateInsuranceOption,
 } from '../src/modules/insurance-options/insurance-options.service.js';
-import { addPlanOption } from '../src/modules/plan-options/plan-options.service.js';
+import {
+  addPlanOption,
+  removePlanOption,
+  setPlanOptionValues,
+} from '../src/modules/plan-options/plan-options.service.js';
 
 const url = process.env['TEST_DATABASE_URL'];
 const prisma = url ? new PrismaClient({ datasources: { db: { url } } }) : null;
@@ -185,6 +189,98 @@ describe.skipIf(!url)('managing the benefit catalogue', () => {
     expect(renamed.name).toBe(`${PREFIX}_part4_renamed`);
     expect(renamed.parentId).toBe(group.id);
     expect(await db().insuranceOption.count({ where: { parentId: group.id } })).toBe(1);
+  });
+
+  it('switches a percentage to a limit and keeps every figure', async () => {
+    const configurationId = await givenConfiguration();
+    const benefit = await createInsuranceOption({ name: `${PREFIX}_kind1` });
+    const [attached] = await addPlanOption(configurationId, { optionId: benefit.id });
+    await setPlanOptionValues(attached!.id, [
+      { optionFieldId: attached!.values[0]!.optionFieldId, value: 80 },
+    ]);
+
+    const changed = await updateInsuranceOption(benefit.id, { valueKind: 'LIMIT' });
+
+    expect(changed.fields?.[0]?.dataType).toBe('CURRENCY');
+    // Both kinds live in the number column, so nothing had to move.
+    const [value] = await db().planOptionValue.findMany({ where: { planOptionId: attached!.id } });
+    expect(Number(value!.numberValue)).toBe(80);
+  });
+
+  it('clears a figure the new kind cannot hold, and keeps the ones it can', async () => {
+    const configurationId = await givenConfiguration();
+    const benefit = await createInsuranceOption({ name: `${PREFIX}_kind2`, valueKind: 'LIMIT' });
+    const [attached] = await addPlanOption(configurationId, { optionId: benefit.id });
+    await setPlanOptionValues(attached!.id, [
+      { optionFieldId: attached!.values[0]!.optionFieldId, value: 5000 },
+    ]);
+
+    await updateInsuranceOption(benefit.id, { valueKind: 'PERCENTAGE' });
+
+    // 5,000 is a limit, never a percentage: cleared rather than left invalid.
+    const [value] = await db().planOptionValue.findMany({ where: { planOptionId: attached!.id } });
+    expect(value!.numberValue).toBeNull();
+  });
+
+  it('writes figures out as text, and reads them back as numbers', async () => {
+    const configurationId = await givenConfiguration();
+    const benefit = await createInsuranceOption({ name: `${PREFIX}_kind3`, valueKind: 'LIMIT' });
+    const [attached] = await addPlanOption(configurationId, { optionId: benefit.id });
+    const fieldId = attached!.values[0]!.optionFieldId;
+    await setPlanOptionValues(attached!.id, [{ optionFieldId: fieldId, value: 100000 }]);
+
+    await updateInsuranceOption(benefit.id, { valueKind: 'TEXT' });
+    const asText = await db().planOptionValue.findFirstOrThrow({
+      where: { planOptionId: attached!.id },
+    });
+    expect(asText.textValue).toBe('100,000');
+    expect(asText.numberValue).toBeNull();
+
+    // ...and back again: the separators do not stop it becoming a figure.
+    await updateInsuranceOption(benefit.id, { valueKind: 'LIMIT' });
+    const asNumber = await db().planOptionValue.findFirstOrThrow({
+      where: { planOptionId: attached!.id },
+    });
+    expect(Number(asNumber.numberValue)).toBe(100000);
+  });
+
+  it('clears wording that cannot become a figure', async () => {
+    const configurationId = await givenConfiguration();
+    const benefit = await createInsuranceOption({ name: `${PREFIX}_kind4`, valueKind: 'TEXT' });
+    const [attached] = await addPlanOption(configurationId, { optionId: benefit.id });
+    await setPlanOptionValues(attached!.id, [
+      { optionFieldId: attached!.values[0]!.optionFieldId, value: 'Golden Care Network' },
+    ]);
+
+    await updateInsuranceOption(benefit.id, { valueKind: 'PERCENTAGE' });
+
+    const [value] = await db().planOptionValue.findMany({ where: { planOptionId: attached!.id } });
+    expect(value!.numberValue).toBeNull();
+    expect(value!.textValue).toBeNull();
+  });
+
+  it('refuses to change what a group carries, because it carries nothing', async () => {
+    const group = await createInsuranceOption({ name: `${PREFIX}_kind5`, isUmbrella: true });
+
+    await expect(updateInsuranceOption(group.id, { valueKind: 'LIMIT' })).rejects.toMatchObject({
+      status: 409,
+    });
+  });
+
+  it('removes one attachment at a time, leaving the rest of the group in place', async () => {
+    const configurationId = await givenConfiguration();
+    const group = await createInsuranceOption({ name: `${PREFIX}_group5`, isUmbrella: true });
+    const part = await createInsuranceOption({ name: `${PREFIX}_part5`, parentId: group.id });
+    const rows = await addPlanOption(configurationId, { optionId: group.id });
+    const heading = rows.find((row) => row.optionId === group.id)!;
+
+    await removePlanOption(heading.id);
+
+    // The sub-benefit stays on the configuration with its value intact.
+    expect(await db().planOption.count({ where: { planConfigurationId: configurationId } })).toBe(
+      1,
+    );
+    expect(await db().planOption.count({ where: { optionId: part.id } })).toBe(1);
   });
 
   it('leaves the group standing when only one sub-benefit is deleted', async () => {

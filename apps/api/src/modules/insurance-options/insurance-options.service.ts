@@ -1,10 +1,16 @@
 import {
   DEFAULT_BENEFIT_VALUE_KIND,
+  PERCENTAGE_MAX,
+  PERCENTAGE_MIN,
   benefitValueField,
+  formatNumberValue,
+  storageForDataType,
+  type BenefitValueKind,
   type InsuranceOptionDto,
   type OptionFieldDto,
   type Paginated,
 } from '@aggregator/shared';
+import type { Prisma } from '@prisma/client';
 import { conflict, inUse, notFound } from '../../lib/errors.js';
 import { applyOrder, nextSortOrder } from '../../lib/ordering.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
@@ -191,7 +197,129 @@ export async function createInsuranceOption(
 }
 
 /**
- * Rename a benefit, or change its description or status.
+ * Change what a benefit carries — percentage, limit or text — and bring the
+ * values already recorded against it across.
+ *
+ * The benefit's single field is rewritten in place rather than replaced, so
+ * every plan keeps pointing at the same field and nothing has to be re-entered.
+ * What happens to the values depends on where they are stored:
+ *
+ *  - **percentage <-> limit** — both live in the number column, so every value
+ *    survives untouched. The one exception is a percentage a limit could hold
+ *    but a percentage could not (over 100): it is cleared rather than left as
+ *    an invalid percentage.
+ *  - **number -> text** — each figure is written out as text, grouped as it
+ *    read on screen, so nothing is lost.
+ *  - **text -> number** — text that reads as a number is converted; text that
+ *    does not ("Golden Care Network") cannot become one and is cleared. The
+ *    client warns before this is asked for.
+ *
+ * Values are moved between the typed columns explicitly because the column a
+ * value lives in is chosen by the data type — leaving them where they were
+ * would make them invisible rather than wrong.
+ */
+/** The typed columns a converted value ends up in. */
+interface ConvertedValue {
+  numberValue: number | null;
+  textValue: string | null;
+}
+
+async function changeValueKind(
+  tx: Prisma.TransactionClient,
+  optionId: string,
+  kind: BenefitValueKind,
+): Promise<void> {
+  const fields = await tx.optionField.findMany({ where: { optionId } });
+
+  if (fields.length === 0) {
+    throw conflict(
+      'A group of benefits carries no value of its own, so there is nothing to change.',
+    );
+  }
+  if (fields.length > 1) {
+    throw conflict(
+      'This benefit was defined with several values, so what it carries cannot be switched in one step.',
+    );
+  }
+
+  const field = fields[0]!;
+  const target = benefitValueField(kind);
+  if (field.dataType === target.dataType) return;
+
+  const fromStorage = storageForDataType(field.dataType);
+  const toStorage = storageForDataType(target.dataType);
+
+  const values = await tx.planOptionValue.findMany({ where: { optionFieldId: field.id } });
+
+  /** What each stored value becomes, or `null` where it is already correct. */
+  function convert(value: (typeof values)[number]): ConvertedValue | null {
+    if (fromStorage === 'NUMBER' && toStorage === 'NUMBER') {
+      const current = value.numberValue === null ? null : Number(value.numberValue);
+      // A limit of 5,000 is not a percentage; keep only what the new kind holds.
+      const fits =
+        current === null ||
+        target.dataType !== 'PERCENTAGE' ||
+        (current >= PERCENTAGE_MIN && current <= PERCENTAGE_MAX);
+      return fits ? null : { numberValue: null, textValue: null };
+    }
+
+    if (fromStorage === 'NUMBER' && toStorage === 'TEXT') {
+      return {
+        numberValue: null,
+        textValue: value.numberValue === null ? null : formatNumberValue(Number(value.numberValue)),
+      };
+    }
+
+    if (fromStorage === 'TEXT' && toStorage === 'NUMBER') {
+      // Separators are stripped so a figure entered as "100,000" survives.
+      const text = value.textValue?.trim() ?? '';
+      const parsed = Number(text.replace(/,/g, ''));
+      const usable = text !== '' && !Number.isNaN(parsed);
+      return { numberValue: usable ? parsed : null, textValue: null };
+    }
+
+    return null;
+  }
+
+  /**
+   * Rows are updated in batches, one statement per distinct result.
+   *
+   * A benefit carried by forty configurations holds forty values, and a
+   * statement each would spend longer than the transaction is allowed to live.
+   * The distinct results are few — a limit is usually the same figure on every
+   * configuration — so this is a couple of statements however many rows there
+   * are.
+   */
+  const batches = new Map<string, { columns: ConvertedValue; ids: string[] }>();
+  for (const value of values) {
+    const columns = convert(value);
+    if (!columns) continue;
+    const key = JSON.stringify(columns);
+    const batch = batches.get(key) ?? { columns, ids: [] };
+    batch.ids.push(value.id);
+    batches.set(key, batch);
+  }
+
+  for (const { columns, ids } of batches.values()) {
+    await tx.planOptionValue.updateMany({
+      where: { id: { in: ids } },
+      data: { ...columns, booleanValue: null },
+    });
+  }
+
+  await tx.optionField.update({
+    where: { id: field.id },
+    data: {
+      label: target.label,
+      key: target.key,
+      dataType: target.dataType,
+      unit: target.unit,
+    },
+  });
+}
+
+/**
+ * Rename a benefit, change what it carries, or change its description or status.
  *
  * A rename is the whole point of this endpoint in the product: the benefit is
  * global, so correcting its name corrects it on every plan of every company at
@@ -219,11 +347,20 @@ export async function updateInsuranceOption(
     }
   }
 
-  const option = await prisma.insuranceOption.update({
+  const { valueKind, ...rest } = input;
+
+  await prisma.$transaction(async (tx) => {
+    if (Object.keys(rest).length > 0) {
+      await tx.insuranceOption.update({ where: { id }, data: rest });
+    }
+    if (valueKind !== undefined) await changeValueKind(tx, id, valueKind);
+  });
+
+  const option = await prisma.insuranceOption.findUnique({
     where: { id },
-    data: input,
     include: catalogueInclude,
   });
+  if (!option) throw notFound('Insurance option');
   return toInsuranceOptionDto(option);
 }
 

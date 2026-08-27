@@ -312,7 +312,36 @@ function route({
       ) {
         return fail(409, 'DUPLICATE', 'This benefit already exists.');
       }
-      Object.assign(option, body);
+
+      /**
+       * Changing what a benefit carries rewrites its one field in place — the
+       * plans keep pointing at the same field — and brings the recorded values
+       * across, dropping only what the new kind cannot hold.
+       */
+      const kind = body.valueKind as BenefitValueKind | undefined;
+      const field = option.fields?.[0];
+      if (kind && field) {
+        const target = benefitValueField(kind);
+        for (const value of store.values.filter((item) => item.optionFieldId === field.id)) {
+          if (target.dataType === 'TEXT') {
+            value.value = typeof value.value === 'number' ? String(value.value) : value.value;
+          } else if (typeof value.value === 'string') {
+            const parsed = Number(value.value.replace(/,/g, ''));
+            value.value = value.value.trim() !== '' && !Number.isNaN(parsed) ? parsed : null;
+          } else if (target.dataType === 'PERCENTAGE' && typeof value.value === 'number') {
+            value.value = value.value > 100 ? null : value.value;
+          }
+        }
+        Object.assign(field, {
+          label: target.label,
+          key: target.key,
+          dataType: target.dataType,
+          unit: target.unit,
+        });
+      }
+
+      const { valueKind: _ignored, ...rest } = body as Record<string, unknown>;
+      Object.assign(option, rest);
       return ok(option);
     }
     if (second === 'fields' && method === 'POST') {
@@ -673,25 +702,10 @@ function route({
       return ok(hydratePlanOption(store, planOption));
     }
     if (method === 'DELETE') {
-      /**
-       * As the real API does: removing a group removes the parts it heads from
-       * THIS configuration, so no value is left under a heading that is gone.
-       */
-      const option = store.options.find((item) => item.id === planOption.optionId);
-      const childOptionIds = option?.isUmbrella
-        ? store.options.filter((item) => item.parentId === option.id).map((item) => item.id)
-        : [];
-      const removed = store.planOptions
-        .filter(
-          (item) =>
-            item.id === planOption.id ||
-            (item.planConfigurationId === planOption.planConfigurationId &&
-              childOptionIds.includes(item.optionId)),
-        )
-        .map((item) => item.id);
-
-      store.planOptions = store.planOptions.filter((item) => !removed.includes(item.id));
-      store.values = store.values.filter((value) => !removed.includes(value.planOptionId));
+      // Exactly one attachment, as the real API does: a group and its parts are
+      // removed by the clicks that name them, never one by another.
+      store.planOptions = store.planOptions.filter((item) => item.id !== planOption.id);
+      store.values = store.values.filter((value) => value.planOptionId !== planOption.id);
       return noContent();
     }
   }

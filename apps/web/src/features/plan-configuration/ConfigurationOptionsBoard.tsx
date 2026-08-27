@@ -49,8 +49,8 @@ import {
   useReorderPlanOptions,
 } from '@/features/insurance-data/insurance-data.api';
 import { cn } from '@/lib/cn';
+import { EditBenefitDialog } from './EditBenefitDialog';
 import { NewBenefitDialog } from './NewBenefitDialog';
-import { RenameBenefitDialog } from './RenameBenefitDialog';
 import { PlanOptionValueInline, PlanOptionValuesForm, valueAsText } from './PlanOptionValuesForm';
 
 /** Prefix distinguishing a catalogue item from an already-attached benefit. */
@@ -131,8 +131,8 @@ export function ConfigurationOptionsBoard({
   );
   /** The catalogue benefit the employee has asked to delete outright. */
   const [deleting, setDeleting] = useState<InsuranceOptionDto | null>(null);
-  /** The catalogue benefit being renamed. */
-  const [renaming, setRenaming] = useState<InsuranceOptionDto | null>(null);
+  /** The catalogue benefit being edited — its name, or what it carries. */
+  const [editing, setEditing] = useState<InsuranceOptionDto | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -173,6 +173,21 @@ export function ConfigurationOptionsBoard({
 
   /** Only groups reorder; their parts stay with the group that heads them. */
   const sortableIds = useMemo(() => groups.map((group) => group.row.id), [groups]);
+
+  /**
+   * Which group each sub-benefit belongs to, by name.
+   *
+   * A sub-benefit whose group is not on this configuration renders at the top
+   * level — removing the heading leaves its parts exactly where they were — so
+   * the row says where it comes from rather than appearing from nowhere.
+   */
+  const groupNameByOptionId = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const option of available) {
+      for (const child of option.children ?? []) names.set(child.id, option.name);
+    }
+    return names;
+  }, [available]);
 
   const attach = useCallback(
     (option: InsuranceOptionDto, rows: InsuranceOptionDto[]) => {
@@ -306,6 +321,11 @@ export function ConfigurationOptionsBoard({
                       key={group.row.id}
                       planOption={group.row}
                       subBenefits={group.children}
+                      groupName={
+                        group.row.parentOptionId
+                          ? groupNameByOptionId.get(group.row.optionId)
+                          : undefined
+                      }
                       onRemove={remove}
                       onAddSubBenefit={setCreating}
                     />
@@ -339,7 +359,7 @@ export function ConfigurationOptionsBoard({
                   onAdd={attachWithGroup}
                   onAddChild={attachChild}
                   onAddSubBenefit={setCreating}
-                  onRename={setRenaming}
+                  onEdit={setEditing}
                   onDelete={setDeleting}
                 />
               ))
@@ -364,9 +384,7 @@ export function ConfigurationOptionsBoard({
         />
       ) : null}
 
-      {renaming ? (
-        <RenameBenefitDialog benefit={renaming} onClose={() => setRenaming(null)} />
-      ) : null}
+      {editing ? <EditBenefitDialog benefit={editing} onClose={() => setEditing(null)} /> : null}
 
       {/* Deleting a benefit is not deleting it from this plan — it leaves the
           catalogue for every company, so the dialog spells out the damage. */}
@@ -477,7 +495,7 @@ const AvailableBenefit = memo(function AvailableBenefit({
   onAdd,
   onAddChild,
   onAddSubBenefit,
-  onRename,
+  onEdit,
   onDelete,
 }: {
   option: InsuranceOptionDto;
@@ -488,7 +506,7 @@ const AvailableBenefit = memo(function AvailableBenefit({
   onAdd: (option: InsuranceOptionDto) => void;
   onAddChild: (parent: InsuranceOptionDto, child: InsuranceOptionDto) => void;
   onAddSubBenefit: (parent: { id: string; name: string }) => void;
-  onRename: (option: InsuranceOptionDto) => void;
+  onEdit: (option: InsuranceOptionDto) => void;
   onDelete: (option: InsuranceOptionDto) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
@@ -542,13 +560,14 @@ const AvailableBenefit = memo(function AvailableBenefit({
           </button>
         )}
 
-        {/* Renames the benefit itself: it is global, so every plan follows. */}
+        {/* Edits the benefit itself — name and what it carries. It is global,
+            so every plan that carries it follows. */}
         <button
           type="button"
-          onClick={() => onRename(option)}
+          onClick={() => onEdit(option)}
           onPointerDown={(event) => event.stopPropagation()}
-          aria-label={`Rename ${option.name}`}
-          title={`Rename ${option.name} everywhere`}
+          aria-label={`Edit ${option.name}`}
+          title={`Edit ${option.name} — renames it everywhere`}
           className="text-content-subtle hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-1.5"
         >
           <IconEdit className="size-4" />
@@ -598,10 +617,10 @@ const AvailableBenefit = memo(function AvailableBenefit({
 
                 <button
                   type="button"
-                  onClick={() => onRename(child)}
+                  onClick={() => onEdit(child)}
                   onPointerDown={(event) => event.stopPropagation()}
-                  aria-label={`Rename ${child.name}`}
-                  title={`Rename ${child.name} everywhere`}
+                  aria-label={`Edit ${child.name}`}
+                  title={`Edit ${child.name} — renames it everywhere`}
                   className="text-content-subtle hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-1"
                 >
                   <IconEdit className="size-3.5" />
@@ -650,11 +669,14 @@ const AvailableBenefit = memo(function AvailableBenefit({
 const AttachedBenefit = memo(function AttachedBenefit({
   planOption,
   subBenefits,
+  groupName,
   onRemove,
   onAddSubBenefit,
 }: {
   planOption: PlanOptionDto;
   subBenefits: PlanOptionDto[];
+  /** Set when this row is a sub-benefit whose group is not attached here. */
+  groupName?: string | undefined;
   onRemove: (planOptionId: string, optionName: string) => void;
   onAddSubBenefit: (parent: { id: string; name: string }) => void;
 }) {
@@ -692,7 +714,9 @@ const AttachedBenefit = memo(function AttachedBenefit({
           <span className="text-content-subtle block text-xs">
             {planOption.isUmbrella
               ? `${UMBRELLA_BENEFIT_LABEL} · ${subBenefits.length}`
-              : benefitTypeLabel(planOption.values)}
+              : groupName
+                ? `${benefitTypeLabel(planOption.values)} · from ${groupName}`
+                : benefitTypeLabel(planOption.values)}
           </span>
         </span>
 
