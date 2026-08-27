@@ -41,6 +41,7 @@ export function toPlanOptionDto(planOption: PlanOptionWithRelations): PlanOption
      */
     isUmbrella: planOption.option.isUmbrella,
     parentOptionId: planOption.option.parentId,
+    note: planOption.note,
     sortOrder: planOption.sortOrder,
     createdAt: toIso(planOption.createdAt),
     updatedAt: toIso(planOption.updatedAt),

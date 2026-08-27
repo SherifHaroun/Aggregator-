@@ -12,6 +12,7 @@
  * fixtures, not seed data.
  */
 
+import { ALTERNATIVE_VALUE_KEY } from '@aggregator/shared';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -22,6 +23,8 @@ import {
 import {
   addPlanOption,
   removePlanOption,
+  setPlanOptionNote,
+  setPlanOptionValue,
   setPlanOptionValues,
 } from '../src/modules/plan-options/plan-options.service.js';
 
@@ -281,6 +284,70 @@ describe.skipIf(!url)('managing the benefit catalogue', () => {
       1,
     );
     expect(await db().planOption.count({ where: { optionId: part.id } })).toBe(1);
+  });
+
+  it('carries two figures at once, each written without disturbing the other', async () => {
+    const configurationId = await givenConfiguration();
+    // "800 EGP, or 80% for basic procedures" — both, not one or the other.
+    const benefit = await createInsuranceOption({
+      name: `${PREFIX}_two_ways`,
+      valueKind: 'LIMIT',
+      alternativeKind: 'PERCENTAGE',
+    });
+    expect(benefit.fields?.map((field) => field.dataType)).toEqual(['CURRENCY', 'PERCENTAGE']);
+
+    const [attached] = await addPlanOption(configurationId, { optionId: benefit.id });
+    const main = attached!.values.find((value) => value.fieldKey !== ALTERNATIVE_VALUE_KEY)!;
+    const alternative = attached!.values.find((value) => value.fieldKey === ALTERNATIVE_VALUE_KEY)!;
+
+    await setPlanOptionValue(attached!.id, main.optionFieldId, 800);
+    const after = await setPlanOptionValue(attached!.id, alternative.optionFieldId, 80);
+
+    // Writing the second figure must not clear the first.
+    const values = Object.fromEntries(after.values.map((value) => [value.fieldKey, value.value]));
+    expect(values['limit']).toBe(800);
+    expect(values[ALTERNATIVE_VALUE_KEY]).toBe(80);
+  });
+
+  it('adds an alternative to a benefit that had none, and removes it again', async () => {
+    const configurationId = await givenConfiguration();
+    const benefit = await createInsuranceOption({ name: `${PREFIX}_late_alt`, valueKind: 'LIMIT' });
+    const [attached] = await addPlanOption(configurationId, { optionId: benefit.id });
+    await setPlanOptionValue(attached!.id, attached!.values[0]!.optionFieldId, 350);
+
+    const withAlternative = await updateInsuranceOption(benefit.id, {
+      alternativeKind: 'PERCENTAGE',
+    });
+    expect(withAlternative.fields).toHaveLength(2);
+
+    const alternativeField = withAlternative.fields!.find(
+      (field) => field.key === ALTERNATIVE_VALUE_KEY,
+    )!;
+    await setPlanOptionValue(attached!.id, alternativeField.id, 80);
+
+    // Dropping it takes its figures, and leaves the main value untouched.
+    const without = await updateInsuranceOption(benefit.id, { alternativeKind: null });
+    expect(without.fields).toHaveLength(1);
+    expect(
+      await db().planOptionValue.count({ where: { optionFieldId: alternativeField.id } }),
+    ).toBe(0);
+    const remaining = await db().planOptionValue.findFirstOrThrow({
+      where: { planOptionId: attached!.id },
+    });
+    expect(Number(remaining.numberValue)).toBe(350);
+  });
+
+  it('keeps a benefit note per configuration, and copies it with the age band', async () => {
+    const configurationId = await givenConfiguration();
+    const benefit = await createInsuranceOption({ name: `${PREFIX}_noted`, valueKind: 'LIMIT' });
+    const [attached] = await addPlanOption(configurationId, { optionId: benefit.id });
+
+    const noted = await setPlanOptionNote(attached!.id, '1 in 10 members ratio');
+    expect(noted.note).toBe('1 in 10 members ratio');
+
+    // Blank clears it rather than storing an empty remark.
+    const cleared = await setPlanOptionNote(attached!.id, null);
+    expect(cleared.note).toBeNull();
   });
 
   it('leaves the group standing when only one sub-benefit is deleted', async () => {

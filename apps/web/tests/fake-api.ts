@@ -9,6 +9,8 @@
  */
 
 import {
+  ALTERNATIVE_VALUE_KEY,
+  alternativeValueField,
   benefitValueField,
   DEFAULT_BENEFIT_VALUE_KIND,
   resolveAverageAgeForCustomerType,
@@ -33,6 +35,7 @@ interface StoredPlanOption {
   planConfigurationId: string;
   optionId: string;
   sortOrder: number;
+  note?: string | null;
 }
 
 export interface FakeStore {
@@ -221,6 +224,7 @@ function route({
        * kind it was created with; an umbrella gets none, because it carries
        * nothing itself.
        */
+      const alternativeKind = body.alternativeKind as BenefitValueKind | undefined;
       const inlineFields = (isUmbrella
         ? []
         : (body.fields as unknown[] | undefined)?.length
@@ -229,8 +233,11 @@ function route({
               benefitValueField(
                 (body.valueKind as BenefitValueKind | undefined) ?? DEFAULT_BENEFIT_VALUE_KIND,
               ),
+              // A benefit quoted two ways carries a second field.
+              ...(alternativeKind ? [alternativeValueField(alternativeKind)] : []),
             ]) as unknown as {
         label: string;
+        key?: string;
         dataType: OptionFieldDto['dataType'];
         unit?: string | null;
       }[];
@@ -251,7 +258,7 @@ function route({
           id: id('field'),
           optionId,
           label: field.label,
-          key: field.label.toLowerCase().replace(/\W+/g, '_'),
+          key: field.key ?? field.label.toLowerCase().replace(/\W+/g, '_'),
           dataType: field.dataType,
           unit: field.unit ?? null,
           helpText: null,
@@ -318,8 +325,38 @@ function route({
        * plans keep pointing at the same field — and brings the recorded values
        * across, dropping only what the new kind cannot hold.
        */
+      const alternative = body.alternativeKind as BenefitValueKind | null | undefined;
+      if (alternative !== undefined) {
+        const existing = option.fields?.find((item) => item.key === ALTERNATIVE_VALUE_KEY);
+        if (alternative === null) {
+          if (existing) {
+            option.fields = option.fields?.filter((item) => item.id !== existing.id);
+            store.values = store.values.filter((item) => item.optionFieldId !== existing.id);
+          }
+        } else if (existing) {
+          Object.assign(existing, alternativeValueField(alternative));
+        } else {
+          const definition = alternativeValueField(alternative);
+          option.fields = [
+            ...(option.fields ?? []),
+            {
+              id: id('field'),
+              optionId: option.id,
+              label: definition.label,
+              key: definition.key,
+              dataType: definition.dataType,
+              unit: definition.unit,
+              helpText: null,
+              isRequired: false,
+              sortOrder: option.fields?.length ?? 0,
+              ...meta(),
+            },
+          ];
+        }
+      }
+
       const kind = body.valueKind as BenefitValueKind | undefined;
-      const field = option.fields?.[0];
+      const field = option.fields?.find((item) => item.key !== ALTERNATIVE_VALUE_KEY);
       if (kind && field) {
         const target = benefitValueField(kind);
         for (const value of store.values.filter((item) => item.optionFieldId === field.id)) {
@@ -340,7 +377,11 @@ function route({
         });
       }
 
-      const { valueKind: _ignored, ...rest } = body as Record<string, unknown>;
+      const {
+        valueKind: _kind,
+        alternativeKind: _alternative,
+        ...rest
+      } = body as Record<string, unknown>;
       Object.assign(option, rest);
       return ok(option);
     }
@@ -620,6 +661,7 @@ function route({
           planConfigurationId: copy.id,
           optionId: planOption.optionId,
           sortOrder: planOption.sortOrder,
+          note: planOption.note ?? null,
         };
         store.planOptions.push(copied);
         for (const value of store.values.filter((item) => item.planOptionId === planOption.id)) {
@@ -691,6 +733,21 @@ function route({
   if (resource === 'plan-options') {
     const planOption = store.planOptions.find((item) => item.id === first);
     if (!planOption) return fail(404, 'NOT_FOUND', 'The record was not found.');
+    /** One value, named by its field: the others are left alone. */
+    if (second === 'values' && third && method === 'PUT') {
+      const existing = store.values.find(
+        (item) => item.planOptionId === planOption.id && item.optionFieldId === third,
+      );
+      const value = body.value as number | string | boolean | null;
+      if (existing) existing.value = value;
+      else store.values.push({ planOptionId: planOption.id, optionFieldId: third, value });
+      return ok(hydratePlanOption(store, planOption));
+    }
+    if (second === 'note' && method === 'PATCH') {
+      const note = body.note as string | null;
+      planOption.note = note === null || String(note).trim() === '' ? null : String(note).trim();
+      return ok(hydratePlanOption(store, planOption));
+    }
     if (second === 'values' && method === 'PUT') {
       store.values = store.values.filter((value) => value.planOptionId !== planOption.id);
       for (const entry of body.values as unknown as {
@@ -739,6 +796,7 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
     optionName: option?.name ?? 'Unknown',
     isUmbrella: option?.isUmbrella ?? false,
     parentOptionId: option?.parentId ?? null,
+    note: planOption.note ?? null,
     sortOrder: planOption.sortOrder,
     createdAt: now(),
     updatedAt: now(),

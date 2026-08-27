@@ -1,3 +1,4 @@
+import { BENEFIT_NOTE_MAX_LENGTH } from '@aggregator/shared';
 import { z } from 'zod';
 
 /**
@@ -16,6 +17,11 @@ export const addPlanOptionSchema = z.object({
   values: z.array(planOptionValueInputSchema).max(100).optional(),
 });
 
+/** Write a single value, named by its field in the path. */
+export const setPlanOptionValueSchema = z.object({
+  value: z.union([z.number(), z.string(), z.boolean(), z.null()]),
+});
+
 /** Replace the full set of values for one plan option. */
 export const setPlanOptionValuesSchema = z.object({
   values: z.array(planOptionValueInputSchema).max(100),
@@ -24,3 +30,18 @@ export const setPlanOptionValuesSchema = z.object({
 export type AddPlanOptionInput = z.infer<typeof addPlanOptionSchema>;
 export type SetPlanOptionValuesInput = z.infer<typeof setPlanOptionValuesSchema>;
 export type PlanOptionValueInputPayload = z.infer<typeof planOptionValueInputSchema>;
+
+/**
+ * The remark carried by one benefit on one configuration. Blank clears it, so
+ * an employee deleting the text removes the note rather than storing "".
+ */
+export const setPlanOptionNoteSchema = z.object({
+  note: z
+    .string()
+    .trim()
+    .max(BENEFIT_NOTE_MAX_LENGTH)
+    .nullable()
+    .transform((value) => (value === null || value === '' ? null : value)),
+});
+
+export type SetPlanOptionNoteInput = z.infer<typeof setPlanOptionNoteSchema>;

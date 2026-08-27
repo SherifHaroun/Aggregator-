@@ -6,6 +6,7 @@ import {
 } from '@aggregator/shared';
 import { useState } from 'react';
 import { Button, Callout, ChoiceGroup, Dialog, Field, Input, useToast } from '@/components/ui';
+import { AlternativeChoice } from './AlternativeChoice';
 import { useCreateInsuranceOption } from '@/features/insurance-data/insurance-data.api';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
 
@@ -43,6 +44,8 @@ export function NewBenefitDialog({
     name: '',
     valueKind: DEFAULT_BENEFIT_VALUE_KIND as BenefitValueKind,
     isUmbrella: false,
+    /** `null` until the employee says the benefit is quoted two ways. */
+    alternativeKind: null as BenefitValueKind | null,
   });
   const [submitted, setSubmitted] = useState(false);
 
@@ -59,7 +62,12 @@ export function NewBenefitDialog({
         name,
         isUmbrella,
         ...(parent ? { parentId: parent.id } : {}),
-        ...(isUmbrella ? {} : { valueKind: values.valueKind }),
+        ...(isUmbrella
+          ? {}
+          : {
+              valueKind: values.valueKind,
+              ...(values.alternativeKind ? { alternativeKind: values.alternativeKind } : {}),
+            }),
       },
       {
         onSuccess: (saved) => {
@@ -148,15 +156,22 @@ export function NewBenefitDialog({
         )}
 
         {isUmbrella ? null : (
-          <ChoiceGroup
-            name="valueKind"
-            legend="What does it carry?"
-            hint="This is the only value the benefit holds. Each plan sets it separately."
-            options={listEnabledOptions(BENEFIT_VALUE_KINDS)}
-            value={values.valueKind}
-            onChange={(id) => setValue('valueKind', id as BenefitValueKind)}
-            error={fieldErrors.valueKind ?? null}
-          />
+          <>
+            <ChoiceGroup
+              name="valueKind"
+              legend="What does it carry?"
+              hint="Each plan sets this value separately."
+              options={listEnabledOptions(BENEFIT_VALUE_KINDS)}
+              value={values.valueKind}
+              onChange={(id) => setValue('valueKind', id as BenefitValueKind)}
+              error={fieldErrors.valueKind ?? null}
+            />
+
+            <AlternativeChoice
+              value={values.alternativeKind}
+              onChange={(kind) => setValue('alternativeKind', kind)}
+            />
+          </>
         )}
       </div>
     </Dialog>

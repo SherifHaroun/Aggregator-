@@ -1,4 +1,5 @@
 import {
+  ALTERNATIVE_VALUE_KEY,
   BENEFIT_VALUE_KINDS,
   DEFAULT_BENEFIT_VALUE_KIND,
   UMBRELLA_BENEFIT_LABEL,
@@ -11,6 +12,7 @@ import { useState } from 'react';
 import { Button, Callout, ChoiceGroup, Dialog, Field, Input, useToast } from '@/components/ui';
 import { useSaveInsuranceOption } from '@/features/insurance-data/insurance-data.api';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
+import { AlternativeChoice } from './AlternativeChoice';
 
 /**
  * Edit a benefit or a sub-benefit: its name, and what it carries.
@@ -35,14 +37,18 @@ export function EditBenefitDialog({
   const { notify } = useToast();
   const save = useSaveInsuranceOption(benefit.id);
 
-  /** What it carries today, read from its own field definition. */
-  const currentKind = benefit.fields?.[0]
-    ? benefitKindForDataType(benefit.fields[0].dataType)
+  /** What it carries today, read from its own field definitions. */
+  const mainField = benefit.fields?.find((field) => field.key !== ALTERNATIVE_VALUE_KEY);
+  const alternativeField = benefit.fields?.find((field) => field.key === ALTERNATIVE_VALUE_KEY);
+  const currentKind = mainField ? benefitKindForDataType(mainField.dataType) : null;
+  const currentAlternative = alternativeField
+    ? benefitKindForDataType(alternativeField.dataType)
     : null;
 
   const { values, setValue, fieldErrors, formError, applyError } = useRecordForm({
     name: benefit.name,
     valueKind: (currentKind ?? DEFAULT_BENEFIT_VALUE_KIND) as BenefitValueKind,
+    alternativeKind: currentAlternative as BenefitValueKind | null,
   });
   const [submitted, setSubmitted] = useState(false);
 
@@ -50,12 +56,15 @@ export function EditBenefitDialog({
   /** A group carries nothing, so there is no kind to offer for one. */
   const carriesValue = !benefit.isUmbrella && currentKind !== null;
   const kindChanged = carriesValue && values.valueKind !== currentKind;
+  const alternativeChanged = carriesValue && values.alternativeKind !== currentAlternative;
   const nameChanged = name !== benefit.name;
+  /** Dropping the alternative drops the figures recorded against it. */
+  const alternativeRemoved = currentAlternative !== null && values.alternativeKind === null;
 
   function submit() {
     setSubmitted(true);
     if (name === '') return;
-    if (!nameChanged && !kindChanged) {
+    if (!nameChanged && !kindChanged && !alternativeChanged) {
       onClose();
       return;
     }
@@ -64,6 +73,7 @@ export function EditBenefitDialog({
       {
         ...(nameChanged ? { name } : {}),
         ...(kindChanged ? { valueKind: values.valueKind } : {}),
+        ...(alternativeChanged ? { alternativeKind: values.alternativeKind } : {}),
       },
       {
         onSuccess: (saved) => {
@@ -142,6 +152,18 @@ export function EditBenefitDialog({
             {kindChanged ? (
               <Callout tone="warning" title="What happens to the values already entered">
                 {describeConversion(currentKind!, values.valueKind, benefit.usageCount ?? 0)}
+              </Callout>
+            ) : null}
+
+            <AlternativeChoice
+              value={values.alternativeKind}
+              onChange={(kind) => setValue('alternativeKind', kind)}
+            />
+
+            {alternativeRemoved ? (
+              <Callout tone="warning" title="Removing the alternative">
+                The second value goes, and with it every figure entered against it. The main value
+                is untouched.
               </Callout>
             ) : null}
           </>

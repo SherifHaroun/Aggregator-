@@ -329,6 +329,16 @@ model PlanOption {
 
   sortOrder Int @default(0)
 
+  /// A remark about this benefit ON THIS CONFIGURATION, e.g. "1 in 10 members
+  /// ratio" or "basic procedures only".
+  ///
+  /// A column rather than an `OptionField`, because it is not information the
+  /// benefit requires: every attachment may carry one, whatever the benefit is,
+  /// exactly like `sortOrder`. Its text differs per configuration — the same
+  /// benefit reads "1 in 10" on one plan and "1 in 20" on another — which is
+  /// why it lives here and not on `InsuranceOption`.
+  note String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

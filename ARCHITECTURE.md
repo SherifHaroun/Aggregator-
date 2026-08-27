@@ -229,6 +229,30 @@ The copy is deliberately three statements — the attachments in one
 per benefit runs past the transaction timeout on exactly the plans that have
 most of them.
 
+### A benefit quoted two ways, and the remark that qualifies it
+
+Plan documents rarely state a bare figure. They state "800 EGP (80% coverage
+for basic procedures)" — a value, an alternative way of quoting it, and a
+qualification. Both are supported without either becoming a column named after
+a benefit:
+
+- **The alternative** is a SECOND `OptionField` on the benefit, created only
+  when the employee opts in, with a kind of its own. It is told apart from the
+  main value by its stable key, `ALTERNATIVE_VALUE_KEY`, never by position, so a
+  benefit defined before alternatives existed still reads correctly. The two
+  render on one line with "or" between them, because that is how the document
+  writes them.
+- **The note** is a column on `PlanOption` — the attachment — because it is not
+  information the benefit requires: any attachment may carry one whatever the
+  benefit is, exactly like `sortOrder`. Its text differs per configuration
+  ("1 in 10 members" on one plan, "1 in 20" on another), which is why it cannot
+  live on `InsuranceOption`.
+
+Each box writes only its own field: `PUT /plan-options/:id/values/:fieldId` for
+one value, `PATCH /plan-options/:id/note` for the remark. The bulk
+`PUT /values` remains, and still replaces — but a self-saving box must never
+send back values it does not own, or two boxes on one row will wipe each other.
+
 ### Figures the plan never stated
 
 A blank deductible does not mean zero. `NOT_SPECIFIED_LABEL` in

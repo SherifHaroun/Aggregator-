@@ -147,6 +147,11 @@ export interface PlanOptionDto {
   isUmbrella: boolean;
   /** The umbrella benefit this one sits under, or `null` at the top level. */
   parentOptionId: string | null;
+  /**
+   * A remark about this benefit on THIS configuration — "1 in 10 members
+   * ratio", "basic procedures only". `null` when none was written.
+   */
+  note: string | null;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;

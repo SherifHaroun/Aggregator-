@@ -19,10 +19,12 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  ALTERNATIVE_VALUE_KEY,
   UMBRELLA_BENEFIT_LABEL,
   benefitTypeLabel,
   type InsuranceOptionDto,
   type PlanOptionDto,
+  type PlanOptionValueDto,
 } from '@aggregator/shared';
 import { memo, useCallback, useMemo, useState } from 'react';
 import {
@@ -51,7 +53,12 @@ import {
 import { cn } from '@/lib/cn';
 import { EditBenefitDialog } from './EditBenefitDialog';
 import { NewBenefitDialog } from './NewBenefitDialog';
-import { PlanOptionValueInline, PlanOptionValuesForm, valueAsText } from './PlanOptionValuesForm';
+import {
+  PlanOptionNoteInline,
+  PlanOptionValueInline,
+  PlanOptionValuesForm,
+  valueAsText,
+} from './PlanOptionValuesForm';
 
 /** Prefix distinguishing a catalogue item from an already-attached benefit. */
 const AVAILABLE = 'available:';
@@ -732,29 +739,50 @@ const AttachedBenefit = memo(function AttachedBenefit({
         </button>
       </div>
 
+      {/* Any figure may need qualifying, so every benefit can carry a remark. */}
+      <div className="mt-2 pl-6">
+        <PlanOptionNoteInline
+          planOptionId={planOption.id}
+          planConfigurationId={planOption.planConfigurationId}
+          optionName={planOption.optionName}
+          note={planOption.note}
+          disabled={pending}
+        />
+      </div>
+
       {planOption.isUmbrella ? (
-        <div className="border-border-subtle mt-3 space-y-2 border-l-2 pl-3">
+        <div className="border-border-subtle mt-3 space-y-3 border-l-2 pl-3">
           {subBenefits.map((child) => (
-            <div key={child.id} className="flex flex-wrap items-center gap-2">
-              <span className="min-w-0 flex-1">
-                <span className="text-content block truncate text-sm font-medium">
-                  {child.optionName}
+            <div key={child.id}>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="min-w-0 flex-1">
+                  <span className="text-content block truncate text-sm font-medium">
+                    {child.optionName}
+                  </span>
+                  <span className="text-content-subtle block text-xs">
+                    {benefitTypeLabel(child.values)}
+                  </span>
                 </span>
-                <span className="text-content-subtle block text-xs">
-                  {benefitTypeLabel(child.values)}
-                </span>
-              </span>
 
-              <BenefitValue planOption={child} pending={isOptimisticPlanOption(child)} />
+                <BenefitValue planOption={child} pending={isOptimisticPlanOption(child)} />
 
-              <button
-                type="button"
-                onClick={() => onRemove(child.id, child.optionName)}
-                aria-label={`Remove ${child.optionName}`}
-                className="text-danger hover:bg-danger-soft rounded-(--radius-control) p-1.5"
-              >
-                <IconTrash className="size-3.5" />
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onRemove(child.id, child.optionName)}
+                  aria-label={`Remove ${child.optionName}`}
+                  className="text-danger hover:bg-danger-soft rounded-(--radius-control) p-1.5"
+                >
+                  <IconTrash className="size-3.5" />
+                </button>
+              </div>
+
+              <PlanOptionNoteInline
+                planOptionId={child.id}
+                planConfigurationId={child.planConfigurationId}
+                optionName={child.optionName}
+                note={child.note}
+                disabled={isOptimisticPlanOption(child)}
+              />
             </div>
           ))}
 
@@ -770,8 +798,9 @@ const AttachedBenefit = memo(function AttachedBenefit({
         </div>
       ) : null}
 
-      {/* A benefit with several values keeps its full form below the row. */}
-      {planOption.isUmbrella || planOption.values.length <= 1 ? null : (
+      {/* A benefit with values the product does not manage — several fields of
+          its own — keeps its full form below the row. */}
+      {planOption.isUmbrella || splitValues(planOption).managed ? null : (
         <div className="mt-4">
           <PlanOptionValuesForm planOption={planOption} />
         </div>
@@ -781,25 +810,65 @@ const AttachedBenefit = memo(function AttachedBenefit({
 });
 
 /**
- * The single value a benefit carries, edited inline.
+ * Split a benefit's values into the one it mainly carries and the alternative
+ * it may be quoted as instead.
  *
- * A group carries none, and a benefit with several values is edited in the form
- * below its row instead — both render nothing here.
+ * Told apart by the alternative's stable key rather than by position, so a
+ * benefit defined before alternatives existed still reads correctly. Anything
+ * else — a benefit built through the general API with several fields — is
+ * neither, and keeps its full form below the row.
+ */
+function splitValues(planOption: PlanOptionDto): {
+  main: PlanOptionValueDto | undefined;
+  alternative: PlanOptionValueDto | undefined;
+  managed: boolean;
+} {
+  const alternative = planOption.values.find((value) => value.fieldKey === ALTERNATIVE_VALUE_KEY);
+  const main = planOption.values.find((value) => value.fieldKey !== ALTERNATIVE_VALUE_KEY);
+  const managed = planOption.values.length === (alternative ? 2 : 1);
+  return { main, alternative, managed };
+}
+
+/**
+ * What a benefit is worth on this configuration: its value, the alternative it
+ * may be quoted as instead, and the remark that qualifies either.
+ *
+ * The two figures read as one statement — "800 EGP or 80%" — which is how the
+ * plan documents write them, so they sit on one line with the word between
+ * them rather than in separate fields.
  */
 function BenefitValue({ planOption, pending }: { planOption: PlanOptionDto; pending: boolean }) {
-  const single = planOption.values.length === 1 ? planOption.values[0] : undefined;
-  if (!single) return null;
+  const { main, alternative, managed } = splitValues(planOption);
+  if (!main || !managed) return null;
 
   return (
-    <PlanOptionValueInline
-      planOptionId={planOption.id}
-      planConfigurationId={planOption.planConfigurationId}
-      optionName={planOption.optionName}
-      optionFieldId={single.optionFieldId}
-      dataType={single.dataType}
-      unit={single.unit}
-      value={valueAsText(single)}
-      disabled={pending}
-    />
+    <span className="flex items-center gap-2">
+      <PlanOptionValueInline
+        planOptionId={planOption.id}
+        planConfigurationId={planOption.planConfigurationId}
+        optionName={planOption.optionName}
+        optionFieldId={main.optionFieldId}
+        dataType={main.dataType}
+        unit={main.unit}
+        value={valueAsText(main)}
+        disabled={pending}
+      />
+
+      {alternative ? (
+        <>
+          <span className="text-content-subtle shrink-0 text-xs font-semibold uppercase">or</span>
+          <PlanOptionValueInline
+            planOptionId={planOption.id}
+            planConfigurationId={planOption.planConfigurationId}
+            optionName={`${planOption.optionName} alternative`}
+            optionFieldId={alternative.optionFieldId}
+            dataType={alternative.dataType}
+            unit={alternative.unit}
+            value={valueAsText(alternative)}
+            disabled={pending}
+          />
+        </>
+      ) : null}
+    </span>
   );
 }

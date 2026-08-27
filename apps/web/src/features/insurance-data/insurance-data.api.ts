@@ -202,6 +202,7 @@ export function useCreateInsuranceOption() {
     (input: {
       name: string;
       valueKind?: BenefitValueKind;
+      alternativeKind?: BenefitValueKind;
       isUmbrella?: boolean;
       parentId?: string;
     }) => api.post<InsuranceOptionDto>('/insurance-options', input),
@@ -384,6 +385,7 @@ function optimisticPlanOption(
     optionName: option.name,
     isUmbrella: option.isUmbrella,
     parentOptionId: option.parentId,
+    note: null,
     sortOrder,
     createdAt: now,
     updatedAt: now,
@@ -576,6 +578,59 @@ export function useReorderPlanOptions(configurationId: string) {
     },
     onError: (_error, _orderedIds, previous) =>
       rollbackOptions(queryClient, configurationId, previous),
+  });
+}
+
+/**
+ * Save ONE value of a benefit inside one configuration.
+ *
+ * What every inline box uses. A benefit may carry two figures — "800 EGP or
+ * 80%" — each in its own self-saving box, so a box must write its own field and
+ * nothing else; replacing the whole set would have each box wipe the other.
+ */
+export function useSavePlanOptionValue() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    PlanOptionDto,
+    unknown,
+    {
+      planOptionId: string;
+      planConfigurationId: string;
+      optionFieldId: string;
+      value: number | string | boolean | null;
+    }
+  >({
+    mutationFn: ({ planOptionId, optionFieldId, value }) =>
+      api.put<PlanOptionDto>(`/plan-options/${planOptionId}/values/${optionFieldId}`, { value }),
+    onSuccess: (saved, { planConfigurationId }) =>
+      updateConfigurationOptions(queryClient, planConfigurationId, (options) =>
+        mapChanged(options, (item) => (item.id === saved.id ? saved : item)),
+      ),
+  });
+}
+
+/**
+ * Save the remark carried by one benefit inside one configuration.
+ *
+ * Written separately from the values, because it is edited separately: the note
+ * sits beside the figure and saves itself, and neither may overwrite the other.
+ * The server's row is written straight into the cache, as with values.
+ */
+export function useSavePlanOptionNote() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    PlanOptionDto,
+    unknown,
+    { planOptionId: string; planConfigurationId: string; note: string | null }
+  >({
+    mutationFn: ({ planOptionId, note }) =>
+      api.patch<PlanOptionDto>(`/plan-options/${planOptionId}/note`, { note }),
+    onSuccess: (saved, { planConfigurationId }) =>
+      updateConfigurationOptions(queryClient, planConfigurationId, (options) =>
+        mapChanged(options, (item) => (item.id === saved.id ? saved : item)),
+      ),
   });
 }
 

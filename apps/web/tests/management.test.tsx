@@ -106,6 +106,49 @@ function givenOption(id = 'option_1', name = 'Aurora Wellness Programme') {
   return id;
 }
 
+/** A benefit worth a limit, or quoted as a percentage instead. */
+function givenOptionWithAlternative(id = 'option_1', name = 'Dental') {
+  store.options.push({
+    id,
+    name,
+    description: null,
+    sortOrder: 0,
+    isUmbrella: false,
+    parentId: null,
+    isActive: true,
+    ...timestamps,
+    fields: [
+      {
+        id: `${id}_limit`,
+        optionId: id,
+        label: 'Limit',
+        key: 'limit',
+        dataType: 'CURRENCY',
+        unit: null,
+        helpText: null,
+        isRequired: false,
+        sortOrder: 0,
+        isActive: true,
+        ...timestamps,
+      },
+      {
+        id: `${id}_alternative`,
+        optionId: id,
+        label: 'Or percentage',
+        key: 'alternative',
+        dataType: 'PERCENTAGE',
+        unit: '%',
+        helpText: null,
+        isRequired: false,
+        sortOrder: 1,
+        isActive: true,
+        ...timestamps,
+      },
+    ],
+  });
+  return id;
+}
+
 function givenConfiguration(
   id: string,
   planId: string,
@@ -1102,6 +1145,108 @@ describe('dynamic insurance options', () => {
     expect(store.values[0]?.value).toBe(80);
   });
 
+  it('creates a benefit quoted two ways, and shows both boxes with OR between', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(await screen.findByRole('button', { name: /New benefit/i }));
+    await user.type(await screen.findByLabelText(/Benefit name/i), 'Dental');
+
+    const kinds = await screen.findByRole('group', { name: /What does it carry/i });
+    await user.click(
+      within(kinds)
+        .getAllByRole('radio')
+        .find((radio) => (radio.closest('label')?.textContent ?? '').includes('Limit'))!,
+    );
+
+    await user.click(screen.getByRole('checkbox', { name: /quoted another way/i }));
+    const alternative = await screen.findByRole('group', { name: /What is the alternative/i });
+    await user.click(
+      within(alternative)
+        .getAllByRole('radio')
+        .find((radio) => (radio.closest('label')?.textContent ?? '').includes('Percentage'))!,
+    );
+    await user.click(screen.getByRole('button', { name: /^Save$/ }));
+
+    await waitFor(() => expect(store.options).toHaveLength(1));
+    // Two fields: the limit it is worth, and the percentage it may be quoted as.
+    expect(store.options[0]?.fields?.map((field) => field.dataType)).toEqual([
+      'CURRENCY',
+      'PERCENTAGE',
+    ]);
+
+    // On the plan, both are editable side by side.
+    await user.click(screen.getByRole('button', { name: 'Add Dental' }));
+    expect(await screen.findByLabelText('Dental value')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Dental alternative value')).toBeInTheDocument();
+    expect(screen.getByText('or')).toBeInTheDocument();
+  });
+
+  it('records a different figure in each box', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOptionWithAlternative();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.type(await screen.findByLabelText('Dental value'), '800');
+    await user.tab();
+    await waitFor(() => expect(store.values).toHaveLength(1));
+
+    await user.type(await screen.findByLabelText('Dental alternative value'), '80');
+    await user.tab();
+    await waitFor(() => expect(store.values).toHaveLength(2));
+
+    // The two figures are independent values of the same benefit.
+    expect(store.values.find((v) => v.optionFieldId === 'option_1_limit')?.value).toBe(800);
+    expect(store.values.find((v) => v.optionFieldId === 'option_1_alternative')?.value).toBe(80);
+  });
+
+  it('adds a note to a benefit, kept per configuration', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    // The note stays out of the way until it is asked for.
+    expect(screen.queryByLabelText('Aurora Wellness Programme note')).not.toBeInTheDocument();
+    await user.click(
+      await screen.findByRole('button', { name: 'Add a note to Aurora Wellness Programme' }),
+    );
+
+    await user.type(
+      await screen.findByLabelText('Aurora Wellness Programme note'),
+      '1 in 10 members ratio',
+    );
+    await user.tab();
+
+    await waitFor(() => expect(store.planOptions[0]?.note).toBe('1 in 10 members ratio'));
+  });
+
   it('renames a benefit, and the coverage row follows', async () => {
     const user = userEvent.setup();
     givenCompany();
@@ -1318,7 +1463,8 @@ describe('dynamic insurance options', () => {
 
     store.failNext = {
       method: 'PUT',
-      path: /^\/plan-options\/.+\/values$/,
+      // The inline box writes its own field: /plan-options/:id/values/:fieldId
+      path: /^\/plan-options\/.+\/values\/.+$/,
       status: 503,
       body: {
         ok: false,

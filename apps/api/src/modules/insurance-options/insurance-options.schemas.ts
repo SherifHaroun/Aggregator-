@@ -34,6 +34,12 @@ export const createInsuranceOptionSchema = z.object({
    */
   valueKind: z.enum(BENEFIT_VALUE_KIND_IDS).optional(),
   /**
+   * A SECOND value the benefit may carry, quoted as an alternative to the
+   * first — "800 EGP, or 80%". Omitted, the benefit carries one value; `null`
+   * on an update removes the alternative and the figures recorded against it.
+   */
+  alternativeKind: z.enum(BENEFIT_VALUE_KIND_IDS).nullable().optional(),
+  /**
    * An umbrella groups sub-benefits and holds no value of its own, so it is
    * created with no fields at all.
    */

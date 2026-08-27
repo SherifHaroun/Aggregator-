@@ -169,6 +169,9 @@ export async function duplicatePlanConfiguration(
           planConfigurationId: configuration.id,
           optionId: planOption.optionId,
           sortOrder: planOption.sortOrder,
+          // The remark is part of what this configuration says about the
+          // benefit, so the copy says it too.
+          note: planOption.note,
         })),
         select: { id: true, optionId: true },
       });

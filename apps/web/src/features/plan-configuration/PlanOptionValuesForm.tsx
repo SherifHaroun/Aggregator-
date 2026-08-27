@@ -16,7 +16,11 @@ import {
   describeError,
   useToast,
 } from '@/components/ui';
-import { useSavePlanOptionValues } from '@/features/insurance-data/insurance-data.api';
+import {
+  useSavePlanOptionNote,
+  useSavePlanOptionValue,
+  useSavePlanOptionValues,
+} from '@/features/insurance-data/insurance-data.api';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
 
 /** Quiet period after the last keystroke before the value is sent. */
@@ -59,7 +63,7 @@ export const PlanOptionValueInline = memo(function PlanOptionValueInline({
   /** True while the row itself is still being created. */
   disabled?: boolean;
 }) {
-  const save = useSavePlanOptionValues();
+  const save = useSavePlanOptionValue();
   const [text, setText] = useState(value);
   const [state, setState] = useState<SaveState>('idle');
 
@@ -83,7 +87,8 @@ export const PlanOptionValueInline = memo(function PlanOptionValueInline({
         {
           planOptionId,
           planConfigurationId,
-          values: [{ optionFieldId, value: parseOptionValue(dataType, next) }],
+          optionFieldId,
+          value: parseOptionValue(dataType, next),
         },
         {
           onSuccess: () => {
@@ -330,3 +335,115 @@ function toDraft(planOption: PlanOptionDto): Record<string, string> {
   }
   return draft;
 }
+
+/**
+ * The remark beside a benefit's value on ONE configuration — "1 in 10 members
+ * ratio", "basic procedures only".
+ *
+ * Saves itself exactly as a value does, for the same reason: an employee
+ * qualifying thirty figures should never hunt for a Save button. It is offered
+ * on every benefit, because any figure may need qualifying, but it stays out of
+ * the way until it is asked for.
+ */
+export const PlanOptionNoteInline = memo(function PlanOptionNoteInline({
+  planOptionId,
+  planConfigurationId,
+  optionName,
+  note,
+  disabled = false,
+}: {
+  planOptionId: string;
+  planConfigurationId: string;
+  optionName: string;
+  /** The saved note, or `null` when none was written. */
+  note: string | null;
+  disabled?: boolean;
+}) {
+  const save = useSavePlanOptionNote();
+  const [text, setText] = useState(note ?? '');
+  const [open, setOpen] = useState(note !== null);
+  const [state, setState] = useState<SaveState>('idle');
+
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const dirty = useRef(false);
+
+  useEffect(() => () => clearTimeout(timer.current), []);
+
+  useEffect(() => {
+    if (!dirty.current) setText(note ?? '');
+  }, [note]);
+
+  const commit = useCallback(
+    (next: string) => {
+      clearTimeout(timer.current);
+      setState('saving');
+      save.mutate(
+        {
+          planOptionId,
+          planConfigurationId,
+          // Cleared text removes the note rather than storing an empty one.
+          note: next.trim() === '' ? null : next.trim(),
+        },
+        {
+          onSuccess: () => {
+            dirty.current = false;
+            setState('saved');
+          },
+          onError: () => setState('error'),
+        },
+      );
+    },
+    [planConfigurationId, planOptionId, save],
+  );
+
+  const handleChange = useCallback(
+    (next: string) => {
+      setText(next);
+      dirty.current = true;
+      setState('idle');
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => commit(next), SAVE_DEBOUNCE_MS);
+    },
+    [commit],
+  );
+
+  useEffect(() => {
+    if (state !== 'saved') return;
+    const done = setTimeout(() => setState('idle'), SAVED_VISIBLE_MS);
+    return () => clearTimeout(done);
+  }, [state]);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        disabled={disabled}
+        aria-label={`Add a note to ${optionName}`}
+        className="text-content-subtle hover:text-brand-strong hover:bg-brand-soft w-fit rounded-(--radius-control) px-1.5 py-0.5 text-xs font-medium"
+      >
+        + Note
+      </button>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-2">
+      <Input
+        autoFocus={note === null}
+        value={text}
+        disabled={disabled}
+        aria-label={`${optionName} note`}
+        placeholder="e.g. 1 in 10 members ratio"
+        onChange={(event) => handleChange(event.target.value)}
+        onBlur={() => {
+          if (dirty.current && state !== 'saving') commit(text);
+          // An empty note that was never written folds the field away again.
+          if (text.trim() === '' && note === null) setOpen(false);
+        }}
+        className="py-1.5 text-xs"
+      />
+      <SaveStatus state={state} optionName={`${optionName} note`} onRetry={() => commit(text)} />
+    </span>
+  );
+});

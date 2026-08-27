@@ -1,7 +1,9 @@
 import {
+  ALTERNATIVE_VALUE_KEY,
   DEFAULT_BENEFIT_VALUE_KIND,
   PERCENTAGE_MAX,
   PERCENTAGE_MIN,
+  alternativeValueField,
   benefitValueField,
   formatNumberValue,
   storageForDataType,
@@ -173,7 +175,11 @@ export async function createInsuranceOption(
     ? []
     : input.fields?.length
       ? input.fields
-      : [{ ...benefitValueField(input.valueKind ?? DEFAULT_BENEFIT_VALUE_KIND) }];
+      : [
+          { ...benefitValueField(input.valueKind ?? DEFAULT_BENEFIT_VALUE_KIND) },
+          // The alternative, when the benefit is quoted two ways at once.
+          ...(input.alternativeKind ? [{ ...alternativeValueField(input.alternativeKind) }] : []),
+        ];
 
   // Sub-benefits are ordered within their umbrella, top-level ones globally.
   const sortOrder = nextSortOrder(
@@ -228,6 +234,7 @@ async function changeValueKind(
   tx: Prisma.TransactionClient,
   optionId: string,
   kind: BenefitValueKind,
+  { alternative = false }: { alternative?: boolean } = {},
 ): Promise<void> {
   const fields = await tx.optionField.findMany({ where: { optionId } });
 
@@ -236,14 +243,23 @@ async function changeValueKind(
       'A group of benefits carries no value of its own, so there is nothing to change.',
     );
   }
-  if (fields.length > 1) {
+
+  /**
+   * The main value and the alternative are changed independently — they are
+   * two fields of the same benefit, told apart by the alternative's stable key
+   * rather than by their position.
+   */
+  const field = alternative
+    ? fields.find((item) => item.key === ALTERNATIVE_VALUE_KEY)
+    : fields.find((item) => item.key !== ALTERNATIVE_VALUE_KEY);
+
+  if (!field) {
     throw conflict(
-      'This benefit was defined with several values, so what it carries cannot be switched in one step.',
+      'This benefit was defined with values the product does not manage, so what it carries cannot be switched in one step.',
     );
   }
 
-  const field = fields[0]!;
-  const target = benefitValueField(kind);
+  const target = alternative ? alternativeValueField(kind) : benefitValueField(kind);
   if (field.dataType === target.dataType) return;
 
   const fromStorage = storageForDataType(field.dataType);
@@ -347,13 +363,43 @@ export async function updateInsuranceOption(
     }
   }
 
-  const { valueKind, ...rest } = input;
+  const { valueKind, alternativeKind, ...rest } = input;
 
   await prisma.$transaction(async (tx) => {
     if (Object.keys(rest).length > 0) {
       await tx.insuranceOption.update({ where: { id }, data: rest });
     }
     if (valueKind !== undefined) await changeValueKind(tx, id, valueKind);
+
+    if (alternativeKind !== undefined) {
+      const existing = await tx.optionField.findFirst({
+        where: { optionId: id, key: ALTERNATIVE_VALUE_KEY },
+        select: { id: true },
+      });
+
+      if (alternativeKind === null) {
+        // Dropping the alternative drops the figures recorded against it; the
+        // client says so before asking.
+        if (existing) await tx.optionField.delete({ where: { id: existing.id } });
+      } else if (existing) {
+        await changeValueKind(tx, id, alternativeKind, { alternative: true });
+      } else {
+        const definition = alternativeValueField(alternativeKind);
+        const sortOrder = nextSortOrder(
+          await tx.optionField.aggregate({ where: { optionId: id }, _max: { sortOrder: true } }),
+        );
+        await tx.optionField.create({
+          data: {
+            optionId: id,
+            label: definition.label,
+            key: definition.key,
+            dataType: definition.dataType,
+            unit: definition.unit,
+            sortOrder,
+          },
+        });
+      }
+    }
   });
 
   const option = await prisma.insuranceOption.findUnique({

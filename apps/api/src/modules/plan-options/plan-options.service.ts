@@ -184,7 +184,51 @@ export async function reorderPlanOptions(
 }
 
 /**
- * Replace the values of one plan option.
+ * Write the remark carried by one benefit on one configuration.
+ *
+ * Separate from the values because it is written separately: the note sits
+ * beside the figure on the row and saves itself, and neither should overwrite
+ * the other. Blank clears it.
+ */
+export async function setPlanOptionNote(
+  planOptionId: string,
+  note: string | null,
+): Promise<PlanOptionDto> {
+  const planOption = await getPrisma().planOption.findUnique({
+    where: { id: planOptionId },
+    select: { id: true },
+  });
+  if (!planOption) throw notFound('Plan option');
+
+  await getPrisma().planOption.update({ where: { id: planOptionId }, data: { note } });
+  return getPlanOption(planOptionId);
+}
+
+/**
+ * Write ONE value of a plan option, leaving its other values alone.
+ *
+ * A benefit may carry two figures at once — "800 EGP or 80%" — and each is
+ * edited in its own box that saves itself. A replace would mean every box had
+ * to know what the others hold and send them back, and the first one saved
+ * would wipe the second. This writes exactly the field it names.
+ */
+export async function setPlanOptionValue(
+  planOptionId: string,
+  optionFieldId: string,
+  value: PlanOptionValueInputPayload['value'],
+): Promise<PlanOptionDto> {
+  const planOption = await getPrisma().planOption.findUnique({
+    where: { id: planOptionId },
+    select: { id: true, optionId: true },
+  });
+  if (!planOption) throw notFound('Plan option');
+
+  await writeValues(planOptionId, planOption.optionId, [{ optionFieldId, value }]);
+  return getPlanOption(planOptionId);
+}
+
+/**
+ * Replace ALL the values of one plan option.
  *
  * Fields not present in the payload are cleared, so the request describes the
  * complete configuration of that option within that plan configuration.

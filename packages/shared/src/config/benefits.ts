@@ -94,6 +94,31 @@ export function benefitKindForDataType(dataType: OptionFieldDataType): BenefitVa
 }
 
 /**
+ * The key of the SECOND value a benefit may carry.
+ *
+ * Some cover is quoted two ways at once — "800 EGP, or 80% for basic
+ * procedures" — so a benefit may declare an alternative alongside its main
+ * value, with a kind of its own. It is opt-in per benefit: most carry one value
+ * and gain nothing from a second empty box.
+ *
+ * A stable key rather than a position, so any client can tell the alternative
+ * from the main value without counting fields.
+ */
+export const ALTERNATIVE_VALUE_KEY = 'alternative';
+
+/** The field definition for a benefit's alternative value. */
+export function alternativeValueField(kind: BenefitValueKind): BenefitValueField {
+  const primary = benefitValueField(kind);
+  return { ...primary, key: ALTERNATIVE_VALUE_KEY, label: `Or ${primary.label.toLowerCase()}` };
+}
+
+/**
+ * The longest remark that can be attached to a benefit on a configuration.
+ * Long enough for the qualifications insurance documents actually print.
+ */
+export const BENEFIT_NOTE_MAX_LENGTH = 300;
+
+/**
  * How deep the benefit hierarchy goes: an umbrella holds sub-benefits, and a
  * sub-benefit holds nothing. One level is what the business describes, and
  * bounding it here keeps every screen able to render the whole tree.
