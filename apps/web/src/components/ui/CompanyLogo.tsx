@@ -1,3 +1,4 @@
+import { resolveAssetUrl } from '@/lib/api-url';
 import { cn } from '@/lib/cn';
 
 const SIZES = {
@@ -29,10 +30,13 @@ export function CompanyLogo({
     .join('')
     .toUpperCase();
 
-  if (logoUrl) {
+  // Stored logos are API paths; they only load once resolved against the API.
+  const src = resolveAssetUrl(logoUrl);
+
+  if (src) {
     return (
       <img
-        src={logoUrl}
+        src={src}
         alt=""
         className={cn(
           'bg-surface border-border-subtle shrink-0 border object-contain p-1',

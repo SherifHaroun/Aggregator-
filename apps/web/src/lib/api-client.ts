@@ -5,8 +5,9 @@
  */
 
 import type { ApiResponse } from '@aggregator/shared';
+import { apiBaseUrl } from './api-url';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+const BASE_URL = apiBaseUrl();
 
 export class ApiError extends Error {
   constructor(

@@ -1,5 +1,6 @@
 import { useRef, useState, type DragEvent } from 'react';
 import { uploadImage } from '@/lib/api-client';
+import { resolveAssetUrl } from '@/lib/api-url';
 import { cn } from '@/lib/cn';
 import { describeError } from './DataState';
 
@@ -48,8 +49,9 @@ export function LogoUploader({
   if (value) {
     return (
       <div className="border-border-subtle flex items-center gap-4 rounded-(--radius-card) border p-4">
+        {/* Preview loads from the API; the caption below shows what is stored. */}
         <img
-          src={value}
+          src={resolveAssetUrl(value)}
           alt="Company logo preview"
           className="bg-surface-muted size-16 rounded-(--radius-control) object-contain"
         />
