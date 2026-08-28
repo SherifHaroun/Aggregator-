@@ -19,6 +19,7 @@ import {
   type CompanyDto,
   type InsuranceOptionDto,
   type InsuranceTypeDto,
+  type LimitationDto,
   type OptionFieldDto,
   type PlanConfigurationDto,
   type PlanDto,
@@ -37,12 +38,15 @@ interface StoredPlanOption {
   optionId: string;
   sortOrder: number;
   note?: string | null;
+  /** Ids of the catalogue limitations this benefit carries. Absent = none. */
+  limitationIds?: string[];
 }
 
 export interface FakeStore {
   companies: CompanyDto[];
   insuranceTypes: InsuranceTypeDto[];
   options: InsuranceOptionDto[];
+  limitations: LimitationDto[];
   plans: PlanDto[];
   configurations: PlanConfigurationDto[];
   planOptions: StoredPlanOption[];
@@ -66,6 +70,7 @@ export function createStore(): FakeStore {
     companies: [],
     insuranceTypes: [],
     options: [],
+    limitations: [],
     plans: [],
     configurations: [],
     planOptions: [],
@@ -723,6 +728,7 @@ function route({
           optionId: planOption.optionId,
           sortOrder: planOption.sortOrder,
           note: planOption.note ?? null,
+          limitationIds: [...(planOption.limitationIds ?? [])],
         };
         store.planOptions.push(copied);
         for (const value of store.values.filter((item) => item.planOptionId === planOption.id)) {
@@ -790,6 +796,32 @@ function route({
     }
   }
 
+  // --- limitations ---------------------------------------------------------
+  if (resource === 'limitations') {
+    if (method === 'GET' && !first) {
+      const scope = search.get('scope');
+      const items = store.limitations
+        .filter((limitation) => (scope ? limitation.scope === scope : true))
+        .sort((a, b) => a.sortOrder - b.sortOrder);
+      return ok({ items, total: items.length, page: 1, pageSize: items.length });
+    }
+    if (method === 'POST') {
+      const created: LimitationDto = {
+        id: id('limitation'),
+        name: String(body.name),
+        description: null,
+        scope: (body.scope as LimitationDto['scope']) ?? 'VALUE',
+        restrictionWeight: (body.restrictionWeight as number) ?? 0,
+        sortOrder: store.limitations.length,
+        isActive: true,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      store.limitations.push(created);
+      return ok(created, 201);
+    }
+  }
+
   // --- plan options --------------------------------------------------------
   if (resource === 'plan-options') {
     const planOption = store.planOptions.find((item) => item.id === first);
@@ -802,6 +834,11 @@ function route({
       const value = body.value as number | string | boolean | null;
       if (existing) existing.value = value;
       else store.values.push({ planOptionId: planOption.id, optionFieldId: third, value });
+      return ok(hydratePlanOption(store, planOption));
+    }
+    /** A complete replace: an empty array states that there are none. */
+    if (second === 'limitations' && method === 'PUT') {
+      planOption.limitationIds = (body.limitationIds as unknown as string[]) ?? [];
       return ok(hydratePlanOption(store, planOption));
     }
     if (second === 'note' && method === 'PATCH') {
@@ -858,6 +895,10 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
     isUmbrella: option?.isUmbrella ?? false,
     parentOptionId: option?.parentId ?? null,
     note: planOption.note ?? null,
+    // Catalogue order, as the real API returns them. Empty is unrestricted.
+    limitations: store.limitations
+      .filter((limitation) => (planOption.limitationIds ?? []).includes(limitation.id))
+      .sort((a, b) => a.sortOrder - b.sortOrder),
     sortOrder: planOption.sortOrder,
     createdAt: now(),
     updatedAt: now(),

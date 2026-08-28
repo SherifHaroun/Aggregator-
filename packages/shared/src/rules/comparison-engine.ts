@@ -32,6 +32,7 @@ import {
 import { NOT_SPECIFIED_LABEL } from '../config/business-rules.js';
 import { OPTION_FIELD_DATA_TYPES } from '../config/option-field-types.js';
 import type { OptionFieldDataType } from '../config/option-field-types.js';
+import { describeLimitations, limitationFactor, type AppliedLimitation } from './limitations.js';
 import { formatNumberValue } from './number-format.js';
 import type {
   ComparisonAttributeCell,
@@ -47,6 +48,23 @@ export interface CandidateBenefit {
   value: number | null;
   dataType: OptionFieldDataType | null;
   unit: string | null;
+  /**
+   * The qualifications this plan attaches to the benefit. An empty list is
+   * unrestricted cover, not missing information.
+   */
+  limitations: AppliedLimitation[];
+  /**
+   * Whether the plan carries this benefit AT ALL.
+   *
+   * Distinct from having a rankable number. A benefit quoted in words — a
+   * provider network, "covered at authorized centers" — carries no figure, but
+   * a plan that provides it is plainly not equal to a plan that does not. That
+   * used to be indistinguishable, so both scored zero; this is what tells them
+   * apart.
+   */
+  carried: boolean;
+  /** The wording a benefit is quoted in, when it is not quoted as a number. */
+  textValue: string | null;
 }
 
 /** One plan configuration that already matched the customer's criteria. */
@@ -113,13 +131,21 @@ function bestOf(values: number[], direction: ComparisonDirection): number | null
 
 /** How a benefit value reads on screen. */
 function displayBenefit(benefit: CandidateBenefit): string {
-  if (benefit.value === null) return NOT_COVERED_LABEL;
+  if (benefit.value === null) {
+    if (!benefit.carried) return NOT_COVERED_LABEL;
+    // Carried but not quoted as a number: show the wording, or say plainly
+    // that it is provided. Never "Not covered", which would be false.
+    return benefit.textValue?.trim() || COVERED_LABEL;
+  }
   const unit = benefit.unit ?? (benefit.dataType === 'PERCENTAGE' ? '%' : '');
   return unit ? `${formatNumber(benefit.value)}${unit}` : formatNumber(benefit.value);
 }
 
 /** Shown wherever a plan does not carry a selected benefit. Never "0" or "100%". */
 export const NOT_COVERED_LABEL = 'Not covered';
+
+/** Shown for a benefit a plan provides but does not put a figure on. */
+export const COVERED_LABEL = 'Covered';
 
 /** Plain number formatting, grouped, without inventing decimals. */
 export const formatNumber = formatNumberValue;
@@ -186,8 +212,28 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
     const benefits: ComparisonBenefitCell[] = candidate.benefits.map((benefit) => {
       const direction = directionFor(benefit.dataType);
       const range = benefitRange.get(benefit.optionId)!;
-      const covered = benefit.value !== null;
-      const comparable = covered && direction !== 'NOT_COMPARABLE';
+      const covered = benefit.carried;
+      const comparable = benefit.value !== null && direction !== 'NOT_COMPARABLE';
+
+      /**
+       * What the figure is worth BEFORE its conditions are read.
+       *
+       * A benefit quoted in words rather than numbers starts at full marks:
+       * there is no scale to place it on, and "provided" is the best a plan
+       * can say about it. Its conditions are then what separate one plan's
+       * physiotherapy from another's.
+       */
+      const rawScore = comparable
+        ? normaliseCovered(benefit.value!, range.min, range.max, direction)
+        : covered
+          ? 1
+          : 0;
+
+      /**
+       * The conditions attached to it. 1 when none are, so a plan is only ever
+       * marked down for a restriction somebody actually recorded.
+       */
+      const factor = limitationFactor(benefit.limitations);
 
       return {
         optionId: benefit.optionId,
@@ -199,9 +245,17 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
         unit: benefit.unit,
         direction,
         // Missing cover scores zero. It is never treated as full cover, and
-        // never ties with the weakest plan that does provide the benefit.
-        score: comparable ? normaliseCovered(benefit.value!, range.min, range.max, direction) : 0,
-        isBest: comparable && range.best !== null && benefit.value === range.best,
+        // never ties with the weakest plan that does provide the benefit —
+        // however heavily that plan's cover is qualified.
+        score: covered ? Math.max(COVERED_SCORE_FLOOR, rawScore * factor) : 0,
+        // Decided below, once every candidate's conditions have been applied.
+        isBest: false,
+        limitations: benefit.limitations.map((limitation) => ({
+          id: limitation.id,
+          name: limitation.name,
+        })),
+        limitationsDisplay: describeLimitations(benefit.limitations),
+        limitationFactor: factor,
       };
     });
 
@@ -267,6 +321,22 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
   });
 
   /**
+   * Which plan actually holds a benefit best — decided on the FINAL score, so
+   * the conditions count.
+   *
+   * The largest figure is not automatically the winner: 800 EGP for basic
+   * procedures only is worth less than 800 EGP for everything, and marking the
+   * restricted one "best" would contradict the ranking on the same screen.
+   * Genuine ties are all marked, as they were before.
+   */
+  for (const [index] of (scored[0]?.benefits ?? []).entries()) {
+    const cells = scored.map((entry) => entry.benefits[index]!).filter((cell) => cell.covered);
+    if (cells.length === 0) continue;
+    const best = Math.max(...cells.map((cell) => cell.score));
+    for (const cell of cells) cell.isBest = cell.score + COMPARISON_TIE_EPSILON >= best;
+  }
+
+  /**
    * Dominance: a plan costs no more and is at least as good on every selected
    * benefit, beating it on at least one. A dominated plan can never be the
    * recommendation — there is a strictly better deal on the table.
@@ -284,7 +354,12 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
 
       for (const [index, cell] of subject.benefits.entries()) {
         const rivalCell = rival.benefits[index]!;
-        if (cell.direction === 'NOT_COMPARABLE') continue;
+        /**
+         * Every benefit counts here, including those quoted in words. Their
+         * score now carries real information — whether the plan provides the
+         * benefit, and under what conditions — so skipping them would let a
+         * plan dominate another it is plainly worse than.
+         */
         if (rivalCell.score + COMPARISON_TIE_EPSILON < cell.score) {
           atLeastAsGoodEverywhere = false;
           break;
@@ -470,7 +545,16 @@ function describeCoverageGap(plan: ComparisonPlanResult, other: ComparisonPlanRe
   const gains = plan.benefits
     .map((cell, index) => ({ cell, rival: other.benefits[index]! }))
     .filter(({ cell, rival }) => cell.covered && cell.score > rival.score + COMPARISON_TIE_EPSILON)
-    .map(({ cell, rival }) => `${cell.optionName} (${cell.display} vs ${rival.display})`);
+    .map(({ cell, rival }) =>
+      /**
+       * Two plans can quote the same figure and still differ, because one
+       * attaches conditions the other does not. Saying "800 vs 800" would read
+       * as a mistake, so name the conditions that actually separate them.
+       */
+      cell.display === rival.display
+        ? `${cell.optionName} (${cell.limitationsDisplay.toLowerCase()}, against ${rival.limitationsDisplay.toLowerCase()})`
+        : `${cell.optionName} (${cell.display} vs ${rival.display})`,
+    );
 
   if (gains.length === 0) return '';
   if (gains.length <= 2) return gains.join(' and ');

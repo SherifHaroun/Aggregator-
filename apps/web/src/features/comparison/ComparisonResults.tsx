@@ -75,7 +75,18 @@ export function RecommendedPlanCard({
               key={benefit.optionId}
               className="border-border-subtle flex items-baseline justify-between gap-3 border-b pb-1.5"
             >
-              <dt className="text-content-muted min-w-0 truncate text-sm">{benefit.optionName}</dt>
+              <dt className="text-content-muted min-w-0 truncate text-sm">
+                {benefit.optionName}
+                {/* The conditions the plan attaches to this figure. Shown
+                    under it because two plans can quote the same number and
+                    still be offering different cover — which is exactly what
+                    the comparison ranked them on. */}
+                {benefit.limitations.length > 0 ? (
+                  <span className="text-content-subtle block text-xs">
+                    {benefit.limitations.map((limitation) => limitation.name).join(' · ')}
+                  </span>
+                ) : null}
+              </dt>
               <dd
                 className={cn(
                   'shrink-0 text-sm font-semibold tabular-nums',
@@ -151,7 +162,14 @@ export function ComparisonTable({
   const rows: {
     key: string;
     label: string;
-    cells: { key: string; display: string; isBest: boolean; muted: boolean }[];
+    cells: {
+      key: string;
+      display: string;
+      isBest: boolean;
+      muted: boolean;
+      /** The conditions attached to this figure, if any. */
+      qualifier?: string;
+    }[];
   }[] = [
     ...benefits.map((benefit, index) => ({
       key: benefit.id,
@@ -163,6 +181,9 @@ export function ComparisonTable({
           display: cell.display,
           isBest: cell.isBest,
           muted: !cell.covered,
+          ...(cell.limitations.length > 0
+            ? { qualifier: cell.limitations.map((limitation) => limitation.name).join(' · ') }
+            : {}),
         };
       }),
     })),
@@ -246,6 +267,11 @@ export function ComparisonTable({
                     )}
                   >
                     {cell.display}
+                    {cell.qualifier ? (
+                      <span className="text-content-subtle block text-xs font-normal">
+                        {cell.qualifier}
+                      </span>
+                    ) : null}
                     {cell.isBest && !cell.muted ? (
                       <span className="sr-only"> (best of the matching plans)</span>
                     ) : null}

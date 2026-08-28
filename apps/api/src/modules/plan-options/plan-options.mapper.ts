@@ -1,11 +1,20 @@
 import type { PlanOptionDto, PlanOptionValueDto } from '@aggregator/shared';
-import type { InsuranceOption, OptionField, PlanOption, PlanOptionValue } from '@prisma/client';
+import type {
+  InsuranceOption,
+  Limitation,
+  OptionField,
+  PlanOption,
+  PlanOptionLimitation,
+  PlanOptionValue,
+} from '@prisma/client';
 import { toIso } from '../../lib/decimal.js';
+import { toLimitationDto } from '../limitations/limitations.service.js';
 import { readValue } from './plan-option-values.js';
 
 export type PlanOptionWithRelations = PlanOption & {
   option: InsuranceOption & { fields: OptionField[] };
   values: PlanOptionValue[];
+  limitations: (PlanOptionLimitation & { limitation: Limitation })[];
 };
 
 /**
@@ -42,6 +51,12 @@ export function toPlanOptionDto(planOption: PlanOptionWithRelations): PlanOption
     isUmbrella: planOption.option.isUmbrella,
     parentOptionId: planOption.option.parentId,
     note: planOption.note,
+    /**
+     * Ordered as the catalogue orders itself, so the same set of restrictions
+     * always reads the same way — on the row, on a rival plan's row, and in the
+     * comparison. An empty list is unrestricted cover, not missing data.
+     */
+    limitations: planOption.limitations.map((row) => toLimitationDto(row.limitation)),
     sortOrder: planOption.sortOrder,
     createdAt: toIso(planOption.createdAt),
     updatedAt: toIso(planOption.updatedAt),
@@ -53,4 +68,8 @@ export function toPlanOptionDto(planOption: PlanOptionWithRelations): PlanOption
 export const planOptionInclude = {
   option: { include: { fields: { where: { isActive: true }, orderBy: { sortOrder: 'asc' } } } },
   values: true,
+  limitations: {
+    include: { limitation: true },
+    orderBy: { limitation: { sortOrder: 'asc' as const } },
+  },
 } as const;

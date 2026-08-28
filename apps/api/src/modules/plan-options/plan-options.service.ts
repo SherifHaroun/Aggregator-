@@ -2,6 +2,7 @@ import type { PlanOptionDto } from '@aggregator/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { applyOrder, nextSortOrder } from '../../lib/ordering.js';
 import { getPrisma } from '../../lib/prisma.js';
+import { resolveLimitationsForPlanOption } from '../limitations/limitations.service.js';
 import { buildValueColumns } from './plan-option-values.js';
 import { planOptionInclude, toPlanOptionDto } from './plan-options.mapper.js';
 import type { AddPlanOptionInput, PlanOptionValueInputPayload } from './plan-options.schemas.js';
@@ -201,6 +202,49 @@ export async function setPlanOptionNote(
   if (!planOption) throw notFound('Plan option');
 
   await getPrisma().planOption.update({ where: { id: planOptionId }, data: { note } });
+  return getPlanOption(planOptionId);
+}
+
+/**
+ * Replace the qualifications one benefit carries on one configuration.
+ *
+ * Written as a complete set rather than added and removed one at a time,
+ * because that is what the control does and what the record means: these are
+ * the restrictions, and anything absent is not imposed. An empty list is a
+ * legitimate, meaningful write — it says the cover has no conditions.
+ *
+ * The rows are replaced inside one transaction, so a benefit is never briefly
+ * seen carrying half its restrictions by a comparison running at the same time.
+ */
+export async function setPlanOptionLimitations(
+  planOptionId: string,
+  limitationIds: string[],
+): Promise<PlanOptionDto> {
+  const prisma = getPrisma();
+
+  const planOption = await prisma.planOption.findUnique({
+    where: { id: planOptionId },
+    select: { id: true },
+  });
+  if (!planOption) throw notFound('Plan option');
+
+  const resolved = await resolveLimitationsForPlanOption(limitationIds);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.planOptionLimitation.deleteMany({
+      where:
+        resolved.length === 0
+          ? { planOptionId }
+          : { planOptionId, limitationId: { notIn: resolved } },
+    });
+    if (resolved.length > 0) {
+      await tx.planOptionLimitation.createMany({
+        data: resolved.map((limitationId) => ({ planOptionId, limitationId })),
+        skipDuplicates: true,
+      });
+    }
+  });
+
   return getPlanOption(planOptionId);
 }
 

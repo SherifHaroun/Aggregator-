@@ -15,6 +15,8 @@ import type {
   CompanyDto,
   InsuranceOptionDto,
   InsuranceTypeDto,
+  LimitationDto,
+  LimitationScope,
   Paginated,
   PlanConfigurationDto,
   PlanDto,
@@ -35,6 +37,7 @@ export const keys = {
   companies: ['companies'] as const,
   insuranceTypes: ['insurance-types'] as const,
   insuranceOptions: ['insurance-options'] as const,
+  limitations: ['limitations'] as const,
   plans: ['plans'] as const,
   planConfigurations: ['plan-configurations'] as const,
   comparison: ['comparison'] as const,
@@ -398,6 +401,9 @@ function optimisticPlanOption(
     isUmbrella: option.isUmbrella,
     parentOptionId: option.parentId,
     note: null,
+    // A benefit just dropped carries no restrictions, which is also what an
+    // empty list means once the server confirms it: unqualified cover.
+    limitations: [],
     sortOrder,
     createdAt: now,
     updatedAt: now,
@@ -629,6 +635,70 @@ export function useSavePlanOptionValue() {
  * sits beside the figure and saves itself, and neither may overwrite the other.
  * The server's row is written straight into the cache, as with values.
  */
+/**
+ * The catalogue of qualifications, narrowed to what one kind of benefit box
+ * offers.
+ *
+ * Held for a long time and shared by every row on the board: the list is small,
+ * changes rarely, and a picker that refetched it per benefit would issue thirty
+ * identical requests to open one configuration.
+ */
+export function useLimitations(scope: LimitationScope) {
+  return useQuery({
+    queryKey: [...keys.limitations, scope],
+    queryFn: () =>
+      api.get<Paginated<LimitationDto>>(
+        `/limitations${query({ scope, isActive: true, pageSize: LIST_PAGE_SIZE })}`,
+      ),
+    select: (page) => page.items,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Add a qualification to the catalogue.
+ *
+ * Offered from the picker itself, because an employee entering a plan meets a
+ * wording the catalogue lacks exactly when they are entering it — sending them
+ * to another screen to add it is how free-text notes got used instead.
+ */
+export function useCreateLimitation() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    LimitationDto,
+    unknown,
+    { name: string; scope: LimitationScope; restrictionWeight?: number }
+  >({
+    mutationFn: (input) => api.post<LimitationDto>('/limitations', input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.limitations }),
+  });
+}
+
+/**
+ * Replace the qualifications one benefit carries on one configuration.
+ *
+ * A complete set, not a toggle: an empty array clears every restriction and
+ * states that the cover has none. The response goes straight into the cache
+ * like every other inline save, so nothing on the board is refetched.
+ */
+export function useSavePlanOptionLimitations() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    PlanOptionDto,
+    unknown,
+    { planOptionId: string; planConfigurationId: string; limitationIds: string[] }
+  >({
+    mutationFn: ({ planOptionId, limitationIds }) =>
+      api.put<PlanOptionDto>(`/plan-options/${planOptionId}/limitations`, { limitationIds }),
+    onSuccess: (saved, { planConfigurationId }) =>
+      updateConfigurationOptions(queryClient, planConfigurationId, (options) =>
+        mapChanged(options, (item) => (item.id === saved.id ? saved : item)),
+      ),
+  });
+}
+
 export function useSavePlanOptionNote() {
   const queryClient = useQueryClient();
 

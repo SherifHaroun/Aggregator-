@@ -83,7 +83,9 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
   const source = await prisma.plan.findUnique({
     where: { id },
     include: {
-      configurations: { include: { options: { include: { values: true } } } },
+      configurations: {
+        include: { options: { include: { values: true, limitations: true } } },
+      },
     },
   });
   if (!source) throw notFound('Plan');
@@ -223,6 +225,26 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
     });
 
     if (values.length > 0) await tx.planOptionValue.createMany({ data: values });
+
+    /**
+     * The restrictions travel with the figures they qualify, for the same
+     * reason the notes do: "800 EGP" without "basic procedures only" is
+     * different, better-looking cover than the plan being copied.
+     */
+    const limitations = wanted.flatMap((configuration) => {
+      const planConfigurationId = newConfigurationId.get(identity(configuration));
+      if (!planConfigurationId) return [];
+      return configuration.options.flatMap((planOption) => {
+        const planOptionId = newPlanOptionId.get(`${planConfigurationId}|${planOption.optionId}`);
+        if (!planOptionId) return [];
+        return planOption.limitations.map((row) => ({
+          planOptionId,
+          limitationId: row.limitationId,
+        }));
+      });
+    });
+
+    if (limitations.length > 0) await tx.planOptionLimitation.createMany({ data: limitations });
 
     return plan;
   });

@@ -238,12 +238,13 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
       const planOption = attached.get(benefit.id);
       /**
        * A benefit is ranked on the first value it declares that can be ranked
-       * at all. Free text is shown but never scored, so a benefit whose only
-       * field is text counts as uncomparable rather than as missing cover.
+       * at all. Free text carries no scale, so a benefit whose only field is
+       * text is ranked on its limitations instead — see `carried` below.
        */
       const cell = planOption?.values.find(
         (value) => OPTION_FIELD_DATA_TYPES[value.dataType].comparison !== 'NOT_COMPARABLE',
       );
+      const wording = planOption?.values.find((value) => typeof value.value === 'string');
 
       return {
         optionId: benefit.id,
@@ -251,6 +252,23 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
         value: typeof cell?.value === 'number' ? cell.value : null,
         dataType: cell?.dataType ?? null,
         unit: cell?.unit ?? null,
+        /**
+         * Whether this plan carries the benefit AT ALL — which is simply
+         * whether it is attached. A plan listing "Physiotherapy: covered at
+         * authorized centers" provides something the plan that omits it does
+         * not, and until the engine could tell the two apart both scored zero.
+         */
+        carried: planOption !== undefined,
+        textValue: typeof wording?.value === 'string' ? wording.value : null,
+        /**
+         * The recorded qualifications, with the weights the business gave
+         * them. Empty means the cover carries no conditions.
+         */
+        limitations: (planOption?.limitations ?? []).map((limitation) => ({
+          id: limitation.id,
+          name: limitation.name,
+          restrictionWeight: limitation.restrictionWeight,
+        })),
       };
     });
 

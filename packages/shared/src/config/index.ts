@@ -4,5 +4,6 @@ export * from './comparison-form.js';
 export * from './comparison-scoring.js';
 export * from './customer-types.js';
 export * from './geographical-coverage.js';
+export * from './limitations.js';
 export * from './option-field-types.js';
 export * from './option-registry.js';

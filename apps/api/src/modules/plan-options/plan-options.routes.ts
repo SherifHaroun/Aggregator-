@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { success } from '../../lib/api-response.js';
 import { param } from '../../lib/request.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
+import { setPlanOptionLimitationsSchema } from '../limitations/limitations.schemas.js';
 import {
   setPlanOptionNoteSchema,
   setPlanOptionValueSchema,
@@ -10,6 +11,7 @@ import {
 import {
   getPlanOption,
   removePlanOption,
+  setPlanOptionLimitations,
   setPlanOptionNote,
   setPlanOptionValue,
   setPlanOptionValues,
@@ -59,6 +61,20 @@ planOptionsRouter.patch(
   asyncHandler(async (req, res) => {
     const { note } = setPlanOptionNoteSchema.parse(req.body);
     res.json(success(await setPlanOptionNote(param(req, 'planOptionId'), note)));
+  }),
+);
+
+/**
+ * The qualifications this benefit carries on this configuration.
+ *
+ * A full replace: the payload is the complete set, and an empty array states
+ * that the cover carries no restrictions at all.
+ */
+planOptionsRouter.put(
+  '/:planOptionId/limitations',
+  asyncHandler(async (req, res) => {
+    const { limitationIds } = setPlanOptionLimitationsSchema.parse(req.body);
+    res.json(success(await setPlanOptionLimitations(param(req, 'planOptionId'), limitationIds)));
   }),
 );
 

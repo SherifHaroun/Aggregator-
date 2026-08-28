@@ -110,7 +110,7 @@ export async function duplicatePlanConfiguration(
     include: {
       options: {
         orderBy: { sortOrder: 'asc' },
-        include: { values: true },
+        include: { values: true, limitations: true },
       },
     },
   });
@@ -192,6 +192,25 @@ export async function duplicatePlanConfiguration(
       });
 
       if (values.length > 0) await tx.planOptionValue.createMany({ data: values });
+
+      /**
+       * The restrictions travel with the figures they qualify. A copy that
+       * kept "800 EGP" but dropped "basic procedures only" would not be the
+       * same cover — it would read as better than the plan it came from, and
+       * would rank higher in a comparison.
+       */
+      const limitations = source.options.flatMap((planOption) => {
+        const planOptionId = planOptionIdByOptionId.get(planOption.optionId);
+        if (!planOptionId) return [];
+        return planOption.limitations.map((row) => ({
+          planOptionId,
+          limitationId: row.limitationId,
+        }));
+      });
+
+      if (limitations.length > 0) {
+        await tx.planOptionLimitation.createMany({ data: limitations });
+      }
     }
 
     return configuration;

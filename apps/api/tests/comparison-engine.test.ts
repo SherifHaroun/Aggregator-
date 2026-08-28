@@ -10,18 +10,56 @@
 import {
   explainRecommendation,
   scoreCandidates,
+  type AppliedLimitation,
   type CandidateBenefit,
   type ComparisonCandidate,
 } from '@aggregator/shared';
 import { describe, expect, it } from 'vitest';
 
-/** A percentage benefit, or `null` for a plan that does not carry it. */
-const pct = (optionId: string, optionName: string, value: number | null): CandidateBenefit => ({
+/**
+ * A percentage benefit, or `null` for a plan that does not carry it.
+ *
+ * Unrestricted unless a test says otherwise — which is what an empty limitation
+ * list means everywhere else too.
+ */
+const pct = (
+  optionId: string,
+  optionName: string,
+  value: number | null,
+  limitations: AppliedLimitation[] = [],
+): CandidateBenefit => ({
   optionId,
   optionName,
   value,
   dataType: 'PERCENTAGE',
   unit: '%',
+  carried: value !== null,
+  textValue: null,
+  limitations,
+});
+
+/** A benefit quoted in words rather than numbers, e.g. a provider network. */
+const words = (
+  optionId: string,
+  optionName: string,
+  textValue: string | null,
+  limitations: AppliedLimitation[] = [],
+): CandidateBenefit => ({
+  optionId,
+  optionName,
+  value: null,
+  dataType: textValue === null ? null : 'TEXT',
+  unit: null,
+  carried: textValue !== null,
+  textValue,
+  limitations,
+});
+
+/** A restriction of a given severity, named for what the test is checking. */
+const limit = (name: string, restrictionWeight: number): AppliedLimitation => ({
+  id: name.toLowerCase().replace(/\W+/g, '_'),
+  name,
+  restrictionWeight,
 });
 
 function plan(
@@ -282,5 +320,127 @@ describe('comparison engine', () => {
     // sitting next to "does not cover 1 of the benefits".
     expect(reasons).not.toMatch(/strongest on the benefits/i);
     expect(reasons).not.toMatch(/does not cover 1 of the benefits/i);
+  });
+});
+
+/**
+ * The qualifications a plan attaches to its cover.
+ *
+ * These are the cases the free-text note could not decide: two plans quoting
+ * the same figure where one pays for everything and the other only for basic
+ * procedures, and benefits quoted in words that used to score the same as no
+ * cover at all.
+ */
+describe('limitations', () => {
+  it('ranks unrestricted cover above the same figure with conditions on it', () => {
+    const results = scoreCandidates([
+      plan('open', 'Company A', 1000, [pct('den', 'Dental', 80)]),
+      plan('closed', 'Company B', 1000, [
+        pct('den', 'Dental', 80, [limit('Basic procedures only', 0.25)]),
+      ]),
+    ]);
+
+    const open = results.find((r) => r.configurationId === 'open')!;
+    const closed = results.find((r) => r.configurationId === 'closed')!;
+
+    expect(open.benefits[0]!.score).toBeGreaterThan(closed.benefits[0]!.score);
+    // Same figure on both, so the conditions are the only thing separating them.
+    expect(open.benefits[0]!.display).toBe(closed.benefits[0]!.display);
+    expect(open.benefits[0]!.isBest).toBe(true);
+    expect(closed.benefits[0]!.isBest).toBe(false);
+    expect(recommended(results)?.configurationId).toBe('open');
+  });
+
+  it('treats no limitations as unrestricted, never as unknown', () => {
+    const results = scoreCandidates([plan('a', 'Company A', 1000, [pct('den', 'Dental', 80)])]);
+
+    const cell = results[0]!.benefits[0]!;
+    expect(cell.limitations).toEqual([]);
+    expect(cell.limitationFactor).toBe(1);
+    expect(cell.limitationsDisplay).toMatch(/no limitations/i);
+  });
+
+  it('compounds several conditions instead of adding them up', () => {
+    const results = scoreCandidates([
+      plan('one', 'Company A', 1000, [pct('den', 'Dental', 80, [limit('Half', 0.5)])]),
+      plan('two', 'Company B', 1000, [
+        pct('den', 'Dental', 80, [limit('Quarter', 0.25), limit('Third', 0.25)]),
+      ]),
+    ]);
+
+    const one = results.find((r) => r.configurationId === 'one')!.benefits[0]!;
+    const two = results.find((r) => r.configurationId === 'two')!.benefits[0]!;
+
+    // 0.5 taken at once is worse than 0.25 twice (0.5625 kept), so splitting a
+    // restriction across two catalogue entries cannot make it bite harder.
+    expect(two.limitationFactor).toBeGreaterThan(one.limitationFactor);
+  });
+
+  it('keeps heavily restricted cover above no cover at all', () => {
+    const results = scoreCandidates([
+      plan('restricted', 'Company A', 1000, [
+        pct('den', 'Dental', 80, [
+          limit('In-network only', 0.9),
+          limit('Basic procedures only', 0.9),
+          limit('Prior approval', 0.9),
+        ]),
+      ]),
+      plan('absent', 'Company B', 1000, [pct('den', 'Dental', null)]),
+    ]);
+
+    const restricted = results.find((r) => r.configurationId === 'restricted')!.benefits[0]!;
+    const absent = results.find((r) => r.configurationId === 'absent')!.benefits[0]!;
+
+    // Silence must never outrank disclosure: a plan that states its conditions
+    // is still providing cover the other one does not.
+    expect(restricted.score).toBeGreaterThan(absent.score);
+    expect(absent.score).toBe(0);
+  });
+
+  it('ranks a benefit quoted in words above a plan that omits it', () => {
+    const results = scoreCandidates([
+      plan('has', 'Company A', 1000, [words('phys', 'Physiotherapy', 'Covered')]),
+      plan('lacks', 'Company B', 1000, [words('phys', 'Physiotherapy', null)]),
+    ]);
+
+    const has = results.find((r) => r.configurationId === 'has')!.benefits[0]!;
+    const lacks = results.find((r) => r.configurationId === 'lacks')!.benefits[0]!;
+
+    expect(has.covered).toBe(true);
+    expect(has.score).toBeGreaterThan(0);
+    expect(lacks.covered).toBe(false);
+    expect(lacks.display).toBe('Not covered');
+  });
+
+  it('separates two plans that both quote a benefit in words', () => {
+    const results = scoreCandidates([
+      plan('open', 'Company A', 1000, [words('phys', 'Physiotherapy', 'Covered')]),
+      plan('vague', 'Company B', 1000, [
+        words('phys', 'Physiotherapy', 'Not specified', [limit('Not specified', 0.5)]),
+      ]),
+    ]);
+
+    const open = results.find((r) => r.configurationId === 'open')!.benefits[0]!;
+    const vague = results.find((r) => r.configurationId === 'vague')!.benefits[0]!;
+
+    expect(open.score).toBeGreaterThan(vague.score);
+    // The wording still reaches the screen; the ranking comes from the record.
+    expect(vague.display).toBe('Not specified');
+  });
+
+  it('says what separated two plans quoting the same figure', () => {
+    const results = scoreCandidates([
+      plan('open', 'Company A', 1200, [pct('den', 'Dental', 80)]),
+      plan('closed', 'Company B', 1000, [
+        pct('den', 'Dental', 80, [limit('In-network only', 0.4)]),
+      ]),
+    ]);
+
+    const reasons = explainRecommendation(results).join(' ');
+    // Never "80% vs 80%", which reads as a mistake.
+    expect(reasons).not.toMatch(/80% vs 80%/);
+    if (recommended(results)?.configurationId === 'open') {
+      expect(reasons.toLowerCase()).toMatch(/in-network only|no limitations/);
+    }
   });
 });

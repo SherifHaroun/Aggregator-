@@ -84,6 +84,21 @@ export interface ComparisonBenefitCell {
   score: number;
   /** No other matching plan does better on this benefit. */
   isBest: boolean;
+  /**
+   * The qualifications this plan attaches to the benefit, in catalogue order.
+   * Empty means the cover carries no conditions.
+   */
+  limitations: { id: string; name: string }[];
+  /** Ready to render, e.g. "In-network only · Basic procedures only". */
+  limitationsDisplay: string;
+  /**
+   * What share of its raw score the benefit kept once those qualifications
+   * were applied, 0..1. 1 is unrestricted cover.
+   *
+   * Reported rather than hidden inside the total, so a result screen can say
+   * WHY one 800 EGP dental benefit outranks another.
+   */
+  limitationFactor: number;
 }
 
 /** A plan-level attribute (annual limit, deductible, co-payment). */

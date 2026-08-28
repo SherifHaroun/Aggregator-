@@ -10,6 +10,7 @@
 
 import type { CustomerTypeId } from '../config/customer-types.js';
 import type { GeographicalCoverageId } from '../config/geographical-coverage.js';
+import type { LimitationScope } from '../config/limitations.js';
 import type { OptionFieldDataType } from '../config/option-field-types.js';
 import type { ResolvedAverageAge } from './comparison.js';
 
@@ -124,6 +125,33 @@ export interface PlanConfigurationDto extends RecordMeta {
   options?: PlanOptionDto[];
 }
 
+/**
+ * A qualification that can be attached to a benefit — "in-network only",
+ * "basic procedures only", "sliding scale".
+ *
+ * GLOBAL, exactly like a benefit: defined once and offered wherever its scope
+ * applies, so "in-network only" is one record rather than one per plan. What
+ * differs between plans is WHICH limitations they carry, and that lives on
+ * `PlanOptionDto.limitations`.
+ */
+export interface LimitationDto extends RecordMeta {
+  name: string;
+  description: string | null;
+  /** Which kind of benefit box offers this limitation. */
+  scope: LimitationScope;
+  /**
+   * The share of a benefit's cover this restriction removes, 0..1.
+   *
+   * 0 qualifies the cover without reducing it — "in and out of network" states
+   * a fact rather than imposing a limit. Editable per record, so the business
+   * can re-weigh a restriction without a deploy.
+   */
+  restrictionWeight: number;
+  sortOrder: number;
+  /** How many plan benefits currently carry it. Returned by the catalogue. */
+  usageCount?: number;
+}
+
 /** The value an option field takes inside one specific plan. */
 export interface PlanOptionValueDto {
   id: string;
@@ -150,8 +178,21 @@ export interface PlanOptionDto {
   /**
    * A remark about this benefit on THIS configuration — "1 in 10 members
    * ratio", "basic procedures only". `null` when none was written.
+   *
+   * Free text, and therefore never ranked: it records the qualifications no
+   * catalogue entry covers. Anything that should affect the comparison belongs
+   * in `limitations` instead.
    */
   note: string | null;
+  /**
+   * The qualifications recorded against this benefit on THIS configuration, in
+   * catalogue order.
+   *
+   * An EMPTY LIST MEANS UNRESTRICTED — cover with no conditions attached, which
+   * scores full marks. It never means "nobody filled this in", which is why a
+   * blank box says so on screen.
+   */
+  limitations: LimitationDto[];
   sortOrder: number;
   createdAt: string;
   updatedAt: string;

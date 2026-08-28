@@ -1367,6 +1367,87 @@ describe('dynamic insurance options', () => {
     await waitFor(() => expect(store.planOptions[0]?.note).toBe('1 in 10 members ratio'));
   });
 
+  /**
+   * The qualification that the comparison can actually read.
+   *
+   * A note saying "basic procedures only" was invisible to the engine, so two
+   * plans quoting the same figure scored the same. Ticking a catalogue record
+   * instead is what makes the difference count.
+   */
+  it('records a limitation on a benefit, chosen from the catalogue', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+    store.limitations.push({
+      id: 'limitation_1',
+      name: 'Basic procedures only',
+      description: null,
+      scope: 'VALUE',
+      restrictionWeight: 0.25,
+      sortOrder: 0,
+      isActive: true,
+      createdAt: new Date(0).toISOString(),
+      updatedAt: new Date(0).toISOString(),
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Any limitations for Aurora Wellness Programme',
+      }),
+    );
+    await user.click(await screen.findByLabelText(/Basic procedures only/));
+
+    await waitFor(() => expect(store.planOptions[0]?.limitationIds).toEqual(['limitation_1']));
+
+    // The row now states the condition rather than showing an empty box.
+    await user.keyboard('{Escape}');
+    await waitFor(() =>
+      expect(
+        screen.getByRole('button', { name: 'Any limitations for Aurora Wellness Programme' }),
+      ).toHaveTextContent('Basic procedures only'),
+    );
+  });
+
+  it('adds a limitation the catalogue does not have yet, without leaving the row', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Any limitations for Aurora Wellness Programme',
+      }),
+    );
+    await user.type(await screen.findByLabelText('New limitation'), 'In-network only');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+
+    // Created AND applied: an employee who typed it plainly meant it to apply.
+    await waitFor(() => expect(store.limitations).toHaveLength(1));
+    await waitFor(() => expect(store.planOptions[0]?.limitationIds).toHaveLength(1));
+  });
+
   it('renames a benefit, and the coverage row follows', async () => {
     const user = userEvent.setup();
     givenCompany();
