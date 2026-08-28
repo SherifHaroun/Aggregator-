@@ -10,9 +10,10 @@ import {
 } from '@aggregator/shared';
 import { useState } from 'react';
 import { Button, Callout, ChoiceGroup, Dialog, Field, Input, useToast } from '@/components/ui';
-import { useSaveInsuranceOption } from '@/features/insurance-data/insurance-data.api';
+import { useInsuranceOption, useSaveInsuranceOption } from '@/features/insurance-data/insurance-data.api';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
 import { AlternativeChoice } from './AlternativeChoice';
+import { BenefitAnswersEditor } from './BenefitAnswersEditor';
 
 /**
  * Edit a benefit or a sub-benefit: its name, and what it carries.
@@ -36,6 +37,12 @@ export function EditBenefitDialog({
 }) {
   const { notify } = useToast();
   const save = useSaveInsuranceOption(benefit.id);
+  /**
+   * The benefit read fresh, so the answers list reflects an add or a reorder
+   * made in this dialog without closing and reopening it. The row that opened
+   * the dialog is the fallback until it arrives.
+   */
+  const latest = useInsuranceOption(benefit.id);
 
   /** What it carries today, read from its own field definitions. */
   const mainField = benefit.fields?.find((field) => field.key !== ALTERNATIVE_VALUE_KEY);
@@ -166,6 +173,17 @@ export function EditBenefitDialog({
                 is untouched.
               </Callout>
             ) : null}
+
+            {/* The list belongs to the benefit, so it is edited here rather than
+                on any one plan. Shown for the kinds that use it: ranked cover
+                is judged by the order, text cover merely suggests from it. */}
+            {values.valueKind === 'RANK' || values.valueKind === 'TEXT' ? (
+              <BenefitAnswersEditor
+                optionId={benefit.id}
+                choices={latest.data?.choices ?? benefit.choices ?? []}
+                ranked={values.valueKind === 'RANK'}
+              />
+            ) : null}
           </>
         ) : null}
       </div>
@@ -178,6 +196,7 @@ const CARRIES_PHRASE: Record<BenefitValueKind, string> = {
   PERCENTAGE: 'a percentage',
   LIMIT: 'a limit',
   TEXT: 'text',
+  RANK: 'one of its ranked answers',
 };
 
 /**
@@ -196,6 +215,21 @@ function describeConversion(
     usageCount === 0
       ? 'No plan carries this benefit yet, so nothing is affected.'
       : `${usageCount} plan configuration${usageCount === 1 ? '' : 's'} carr${usageCount === 1 ? 'ies' : 'y'} this benefit.`;
+
+  /**
+   * A ranked value is the id of an answer, so it is never a reformatted
+   * figure. Leaving RANK keeps the answer's WORDING; arriving at it can keep
+   * nothing, because no figure and no free text is one of the answers — and
+   * inventing one would put words in the plan's mouth.
+   */
+  if (to === 'RANK') {
+    return `${where} Nothing already entered can become one of the ranked answers, so those values are cleared and each plan picks its answer again.`;
+  }
+  if (from === 'RANK') {
+    return to === 'TEXT'
+      ? `${where} Each plan keeps the wording of the answer it gave.`
+      : `${where} An answer is a name rather than a number, so those values are cleared.`;
+  }
 
   if (to === 'TEXT') {
     return `${where} Each figure is kept, written out as text.`;

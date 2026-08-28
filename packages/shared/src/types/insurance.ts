@@ -63,6 +63,11 @@ export interface InsuranceOptionDto extends RecordMeta {
   parentId: string | null;
   /** Present when the option was fetched with its field definitions. */
   fields?: OptionFieldDto[];
+  /**
+   * The answers this benefit offers, in the employee's order. Ranked cover is
+   * judged by position in this list; text cover merely suggests from it.
+   */
+  choices?: OptionChoiceDto[];
   /** Present on an umbrella fetched with its sub-benefits, in display order. */
   children?: InsuranceOptionDto[];
   /**
@@ -71,6 +76,20 @@ export interface InsuranceOptionDto extends RecordMeta {
    * deleting it would actually cost before it asks.
    */
   usageCount?: number;
+}
+
+/**
+ * One answer a benefit offers.
+ *
+ * On a RANK benefit the list is ordered and `sortOrder` decides how good the
+ * answer is — 0 is the best. On a TEXT benefit the same list is offered as
+ * suggestions and the order is only the order they appear in.
+ */
+export interface OptionChoiceDto extends RecordMeta {
+  optionId: string;
+  label: string;
+  /** Position in the list. 0 is best on a ranked benefit. */
+  sortOrder: number;
 }
 
 /** One piece of information an option requires, defined by an employee. */
@@ -161,8 +180,22 @@ export interface PlanOptionValueDto {
   fieldLabel: string;
   dataType: OptionFieldDataType;
   unit: string | null;
-  /** Typed according to `dataType`. `null` means "not configured". */
+  /**
+   * Typed according to `dataType`. `null` means "not configured".
+   *
+   * For RANK this is the CHOSEN ANSWER'S ID, never its position — reordering
+   * the list must change how good an answer is judged to be, not which answer
+   * the plan is recorded as giving.
+   */
   value: number | string | boolean | null;
+  /**
+   * The answers this field offers, in order. Present for RANK — where the list
+   * is required to render or rank the value at all — and for TEXT, where it is
+   * offered as suggestions.
+   */
+  choices?: OptionChoiceDto[];
+  /** The chosen answer's wording, resolved from `choices`. RANK only. */
+  choiceLabel?: string | null;
 }
 
 /** An option attached to ONE configuration, with its values and position. */

@@ -1,6 +1,7 @@
 import type { InsuranceOptionDto, OptionFieldDto } from '@aggregator/shared';
-import type { InsuranceOption, OptionField } from '@prisma/client';
+import type { InsuranceOption, OptionChoice, OptionField } from '@prisma/client';
 import { toIso } from '../../lib/decimal.js';
+import { toOptionChoiceDto } from './option-choices.service.js';
 
 export function toOptionFieldDto(field: OptionField): OptionFieldDto {
   return {
@@ -21,6 +22,7 @@ export function toOptionFieldDto(field: OptionField): OptionFieldDto {
 
 export type InsuranceOptionWithRelations = InsuranceOption & {
   fields?: OptionField[];
+  choices?: OptionChoice[];
   children?: InsuranceOptionWithRelations[];
   /** From `_count: { select: { planOptions: true } }`. */
   _count?: { planOptions: number };
@@ -38,6 +40,7 @@ export function toInsuranceOptionDto(option: InsuranceOptionWithRelations): Insu
     createdAt: toIso(option.createdAt),
     updatedAt: toIso(option.updatedAt),
     ...(option.fields ? { fields: option.fields.map(toOptionFieldDto) } : {}),
+    ...(option.choices ? { choices: option.choices.map(toOptionChoiceDto) } : {}),
     ...(option.children ? { children: option.children.map(toInsuranceOptionDto) } : {}),
     ...(option._count ? { usageCount: option._count.planOptions } : {}),
   };

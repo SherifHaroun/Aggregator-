@@ -20,6 +20,7 @@ export const OPTION_FIELD_DATA_TYPES_IDS = [
   'CURRENCY',
   'TEXT',
   'BOOLEAN',
+  'RANK',
 ] as const;
 
 export type OptionFieldDataType = (typeof OPTION_FIELD_DATA_TYPES_IDS)[number];
@@ -97,6 +98,26 @@ export const OPTION_FIELD_DATA_TYPES: OptionRegistry<
     storage: 'BOOLEAN',
     defaultUnit: null,
     /** Included beats not included. */
+    comparison: 'HIGHER_IS_BETTER',
+  },
+  RANK: {
+    id: 'RANK',
+    label: 'Rank',
+    description: 'One of a list the employee puts in order, best first.',
+    order: 6,
+    enabled: true,
+    /**
+     * The CHOSEN ENTRY'S ID, not its position.
+     *
+     * Storing the position would silently rewrite history: reordering the list
+     * so one network moves above another would change what every plan is
+     * recorded as offering. Storing which entry was picked means reordering
+     * changes only how good that entry is judged to be — which is the whole
+     * point of being able to reorder it.
+     */
+    storage: 'TEXT',
+    defaultUnit: null,
+    /** Higher up the employee's list is better cover. */
     comparison: 'HIGHER_IS_BETTER',
   },
 };

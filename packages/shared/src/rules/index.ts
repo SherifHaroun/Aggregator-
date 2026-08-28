@@ -6,3 +6,4 @@ export * from './limitations.js';
 export * from './number-format.js';
 export * from './option-values.js';
 export * from './plan-code.js';
+export * from './rank.js';

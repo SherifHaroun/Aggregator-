@@ -17,6 +17,7 @@ import type {
   InsuranceTypeDto,
   LimitationDto,
   LimitationScope,
+  OptionChoiceDto,
   Paginated,
   PlanConfigurationDto,
   PlanDto,
@@ -635,6 +636,63 @@ export function useSavePlanOptionValue() {
  * sits beside the figure and saves itself, and neither may overwrite the other.
  * The server's row is written straight into the cache, as with values.
  */
+// ---------------------------------------------------------------------------
+// The answers a benefit offers
+// ---------------------------------------------------------------------------
+
+/**
+ * Add an answer to a benefit's list.
+ *
+ * Every mutation here invalidates the catalogue AND the configurations: the
+ * list decides how a ranked value renders and how it is compared, so a board
+ * showing yesterday's list would show the wrong network name.
+ */
+function invalidateChoices(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: keys.insuranceOptions });
+  void queryClient.invalidateQueries({ queryKey: keys.planConfigurations });
+}
+
+export function useCreateOptionChoice(optionId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<OptionChoiceDto, unknown, { label: string }>({
+    mutationFn: (input) =>
+      api.post<OptionChoiceDto>(`/insurance-options/${optionId}/choices`, input),
+    onSuccess: () => invalidateChoices(queryClient),
+  });
+}
+
+export function useRenameOptionChoice(optionId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<OptionChoiceDto, unknown, { choiceId: string; label: string }>({
+    mutationFn: ({ choiceId, label }) =>
+      api.patch<OptionChoiceDto>(`/insurance-options/${optionId}/choices/${choiceId}`, { label }),
+    onSuccess: () => invalidateChoices(queryClient),
+  });
+}
+
+export function useDeleteOptionChoice(optionId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, unknown, { choiceId: string }>({
+    mutationFn: ({ choiceId }) =>
+      api.delete(`/insurance-options/${optionId}/choices/${choiceId}`),
+    onSuccess: () => invalidateChoices(queryClient),
+  });
+}
+
+/** Put the answers in order. On a ranked benefit, this IS the ranking. */
+export function useReorderOptionChoices(optionId: string) {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, unknown, { orderedIds: string[] }>({
+    mutationFn: ({ orderedIds }) =>
+      api.post(`/insurance-options/${optionId}/choices/reorder`, { orderedIds }),
+    onSuccess: () => invalidateChoices(queryClient),
+  });
+}
+
 /**
  * The catalogue of qualifications, narrowed to what one kind of benefit box
  * offers.

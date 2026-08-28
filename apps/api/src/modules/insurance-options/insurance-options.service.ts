@@ -28,6 +28,8 @@ import type {
 
 const fieldsInclude = {
   fields: { where: { isActive: true }, orderBy: { sortOrder: 'asc' as const } },
+  /** The answers the benefit offers, in the employee's order. */
+  choices: { where: { isActive: true }, orderBy: { sortOrder: 'asc' as const } },
 };
 
 /**
@@ -267,8 +269,34 @@ async function changeValueKind(
 
   const values = await tx.planOptionValue.findMany({ where: { optionFieldId: field.id } });
 
+  /**
+   * A ranked value is the ID of one of this benefit's answers, so switching in
+   * or out of RANK is never a matter of reformatting a figure.
+   *
+   * Leaving RANK, the id is replaced by the answer's WORDING — "Golden Care
+   * Network", not a row id nobody can read. Arriving at RANK, nothing can be
+   * kept: no figure and no free text is an id, and inventing an answer to
+   * match would be putting words in the plan's mouth.
+   */
+  const wasRanked = field.dataType === 'RANK';
+  const nowRanked = target.dataType === 'RANK';
+  const choiceLabels = wasRanked
+    ? new Map(
+        (await tx.optionChoice.findMany({ where: { optionId }, select: { id: true, label: true } }))
+          .map((choice) => [choice.id, choice.label] as const),
+      )
+    : new Map<string, string>();
+
   /** What each stored value becomes, or `null` where it is already correct. */
   function convert(value: (typeof values)[number]): ConvertedValue | null {
+    if (wasRanked || nowRanked) {
+      if (wasRanked && !nowRanked && toStorage === 'TEXT') {
+        const label = value.textValue === null ? null : (choiceLabels.get(value.textValue) ?? null);
+        return { numberValue: null, textValue: label };
+      }
+      return { numberValue: null, textValue: null };
+    }
+
     if (fromStorage === 'NUMBER' && toStorage === 'NUMBER') {
       const current = value.numberValue === null ? null : Number(value.numberValue);
       // A limit of 5,000 is not a percentage; keep only what the new kind holds.

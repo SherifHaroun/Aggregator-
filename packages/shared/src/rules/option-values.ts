@@ -21,6 +21,13 @@ export function parseOptionValue(
       return trimmed === 'true';
     case 'TEXT':
       return trimmed;
+    /**
+     * A ranked value is the chosen answer's id. It must never be coerced: an
+     * id is an opaque string, and running it through `Number` would turn one
+     * that happened to look numeric into a number the API cannot match.
+     */
+    case 'RANK':
+      return trimmed;
     default: {
       const parsed = Number(trimmed);
       return Number.isNaN(parsed) ? trimmed : parsed;

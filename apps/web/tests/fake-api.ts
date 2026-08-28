@@ -20,6 +20,7 @@ import {
   type InsuranceOptionDto,
   type InsuranceTypeDto,
   type LimitationDto,
+  type OptionChoiceDto,
   type OptionFieldDto,
   type PlanConfigurationDto,
   type PlanDto,
@@ -46,6 +47,8 @@ export interface FakeStore {
   companies: CompanyDto[];
   insuranceTypes: InsuranceTypeDto[];
   options: InsuranceOptionDto[];
+  /** The answers benefits offer, across every benefit. */
+  choices: OptionChoiceDto[];
   limitations: LimitationDto[];
   plans: PlanDto[];
   configurations: PlanConfigurationDto[];
@@ -70,6 +73,7 @@ export function createStore(): FakeStore {
     companies: [],
     insuranceTypes: [],
     options: [],
+    choices: [],
     limitations: [],
     plans: [],
     configurations: [],
@@ -203,6 +207,7 @@ function route({
       const withUsage = (option: InsuranceOptionDto): InsuranceOptionDto => ({
         ...option,
         usageCount: store.planOptions.filter((item) => item.optionId === option.id).length,
+        choices: choicesFor(store, option.id),
       });
       return ok(
         page(
@@ -796,6 +801,46 @@ function route({
     }
   }
 
+  // --- the answers a benefit offers ----------------------------------------
+  if (resource === 'insurance-options' && second === 'choices') {
+    if (method === 'GET') return ok(choicesFor(store, first!));
+
+    /** Ordering IS the ranking, so it is written through its own route. */
+    if (method === 'POST' && third === 'reorder') {
+      (body.orderedIds as unknown as string[]).forEach((choiceId, index) => {
+        const target = store.choices.find((choice) => choice.id === choiceId);
+        if (target) target.sortOrder = index;
+      });
+      return noContent();
+    }
+
+    if (method === 'POST') {
+      const created: OptionChoiceDto = {
+        id: id('choice'),
+        optionId: first!,
+        label: String(body.label),
+        // Added at the END: landing at the top would silently re-rank every
+        // plan that gives one of the answers already listed.
+        sortOrder: choicesFor(store, first!).length,
+        ...meta(),
+      };
+      store.choices.push(created);
+      return ok(created, 201);
+    }
+
+    if (method === 'PATCH' && third) {
+      const target = store.choices.find((choice) => choice.id === third);
+      if (!target) return fail(404, 'NOT_FOUND', 'The record was not found.');
+      if (body.label !== undefined) target.label = String(body.label);
+      return ok(target);
+    }
+
+    if (method === 'DELETE' && third) {
+      store.choices = store.choices.filter((choice) => choice.id !== third);
+      return noContent();
+    }
+  }
+
   // --- limitations ---------------------------------------------------------
   if (resource === 'limitations') {
     if (method === 'GET' && !first) {
@@ -906,6 +951,10 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
       const stored = store.values.find(
         (value) => value.planOptionId === planOption.id && value.optionFieldId === field.id,
       );
+      const value = stored?.value ?? null;
+      const offersChoices = field.dataType === 'RANK' || field.dataType === 'TEXT';
+      const choices = choicesFor(store, planOption.optionId);
+
       return {
         id: stored ? `${planOption.id}:${field.id}` : '',
         optionFieldId: field.id,
@@ -913,10 +962,24 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
         fieldLabel: field.label,
         dataType: field.dataType,
         unit: field.unit,
-        value: stored?.value ?? null,
+        value,
+        ...(offersChoices ? { choices } : {}),
+        ...(field.dataType === 'RANK'
+          ? {
+              choiceLabel:
+                choices.find((choice) => choice.id === value)?.label ?? null,
+            }
+          : {}),
       };
     }),
   };
+}
+
+/** One benefit's answers, in the employee's order. */
+function choicesFor(store: FakeStore, optionId: string): OptionChoiceDto[] {
+  return store.choices
+    .filter((choice) => choice.optionId === optionId)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 function blankCompany() {

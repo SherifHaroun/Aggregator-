@@ -40,6 +40,7 @@ import {
   IconLayers,
   IconShield,
   IconTrash,
+  Input,
   describeError,
   useToast,
 } from '@/components/ui';
@@ -141,6 +142,14 @@ export function ConfigurationOptionsBoard({
   const [deleting, setDeleting] = useState<InsuranceOptionDto | null>(null);
   /** The catalogue benefit being edited — its name, or what it carries. */
   const [editing, setEditing] = useState<InsuranceOptionDto | null>(null);
+  /**
+   * What the employee is looking for in the catalogue.
+   *
+   * Filtered here rather than refetched: the whole catalogue is already in
+   * hand, and a request per keystroke would empty and refill the panel under
+   * a drag in progress.
+   */
+  const [search, setSearch] = useState('');
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -178,6 +187,27 @@ export function ConfigurationOptionsBoard({
       })),
     [attachedOptionIds, available],
   );
+
+  /**
+   * What the search leaves.
+   *
+   * A GROUP SURVIVES ITS OWN PARTS: searching "death" must show the group that
+   * holds Death (Natural), or the result is a sub-benefit floating with no way
+   * to tell what it belongs to — and no way to add it, since it is added
+   * through its group.
+   */
+  const visible = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (needle === '') return catalogue;
+
+    return catalogue.filter(
+      (entry) =>
+        entry.option.name.toLowerCase().includes(needle) ||
+        (entry.option.children ?? []).some((child) =>
+          child.name.toLowerCase().includes(needle),
+        ),
+    );
+  }, [catalogue, search]);
 
   /** Only groups reorder; their parts stay with the group that heads them. */
   const sortableIds = useMemo(() => groups.map((group) => group.row.id), [groups]);
@@ -352,13 +382,29 @@ export function ConfigurationOptionsBoard({
             icon={<IconLayers className="size-5" />}
           />
           <CardBody className="space-y-2">
+            {catalogue.length === 0 ? null : (
+              <Input
+                type="search"
+                value={search}
+                aria-label="Search benefits"
+                placeholder="Search benefits…"
+                onChange={(event) => setSearch(event.target.value)}
+                className="py-1.5 text-sm"
+              />
+            )}
+
             {catalogue.length === 0 ? (
               <p className="text-content-subtle rounded-(--radius-control) border border-dashed px-3 py-5 text-center text-xs">
                 No benefits exist yet. Create the first one below — it will be available to every
                 company.
               </p>
+            ) : visible.length === 0 ? (
+              <p className="text-content-subtle rounded-(--radius-control) border border-dashed px-3 py-5 text-center text-xs">
+                No benefit matches “{search.trim()}”. Create it below — it will be available to
+                every company.
+              </p>
             ) : (
-              catalogue.map((entry) => (
+              visible.map((entry) => (
                 <AvailableBenefit
                   key={entry.option.id}
                   option={entry.option}
@@ -875,6 +921,7 @@ function BenefitValue({ planOption, pending }: { planOption: PlanOptionDto; pend
         dataType={main.dataType}
         unit={main.unit}
         value={valueAsText(main)}
+        {...(main.choices ? { choices: main.choices } : {})}
         disabled={pending}
       />
 
@@ -889,6 +936,7 @@ function BenefitValue({ planOption, pending }: { planOption: PlanOptionDto; pend
             dataType={alternative.dataType}
             unit={alternative.unit}
             value={valueAsText(alternative)}
+            {...(alternative.choices ? { choices: alternative.choices } : {})}
             disabled={pending}
           />
         </>

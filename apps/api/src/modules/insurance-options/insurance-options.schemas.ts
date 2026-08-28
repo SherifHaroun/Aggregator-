@@ -1,4 +1,8 @@
-import { BENEFIT_VALUE_KIND_IDS, OPTION_FIELD_DATA_TYPES_IDS } from '@aggregator/shared';
+import {
+  BENEFIT_CHOICE_LABEL_MAX_LENGTH,
+  BENEFIT_VALUE_KIND_IDS,
+  OPTION_FIELD_DATA_TYPES_IDS,
+} from '@aggregator/shared';
 import { z } from 'zod';
 
 /** Definition of one field an option requires. */
@@ -72,6 +76,29 @@ export type OptionFieldInput = z.infer<typeof optionFieldInputSchema>;
 export type UpdateOptionFieldInput = z.infer<typeof updateOptionFieldSchema>;
 export type CreateInsuranceOptionInput = z.infer<typeof createInsuranceOptionSchema>;
 export type UpdateInsuranceOptionInput = z.infer<typeof updateInsuranceOptionSchema>;
+
+/**
+ * One answer a benefit offers. On a ranked benefit its POSITION is the ranking,
+ * which is why the order is written through its own endpoint rather than by
+ * sending a number here.
+ */
+export const createOptionChoiceSchema = z.object({
+  label: z.string().trim().min(1).max(BENEFIT_CHOICE_LABEL_MAX_LENGTH),
+  sortOrder: z.number().int().min(0).optional(),
+});
+
+export const updateOptionChoiceSchema = z.object({
+  label: z.string().trim().min(1).max(BENEFIT_CHOICE_LABEL_MAX_LENGTH).optional(),
+  isActive: z.boolean().optional(),
+});
+
+/** The complete list, best first. */
+export const reorderOptionChoicesSchema = z.object({
+  orderedIds: z.array(z.string().min(1)).max(200),
+});
+
+export type CreateOptionChoiceInput = z.infer<typeof createOptionChoiceSchema>;
+export type UpdateOptionChoiceInput = z.infer<typeof updateOptionChoiceSchema>;
 
 /**
  * Deleting a benefit that something depends on takes a deliberate `force=true`,

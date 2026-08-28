@@ -1,5 +1,7 @@
 import {
+  NO_BENEFIT_CHOICES_LABEL,
   parseOptionValue,
+  type OptionChoiceDto,
   type OptionFieldDataType,
   type PlanOptionDto,
   type PlanOptionValueDto,
@@ -50,6 +52,7 @@ export const PlanOptionValueInline = memo(function PlanOptionValueInline({
   dataType,
   unit,
   value,
+  choices,
   disabled = false,
 }: {
   planOptionId: string;
@@ -58,8 +61,10 @@ export const PlanOptionValueInline = memo(function PlanOptionValueInline({
   optionFieldId: string;
   dataType: OptionFieldDataType;
   unit: string | null;
-  /** The saved value, as text. */
+  /** The saved value, as text. For RANK this is the chosen answer's id. */
   value: string;
+  /** The answers this benefit offers, for the kinds that use them. */
+  choices?: OptionChoiceDto[];
   /** True while the row itself is still being created. */
   disabled?: boolean;
 }) {
@@ -128,11 +133,14 @@ export const PlanOptionValueInline = memo(function PlanOptionValueInline({
 
   return (
     <span className="flex items-center gap-2">
-      <span className="w-32">
+      {/* A ranked answer is a name, not a figure, so it needs room to read. */}
+      <span className={dataType === 'RANK' ? 'w-52' : 'w-32'}>
         <ValueInput
           dataType={dataType}
           unit={unit}
           value={text}
+          {...(choices ? { choices } : {})}
+          listId={`answers-${optionFieldId}`}
           onChange={handleChange}
           onBlur={handleBlur}
           disabled={disabled}
@@ -243,6 +251,8 @@ export function PlanOptionValuesForm({ planOption }: { planOption: PlanOptionDto
                 {...props}
                 dataType={value.dataType}
                 unit={value.unit}
+                {...(value.choices ? { choices: value.choices } : {})}
+                listId={`answers-${value.optionFieldId}`}
                 value={draft[value.optionFieldId] ?? ''}
                 onChange={(next) =>
                   setDraft((current) => ({ ...current, [value.optionFieldId]: next }))
@@ -275,12 +285,18 @@ function ValueInput({
   dataType,
   unit,
   value,
+  choices,
+  listId,
   onChange,
   ...props
 }: {
   dataType: OptionFieldDataType;
   unit: string | null;
   value: string;
+  /** The answers this benefit offers. Required to render a RANK value at all. */
+  choices?: OptionChoiceDto[];
+  /** Id tying a text box to its suggestion list. */
+  listId?: string;
   onChange: (value: string) => void;
   onBlur?: () => void;
   disabled?: boolean;
@@ -290,6 +306,26 @@ function ValueInput({
   'aria-describedby'?: string;
 }) {
   switch (dataType) {
+    /**
+     * A ranked answer is PICKED, never typed: the value stored is the id of one
+     * of the benefit's own answers, and free text could not be one. An empty
+     * list is stated plainly rather than shown as an empty dropdown, because
+     * the fix is on the benefit and not on this plan.
+     */
+    case 'RANK':
+      return (choices ?? []).length === 0 ? (
+        <span className="text-content-subtle text-xs">{NO_BENEFIT_CHOICES_LABEL}</span>
+      ) : (
+        <Select {...props} value={value} onChange={(event) => onChange(event.target.value)}>
+          <option value="">Not set</option>
+          {(choices ?? []).map((choice) => (
+            <option key={choice.id} value={choice.id}>
+              {choice.label}
+            </option>
+          ))}
+        </Select>
+      );
+
     case 'BOOLEAN':
       return (
         <Select {...props} value={value} onChange={(event) => onChange(event.target.value)}>
@@ -299,8 +335,31 @@ function ValueInput({
         </Select>
       );
 
+    /**
+     * Text stays typeable, and offers the benefit's answers as suggestions.
+     * "Covered at authorized centers" is entered on plan after plan, each time
+     * a little differently, and thirty spellings of one answer are thirty
+     * answers to any report — but the wording no list anticipated must still be
+     * possible, which is why this is a suggestion list and not a dropdown.
+     */
     case 'TEXT':
-      return <Input {...props} value={value} onChange={(event) => onChange(event.target.value)} />;
+      return (
+        <>
+          <Input
+            {...props}
+            {...(listId && (choices ?? []).length > 0 ? { list: listId } : {})}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+          />
+          {listId && (choices ?? []).length > 0 ? (
+            <datalist id={listId}>
+              {(choices ?? []).map((choice) => (
+                <option key={choice.id} value={choice.label} />
+              ))}
+            </datalist>
+          ) : null}
+        </>
+      );
 
     case 'PERCENTAGE':
       return <NumberInput {...props} suffix={unit ?? '%'} value={value} onChange={onChange} />;

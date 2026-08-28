@@ -30,7 +30,7 @@ export interface BenefitValueField {
 }
 
 /** The kinds of value a benefit can carry, as offered when creating one. */
-export const BENEFIT_VALUE_KIND_IDS = ['PERCENTAGE', 'LIMIT', 'TEXT'] as const;
+export const BENEFIT_VALUE_KIND_IDS = ['PERCENTAGE', 'LIMIT', 'TEXT', 'RANK'] as const;
 
 export type BenefitValueKind = (typeof BENEFIT_VALUE_KIND_IDS)[number];
 
@@ -59,10 +59,28 @@ export const BENEFIT_VALUE_KINDS: OptionRegistry<BenefitValueKind, BenefitValueK
   TEXT: {
     id: 'TEXT',
     label: 'Text',
-    description: 'Wording rather than a number, e.g. a provider network.',
+    description: 'Wording rather than a number, e.g. a note about the cover.',
     order: 3,
     enabled: true,
     field: { label: 'Details', key: 'details', dataType: 'TEXT', unit: null },
+  },
+  /**
+   * One entry from a list the employee puts in order, best first.
+   *
+   * Some cover is neither a figure nor free wording — it is a NAMED TIER, and
+   * which tier a plan gives you is the whole point. "Golden Care Network" and
+   * "Orange Care Network" are not 80% and 70%, but one is plainly better than
+   * the other, and as free text neither the comparison nor the employee could
+   * say which. Putting the list in order says it once, and every plan quoting
+   * a network is then ranked by it.
+   */
+  RANK: {
+    id: 'RANK',
+    label: 'Rank',
+    description: 'One of a list you put in order, e.g. provider networks best first.',
+    order: 4,
+    enabled: true,
+    field: { label: 'Rank', key: 'rank', dataType: 'RANK', unit: null },
   },
 };
 
@@ -117,6 +135,37 @@ export function alternativeValueField(kind: BenefitValueKind): BenefitValueField
  * Long enough for the qualifications insurance documents actually print.
  */
 export const BENEFIT_NOTE_MAX_LENGTH = 300;
+
+// ---------------------------------------------------------------------------
+//  THE ANSWERS A BENEFIT OFFERS
+// ---------------------------------------------------------------------------
+
+/**
+ * A benefit may carry a list of the answers it accepts.
+ *
+ * It serves two purposes with one mechanism, because they are the same thing
+ * seen from two sides:
+ *
+ *  - On a RANK benefit the list IS the cover. It is in order, best first, and
+ *    a plan's position in it is what the comparison ranks.
+ *  - On a TEXT benefit the list is a set of suggestions. "Not specified",
+ *    "Sliding scale", "Covered at authorized centers" are typed on plan after
+ *    plan, each time slightly differently, and thirty spellings of one answer
+ *    are thirty answers as far as any report is concerned. Offering the list
+ *    keeps them one answer, while still allowing anything else to be typed.
+ */
+export const BENEFIT_CHOICES_LABEL = 'Answers this benefit offers';
+
+/** Wording for the list when its order is what decides the ranking. */
+export const BENEFIT_RANKED_CHOICES_LABEL = 'Ranked answers, best first';
+
+export const BENEFIT_CHOICE_LABEL_MAX_LENGTH = 120;
+
+/** Most answers one benefit may offer. Beyond this it is not a list any more. */
+export const BENEFIT_CHOICE_MAX = 50;
+
+/** Shown on a rank benefit whose list nobody has filled in yet. */
+export const NO_BENEFIT_CHOICES_LABEL = 'No answers yet — add them to rank this benefit.';
 
 /**
  * How deep the benefit hierarchy goes: an umbrella holds sub-benefits, and a

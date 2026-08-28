@@ -310,11 +310,41 @@ async function writeValues(
   const fields = await prisma.optionField.findMany({ where: { optionId } });
   const fieldsById = new Map(fields.map((field) => [field.id, field]));
 
+  /**
+   * A ranked value is the id of one of the benefit's own answers. Checked here
+   * rather than in `buildValueColumns`, which sees a field but not the benefit
+   * the answers belong to. Without this an id from another benefit — or a
+   * deleted one — would store cleanly and then read back as blank.
+   */
+  const ranked = fields.some((field) => field.dataType === 'RANK');
+  const choiceIds = ranked
+    ? new Set(
+        (
+          await prisma.optionChoice.findMany({
+            where: { optionId, isActive: true },
+            select: { id: true },
+          })
+        ).map((choice) => choice.id),
+      )
+    : new Set<string>();
+
   const rows = values.map((entry) => {
     const field = fieldsById.get(entry.optionFieldId);
     if (!field) {
       throw badRequest(`Field ${entry.optionFieldId} does not belong to this option.`);
     }
+
+    if (
+      field.dataType === 'RANK' &&
+      typeof entry.value === 'string' &&
+      entry.value.trim() !== '' &&
+      !choiceIds.has(entry.value)
+    ) {
+      throw badRequest(`"${field.label}" must be one of the answers this benefit offers.`, {
+        [field.key]: ['Choose one of the answers listed for this benefit.'],
+      });
+    }
+
     return { optionFieldId: field.id, columns: buildValueColumns(field, entry.value) };
   });
 

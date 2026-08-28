@@ -131,6 +131,15 @@ function bestOf(values: number[], direction: ComparisonDirection): number | null
 
 /** How a benefit value reads on screen. */
 function displayBenefit(benefit: CandidateBenefit): string {
+  /**
+   * A rank is a number only so that it can be sorted. Nobody wants to read
+   * "Medical Network: 2" — they want the name of the network, which is what
+   * the plan actually says.
+   */
+  if (benefit.dataType === 'RANK') {
+    return benefit.textValue?.trim() || (benefit.carried ? COVERED_LABEL : NOT_COVERED_LABEL);
+  }
+
   if (benefit.value === null) {
     if (!benefit.carried) return NOT_COVERED_LABEL;
     // Carried but not quoted as a number: show the wording, or say plainly

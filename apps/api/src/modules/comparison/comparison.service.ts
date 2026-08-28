@@ -4,6 +4,7 @@ import {
   OPTION_FIELD_DATA_TYPES,
   explainRecommendation,
   optionLabel,
+  rankValue,
   resolveAverageAgeForCustomerType,
   scoreCandidates,
   type CandidateBenefit,
@@ -246,10 +247,21 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
       );
       const wording = planOption?.values.find((value) => typeof value.value === 'string');
 
+      /**
+       * A ranked answer becomes a number here, from its place in the list the
+       * employee ordered. "Golden Care Network" carries no figure, but sitting
+       * above "Orange Care Network" is exactly what makes it better cover —
+       * and this is the only place that has both the answer and the list.
+       */
+      const ranked =
+        cell?.dataType === 'RANK'
+          ? rankValue(typeof cell.value === 'string' ? cell.value : null, cell.choices ?? [])
+          : null;
+
       return {
         optionId: benefit.id,
         optionName: benefit.name,
-        value: typeof cell?.value === 'number' ? cell.value : null,
+        value: ranked ?? (typeof cell?.value === 'number' ? cell.value : null),
         dataType: cell?.dataType ?? null,
         unit: cell?.unit ?? null,
         /**
@@ -259,7 +271,12 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
          * not, and until the engine could tell the two apart both scored zero.
          */
         carried: planOption !== undefined,
-        textValue: typeof wording?.value === 'string' ? wording.value : null,
+        textValue:
+          cell?.dataType === 'RANK'
+            ? (cell.choiceLabel ?? null)
+            : typeof wording?.value === 'string'
+              ? wording.value
+              : null,
         /**
          * The recorded qualifications, with the weights the business gave
          * them. Empty means the cover carries no conditions.

@@ -9,6 +9,8 @@
 
 import {
   explainRecommendation,
+  rankLabel,
+  rankValue,
   scoreCandidates,
   type AppliedLimitation,
   type CandidateBenefit,
@@ -60,6 +62,28 @@ const limit = (name: string, restrictionWeight: number): AppliedLimitation => ({
   id: name.toLowerCase().replace(/\W+/g, '_'),
   name,
   restrictionWeight,
+});
+
+/**
+ * A benefit answered from a ranked list, e.g. a provider network.
+ *
+ * Built the way the API builds it: the stored answer is an id, and `rankValue`
+ * turns its place in the employee's list into the number the engine ranks on.
+ */
+const ranked = (
+  optionId: string,
+  optionName: string,
+  chosenId: string | null,
+  choices: { id: string; label: string; sortOrder: number }[],
+): CandidateBenefit => ({
+  optionId,
+  optionName,
+  value: rankValue(chosenId, choices),
+  dataType: chosenId === null ? null : 'RANK',
+  unit: null,
+  carried: chosenId !== null,
+  textValue: rankLabel(chosenId, choices),
+  limitations: [],
 });
 
 function plan(
@@ -442,5 +466,74 @@ describe('limitations', () => {
     if (recommended(results)?.configurationId === 'open') {
       expect(reasons.toLowerCase()).toMatch(/in-network only|no limitations/);
     }
+  });
+});
+
+/**
+ * Cover that is a NAMED TIER rather than a figure.
+ *
+ * "Golden Care Network" carries no percentage, so as free text the comparison
+ * could not say whether it beat "Orange Care Network" — both scored zero, the
+ * same as a plan with no network at all. The employee orders the list once and
+ * every plan quoting a network is ranked by where its answer sits.
+ */
+describe('ranked answers', () => {
+  const NETWORKS = [
+    { id: 'gold', label: 'Golden Care Network', sortOrder: 0 },
+    { id: 'orange', label: 'Orange Care Network', sortOrder: 1 },
+  ];
+
+  it('ranks the plan whose answer sits higher in the list', () => {
+    const results = scoreCandidates([
+      plan('better', 'Company A', 1000, [ranked('net', 'Medical Network', 'gold', NETWORKS)]),
+      plan('worse', 'Company B', 1000, [ranked('net', 'Medical Network', 'orange', NETWORKS)]),
+    ]);
+
+    const better = results.find((r) => r.configurationId === 'better')!.benefits[0]!;
+    const worse = results.find((r) => r.configurationId === 'worse')!.benefits[0]!;
+
+    expect(better.score).toBeGreaterThan(worse.score);
+    expect(better.isBest).toBe(true);
+    expect(recommended(results)?.configurationId).toBe('better');
+  });
+
+  it(`shows the answer's name, never its position`, () => {
+    const results = scoreCandidates([
+      plan('a', 'Company A', 1000, [ranked('net', 'Medical Network', 'gold', NETWORKS)]),
+    ]);
+
+    // The number exists only so the list can be sorted; nobody reads "2".
+    expect(results[0]!.benefits[0]!.display).toBe('Golden Care Network');
+  });
+
+  it('keeps the worst answer on the list above no answer at all', () => {
+    const results = scoreCandidates([
+      plan('worst', 'Company A', 1000, [ranked('net', 'Medical Network', 'orange', NETWORKS)]),
+      plan('none', 'Company B', 1000, [ranked('net', 'Medical Network', null, NETWORKS)]),
+    ]);
+
+    const worst = results.find((r) => r.configurationId === 'worst')!.benefits[0]!;
+    const none = results.find((r) => r.configurationId === 'none')!.benefits[0]!;
+
+    expect(worst.score).toBeGreaterThan(none.score);
+    expect(none.display).toBe('Not covered');
+  });
+
+  it('reorders the ranking without touching what any plan says', () => {
+    const before = rankValue('orange', NETWORKS);
+    // The employee drags Orange above Golden. No plan value changes — plans
+    // hold the answer's id — but Orange is now the better cover.
+    const after = rankValue('orange', [
+      { id: 'orange', label: 'Orange Care Network', sortOrder: 0 },
+      { id: 'gold', label: 'Golden Care Network', sortOrder: 1 },
+    ]);
+
+    expect(after).toBeGreaterThan(before!);
+  });
+
+  it('treats an answer no longer on the list as unrankable, not as worst', () => {
+    // A deleted answer, or one recorded before the benefit became ranked.
+    expect(rankValue('gone', NETWORKS)).toBeNull();
+    expect(rankLabel('gone', NETWORKS)).toBeNull();
   });
 });

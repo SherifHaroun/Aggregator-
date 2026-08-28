@@ -77,6 +77,58 @@ function givenPlan(id = 'plan_1', companyId = 'company_1', typeId = 'type_1') {
 }
 
 /** A benefit invented here: a name, and the percentage every benefit carries. */
+/**
+ * A benefit answered from an ordered list, e.g. a provider network.
+ *
+ * The list belongs to the BENEFIT, so it is defined once here and every plan
+ * that carries the benefit picks from it.
+ */
+function givenRankedOption(id = 'option_1', name = 'Medical Network') {
+  store.options.push({
+    id,
+    name,
+    description: null,
+    sortOrder: 0,
+    isUmbrella: false,
+    parentId: null,
+    isActive: true,
+    ...timestamps,
+    fields: [
+      {
+        id: `${id}_rank`,
+        optionId: id,
+        label: 'Rank',
+        key: 'rank',
+        dataType: 'RANK',
+        unit: null,
+        helpText: null,
+        isRequired: false,
+        sortOrder: 0,
+        isActive: true,
+        ...timestamps,
+      },
+    ],
+  });
+  store.choices.push(
+    {
+      id: 'choice_gold',
+      optionId: id,
+      label: 'Golden Care Network',
+      sortOrder: 0,
+      isActive: true,
+      ...timestamps,
+    },
+    {
+      id: 'choice_orange',
+      optionId: id,
+      label: 'Orange Care Network',
+      sortOrder: 1,
+      isActive: true,
+      ...timestamps,
+    },
+  );
+}
+
 function givenOption(id = 'option_1', name = 'Aurora Wellness Programme') {
   store.options.push({
     id,
@@ -1417,6 +1469,71 @@ describe('dynamic insurance options', () => {
         screen.getByRole('button', { name: 'Any limitations for Aurora Wellness Programme' }),
       ).toHaveTextContent('Basic procedures only'),
     );
+  });
+
+  /**
+   * Cover that is a named tier rather than a figure.
+   *
+   * "Golden Care Network" is not a percentage, so it is picked from the
+   * benefit's own list — never typed — and the value stored is the answer's id
+   * so that reordering the list re-ranks the plans without rewriting what any
+   * of them says.
+   */
+  it('picks a ranked answer from the benefit’s own list', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenRankedOption();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const select = await screen.findByLabelText('Medical Network value');
+    // Both answers are offered, in the employee's order.
+    expect(within(select).getByRole('option', { name: 'Golden Care Network' })).toBeInTheDocument();
+    expect(within(select).getByRole('option', { name: 'Orange Care Network' })).toBeInTheDocument();
+
+    await user.selectOptions(select, 'choice_gold');
+
+    // The ANSWER'S ID is stored, not its wording and not its position.
+    await waitFor(() => expect(store.values[0]?.value).toBe('choice_gold'));
+  });
+
+  /**
+   * A catalogue of thirty benefits is a scroll, not a list. The search filters
+   * what is already in hand rather than refetching, so a drag in progress is
+   * never cancelled underneath the employee.
+   */
+  it('searches the available benefits, keeping a group whose part matches', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    givenOption('option_2', 'Dental Care');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const search = await screen.findByLabelText('Search benefits');
+    expect(await screen.findByText('Dental Care')).toBeInTheDocument();
+
+    await user.type(search, 'aurora');
+
+    await waitFor(() => expect(screen.queryByText('Dental Care')).not.toBeInTheDocument());
+    expect(screen.getByText('Aurora Wellness Programme')).toBeInTheDocument();
+
+    // A search that matches nothing offers the way out rather than a blank.
+    await user.clear(search);
+    await user.type(search, 'zzz');
+    expect(await screen.findByText(/No benefit matches/)).toBeInTheDocument();
   });
 
   it('adds a limitation the catalogue does not have yet, without leaving the row', async () => {

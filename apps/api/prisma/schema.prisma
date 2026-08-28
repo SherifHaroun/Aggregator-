@@ -34,6 +34,9 @@ enum OptionFieldDataType {
   CURRENCY
   TEXT
   BOOLEAN
+  /// One entry from the benefit's own ordered list — see `OptionChoice`.
+  /// Stored as the chosen entry's ID, never its position.
+  RANK
 }
 
 /// Which kind of benefit box offers a limitation.
@@ -177,6 +180,10 @@ model InsuranceOption {
   fields      OptionField[]
   planOptions PlanOption[]
 
+  /// The answers this benefit offers. Ordered, and on a RANK benefit that
+  /// order is what the comparison judges by.
+  choices OptionChoice[]
+
   @@index([isActive])
   @@index([parentId, sortOrder])
   @@map("insurance_options")
@@ -283,6 +290,39 @@ model PlanOptionLimitation {
   @@id([planOptionId, limitationId])
   @@index([limitationId])
   @@map("plan_option_limitations")
+}
+
+/// One answer a benefit offers, in a list the employee puts in order.
+///
+/// Two jobs, one mechanism, because they are the same thing from two sides:
+///
+///   - On a RANK benefit the list IS the cover. "Golden Care Network" is not a
+///     percentage, but it is plainly better than "Orange Care Network" — and
+///     only an employee knows that. They say it once by ordering the list, and
+///     every plan quoting a network is then ranked by where it sits.
+///   - On a TEXT benefit the list is suggestions. "Covered at authorized
+///     centers" gets typed on plan after plan, each time a little differently,
+///     and thirty spellings of one answer are thirty answers to any report.
+///
+/// `sortOrder` is the position, 0 first. A plan stores the CHOSEN ROW'S ID, so
+/// reordering this list changes how good an answer is judged to be and never
+/// which answer a plan is recorded as giving.
+model OptionChoice {
+  id       String          @id @default(cuid())
+  optionId String
+  option   InsuranceOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  label     String
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The same answer cannot be offered twice by one benefit.
+  @@unique([optionId, label])
+  @@index([optionId, sortOrder])
+  @@map("option_choices")
 }
 
 // ============================================================================
