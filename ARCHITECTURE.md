@@ -253,6 +253,17 @@ one value, `PATCH /plan-options/:id/note` for the remark. The bulk
 `PUT /values` remains, and still replaces — but a self-saving box must never
 send back values it does not own, or two boxes on one row will wipe each other.
 
+### Refiling a plan under another insurance type
+
+`PATCH /plans/:id { insuranceTypeId }` moves a plan between types. It used to be
+refused, on the grounds that it would invalidate the options attached to the
+plan's configurations — true when a benefit belonged to an insurance type, and
+untrue since the `global_benefits` migration made benefits global. Nothing the
+plan carries is affected; only which comparison it answers.
+
+The **company** remains fixed: it is what a plan's code is unique against, and a
+plan's history belongs with the company that sold it.
+
 ### Copying a plan
 
 A company's plans are usually ONE PRODUCT PRICED SEVERAL WAYS — the same

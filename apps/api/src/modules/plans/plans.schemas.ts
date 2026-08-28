@@ -15,11 +15,19 @@ export const createPlanSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-/** Company and insurance type are fixed at creation — changing either would
- *  invalidate the options already attached to the plan's configurations. */
-export const updatePlanSchema = createPlanSchema
-  .omit({ companyId: true, insuranceTypeId: true })
-  .partial();
+/**
+ * The insurance type IS changeable; the company is not.
+ *
+ * Benefits are global — they belong to no insurance type — so moving a plan
+ * between types invalidates nothing it carries. All it changes is which
+ * comparison the plan turns up in, which is exactly what an employee means when
+ * they file a plan under the wrong type and want it corrected.
+ *
+ * The company stays fixed because it decides what the plan's code has to be
+ * unique against, and because a plan's history belongs with the company that
+ * sold it.
+ */
+export const updatePlanSchema = createPlanSchema.omit({ companyId: true }).partial();
 
 /**
  * Copy a plan, with the configurations the employee picked.

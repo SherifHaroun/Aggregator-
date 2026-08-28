@@ -951,6 +951,38 @@ describe('figures', () => {
   });
 });
 
+describe('editing a plan', () => {
+  it('files a plan under a different insurance type without touching its cover', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType('type_1', 'Medium');
+    givenInsuranceType('type_2', 'High');
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+
+    renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
+    await user.click(await screen.findByRole('button', { name: /Edit plan/i }));
+
+    // The type is offered when editing, not only when creating.
+    const select = await screen.findByLabelText(/Insurance type/i);
+    expect(select).toHaveValue('type_1');
+    await user.selectOptions(select, 'type_2');
+    await user.click(screen.getByRole('button', { name: /Save plan/i }));
+
+    await waitFor(() => expect(store.plans[0]?.insuranceTypeId).toBe('type_2'));
+    // Refiling carries nothing with it: the cover is exactly as it was.
+    expect(store.configurations).toHaveLength(1);
+    expect(store.planOptions).toHaveLength(1);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Copying a plan
 // ---------------------------------------------------------------------------

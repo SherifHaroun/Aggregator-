@@ -244,8 +244,26 @@ export async function createPlan(input: CreatePlanInput): Promise<PlanDto> {
   return toPlanDto(plan);
 }
 
+/**
+ * Edit the plan itself — its name, code, status, and the insurance type it is
+ * filed under.
+ *
+ * Refiling a plan carries nothing with it and breaks nothing: benefits are
+ * global, so the configurations and their values are untouched. Only which
+ * comparison the plan answers changes.
+ */
 export async function updatePlan(id: string, input: UpdatePlanInput): Promise<PlanDto> {
-  const plan = await getPrisma().plan.update({
+  const prisma = getPrisma();
+
+  if (input.insuranceTypeId !== undefined) {
+    const insuranceType = await prisma.insuranceType.findUnique({
+      where: { id: input.insuranceTypeId },
+      select: { id: true },
+    });
+    if (!insuranceType) throw notFound('Insurance type');
+  }
+
+  const plan = await prisma.plan.update({
     where: { id },
     data: input,
     include: planDetailInclude,

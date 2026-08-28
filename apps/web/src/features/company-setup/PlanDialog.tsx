@@ -76,8 +76,9 @@ export function PlanDialog({
         name: values.name.trim(),
         code: values.code.trim() === '' ? derivedCode : values.code.trim(),
         isActive: values.isActive,
-        // Company and type are fixed after creation, so only sent when creating.
-        ...(plan ? {} : { companyId, insuranceTypeId }),
+        // The type can be corrected at any time; the company cannot change.
+        insuranceTypeId,
+        ...(plan ? {} : { companyId }),
       },
       {
         onSuccess: (saved) => {
@@ -130,30 +131,34 @@ export function PlanDialog({
           )}
         </Field>
 
-        {plan ? null : (
-          <Field
-            label="Insurance type"
-            required
-            error={fieldErrors.insuranceTypeId}
-            hint="Groups plans and the benefits available to them."
-          >
-            {(props) => (
-              <Select
-                {...props}
-                value={values.insuranceTypeId}
-                onChange={(event) => setValue('insuranceTypeId', event.target.value)}
-              >
-                <option value="">Select an insurance type</option>
-                {(insuranceTypes.data ?? []).map((type) => (
-                  <option key={type.id} value={type.id}>
-                    {type.name}
-                  </option>
-                ))}
-                <option value={NEW_TYPE}>+ Create a new insurance type…</option>
-              </Select>
-            )}
-          </Field>
-        )}
+        {/* Offered when editing too: a plan filed under the wrong type is
+            corrected here, and nothing it carries is affected. */}
+        <Field
+          label="Insurance type"
+          required
+          error={fieldErrors.insuranceTypeId}
+          hint={
+            plan
+              ? 'Decides which comparison this plan answers. Its benefits and prices are unaffected.'
+              : 'Groups plans and the benefits available to them.'
+          }
+        >
+          {(props) => (
+            <Select
+              {...props}
+              value={values.insuranceTypeId}
+              onChange={(event) => setValue('insuranceTypeId', event.target.value)}
+            >
+              <option value="">Select an insurance type</option>
+              {(insuranceTypes.data ?? []).map((type) => (
+                <option key={type.id} value={type.id}>
+                  {type.name}
+                </option>
+              ))}
+              <option value={NEW_TYPE}>+ Create a new insurance type…</option>
+            </Select>
+          )}
+        </Field>
 
         {creatingType ? (
           <Field label="New insurance type name" required error={fieldErrors.newTypeName}>
