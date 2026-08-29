@@ -17,6 +17,7 @@ import {
   resolveAverageAgeForCustomerType,
   type BenefitValueKind,
   type CompanyDto,
+  type CompanyMedicalNetworkDto,
   type InsuranceOptionDto,
   type InsuranceTypeDto,
   type OptionChoiceDto,
@@ -44,6 +45,8 @@ interface StoredPlanOption {
 
 export interface FakeStore {
   companies: CompanyDto[];
+  /** Provider networks, each owned by one company. Never shared between them. */
+  medicalNetworks: CompanyMedicalNetworkDto[];
   insuranceTypes: InsuranceTypeDto[];
   options: InsuranceOptionDto[];
   /** The answers settings offer, across every setting. */
@@ -69,6 +72,7 @@ export interface FakeStore {
 export function createStore(): FakeStore {
   return {
     companies: [],
+    medicalNetworks: [],
     insuranceTypes: [],
     options: [],
     choices: [],
@@ -133,6 +137,32 @@ export function installFakeApi(store: FakeStore = createStore()): FakeStore {
   return store;
 }
 
+/**
+ * A plan sold on another company's network is a false statement about what the
+ * customer gets, so the real API refuses it. The fake refuses it too, or a test
+ * could pass against a contract production does not honour.
+ */
+function foreignNetwork(
+  store: FakeStore,
+  companyId: string,
+  medicalNetworkId: string | null,
+): Response | null {
+  if (!medicalNetworkId) return null;
+  const owned = store.medicalNetworks.some(
+    (network) => network.id === medicalNetworkId && network.companyId === companyId,
+  );
+  return owned ? null : fail(400, 'BAD_REQUEST', 'That network belongs to a different company.');
+}
+
+/** Resolve the network's name, as the real API does when reading a plan. */
+function networkName(store: FakeStore, plan: PlanDto): PlanDto {
+  return {
+    ...plan,
+    medicalNetworkName:
+      store.medicalNetworks.find((network) => network.id === plan.medicalNetworkId)?.name ?? null,
+  };
+}
+
 function route({
   store,
   path,
@@ -151,6 +181,82 @@ function route({
 
   // --- companies -----------------------------------------------------------
   if (resource === 'companies') {
+    /**
+     * The provider networks THIS company sells, nested under it because the
+     * list is the company's own. Matched before the plain company routes, which
+     * would otherwise answer `/companies/:id/medical-networks` with the company.
+     */
+    if (second === 'medical-networks') {
+      const owned = () =>
+        store.medicalNetworks
+          .filter((network) => network.companyId === first)
+          .sort((a, b) => a.sortOrder - b.sortOrder);
+      const soldOn = (networkId: string) =>
+        store.plans.filter((plan) => plan.medicalNetworkId === networkId).length;
+
+      if (method === 'GET' && !third) {
+        return ok(owned().map((network) => ({ ...network, planCount: soldOn(network.id) })));
+      }
+
+      if (method === 'POST' && !third) {
+        const name = String(body.name ?? '').trim();
+        // Unique within the company only: another insurer may sell the name too.
+        if (owned().some((network) => network.name.toLowerCase() === name.toLowerCase())) {
+          return fail(409, 'DUPLICATE', `This company already has a network called "${name}".`);
+        }
+        const network: CompanyMedicalNetworkDto = {
+          id: id('network'),
+          companyId: String(first),
+          name,
+          description: null,
+          // At the END: a network nobody has ranked yet is not the best one.
+          sortOrder: owned().length,
+          ...meta(),
+        };
+        store.medicalNetworks.push(network);
+        return ok(network, 201);
+      }
+
+      if (method === 'POST' && third === 'reorder') {
+        const orderedIds = (body.orderedIds as unknown as string[]) ?? [];
+        if (orderedIds.some((networkId) => !owned().some((n) => n.id === networkId))) {
+          return fail(
+            400,
+            'BAD_REQUEST',
+            'The list contains networks that do not belong to this company.',
+          );
+        }
+        orderedIds.forEach((networkId, index) => {
+          const network = store.medicalNetworks.find((n) => n.id === networkId);
+          if (network) network.sortOrder = index;
+        });
+        return noContent();
+      }
+
+      const network = owned().find((item) => item.id === third);
+      if (!network) return fail(404, 'NOT_FOUND', 'The record was not found.');
+      if (method === 'PATCH') {
+        Object.assign(network, body);
+        return ok({ ...network, planCount: soldOn(network.id) });
+      }
+      if (method === 'DELETE') {
+        const usage = soldOn(network.id);
+        if (usage > 0 && search.get('force') !== 'true') {
+          return fail(
+            409,
+            'CONFLICT',
+            `${usage} ${usage === 1 ? 'plan is' : 'plans are'} sold on "${network.name}".`,
+          );
+        }
+        // The plans survive; they simply stop naming a network.
+        store.plans.forEach((plan) => {
+          if (plan.medicalNetworkId === network.id) plan.medicalNetworkId = null;
+        });
+        store.medicalNetworks = store.medicalNetworks.filter((item) => item.id !== network.id);
+        return noContent();
+      }
+    }
+
     if (method === 'GET' && !first) return ok(page(store.companies));
     if (method === 'POST') {
       if (!body.name) {
@@ -552,13 +658,19 @@ function route({
       );
     }
     if (method === 'POST' && !first) {
+      const companyId = String(body.companyId ?? '');
+      const networkId = (body.medicalNetworkId as string | null | undefined) ?? null;
+      const foreign = foreignNetwork(store, companyId, networkId);
+      if (foreign) return foreign;
+
       const plan: PlanDto = {
         id: id('plan'),
-        companyId: String(body.companyId ?? ''),
+        companyId,
         insuranceTypeId: String(body.insuranceTypeId ?? ''),
         name: String(body.name ?? ''),
         code: String(body.code ?? ''),
         description: (body.description as string | null) ?? null,
+        medicalNetworkId: networkId,
         ...meta(),
       };
       store.plans.push(plan);
@@ -628,15 +740,21 @@ function route({
     }
     if (method === 'GET') {
       return ok({
-        ...plan,
+        ...networkName(store, plan),
         configurations: store.configurations
           .filter((configuration) => configuration.planId === plan.id)
           .map((configuration) => hydrateConfiguration(store, configuration)),
       });
     }
     if (method === 'PATCH') {
+      const foreign = foreignNetwork(
+        store,
+        plan.companyId,
+        (body.medicalNetworkId as string | null | undefined) ?? null,
+      );
+      if (foreign) return foreign;
       Object.assign(plan, body);
-      return ok(plan);
+      return ok(networkName(store, plan));
     }
     if (method === 'DELETE') {
       store.plans = store.plans.filter((item) => item.id !== plan.id);

@@ -11,6 +11,7 @@ import {
 } from '@/components/ui';
 import {
   useInsuranceTypes,
+  useMedicalNetworks,
   useSaveInsuranceType,
   useSavePlan,
 } from '@/features/insurance-data/insurance-data.api';
@@ -39,6 +40,8 @@ export function PlanDialog({
 }) {
   const { notify } = useToast();
   const insuranceTypes = useInsuranceTypes({ isActive: true });
+  // Only THIS company's networks. Another insurer's list is not on offer here.
+  const networks = useMedicalNetworks(companyId);
   const savePlan = useSavePlan(plan?.id);
   const saveType = useSaveInsuranceType();
 
@@ -47,6 +50,7 @@ export function PlanDialog({
     code: plan?.code ?? '',
     insuranceTypeId: plan?.insuranceTypeId ?? '',
     newTypeName: '',
+    medicalNetworkId: plan?.medicalNetworkId ?? '',
     isActive: plan?.isActive ?? true,
   });
 
@@ -78,6 +82,8 @@ export function PlanDialog({
         isActive: values.isActive,
         // The type can be corrected at any time; the company cannot change.
         insuranceTypeId,
+        // Empty means the document does not say — never an invented network.
+        medicalNetworkId: blankToNull(values.medicalNetworkId),
         ...(plan ? {} : { companyId }),
       },
       {
@@ -172,6 +178,34 @@ export function PlanDialog({
             )}
           </Field>
         ) : null}
+
+        {/* Chosen from the company's own list, never typed: a network is the
+            company's, and a name invented here would belong to nothing. */}
+        <Field
+          label="Medical network"
+          error={fieldErrors.medicalNetworkId}
+          hint={
+            (networks.data?.length ?? 0) === 0
+              ? 'This company has no networks yet. Add them on the company screen.'
+              : 'The company network this plan is sold on. Leave blank where the document does not say.'
+          }
+        >
+          {(props) => (
+            <Select
+              {...props}
+              value={values.medicalNetworkId}
+              disabled={(networks.data?.length ?? 0) === 0}
+              onChange={(event) => setValue('medicalNetworkId', event.target.value)}
+            >
+              <option value="">Not stated</option>
+              {(networks.data ?? []).map((network) => (
+                <option key={network.id} value={network.id}>
+                  {network.name}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
 
         <Field
           label="Plan code"

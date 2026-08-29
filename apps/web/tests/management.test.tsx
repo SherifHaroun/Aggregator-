@@ -801,6 +801,251 @@ describe('editing a company', () => {
 });
 
 // ---------------------------------------------------------------------------
+// The provider networks a company sells
+// ---------------------------------------------------------------------------
+
+/** A network on one company's list, at the rank given. */
+function givenNetwork(id: string, companyId: string, name: string, sortOrder: number) {
+  store.medicalNetworks.push({
+    id,
+    companyId,
+    name,
+    description: null,
+    sortOrder,
+    isActive: true,
+    ...timestamps,
+  });
+  return id;
+}
+
+/** The network names as the card renders them, top of the ranking first. */
+async function renderedNetworks() {
+  const list = await screen.findByRole('list', { name: /medical networks/i });
+  return within(list)
+    .getAllByRole('listitem')
+    .map((row) => row.textContent ?? '');
+}
+
+describe('company medical networks', () => {
+  it('shows a company only its OWN networks, never another company’s', async () => {
+    givenCompany('company_1', 'Northwind Assurance');
+    givenCompany('company_2', 'Southgate Mutual');
+    givenNetwork('net_a1', 'company_1', 'Golden Care Network', 0);
+    givenNetwork('net_a2', 'company_1', 'Silver Care Network', 1);
+    givenNetwork('net_b1', 'company_2', 'Harbour Hospitals', 0);
+
+    const northwind = renderApp(ROUTES.companies.detail('company_1'));
+    expect(await screen.findByText('Golden Care Network')).toBeInTheDocument();
+    expect(screen.getByText('Silver Care Network')).toBeInTheDocument();
+    // The other insurer's estate is absent, not merely ranked below.
+    expect(screen.queryByText('Harbour Hospitals')).not.toBeInTheDocument();
+    northwind.unmount();
+
+    renderApp(ROUTES.companies.detail('company_2'));
+    expect(await screen.findByText('Harbour Hospitals')).toBeInTheDocument();
+    expect(screen.queryByText('Golden Care Network')).not.toBeInTheDocument();
+    expect(screen.queryByText('Silver Care Network')).not.toBeInTheDocument();
+  });
+
+  it('reads the list in the company’s own ranking, not the order it was typed', async () => {
+    givenCompany();
+    // Seeded deliberately out of insertion order: rank is what the row is.
+    givenNetwork('net_3', 'company_1', 'Basic Network', 2);
+    givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
+    givenNetwork('net_2', 'company_1', 'Silver Care Network', 1);
+
+    renderApp(ROUTES.companies.detail('company_1'));
+
+    const rows = await renderedNetworks();
+    expect(rows[0]).toContain('Golden Care Network');
+    expect(rows[1]).toContain('Silver Care Network');
+    expect(rows[2]).toContain('Basic Network');
+    // Positions are shown, so the ranking is legible without dragging anything.
+    expect(rows[0]).toContain('1.');
+    expect(rows[2]).toContain('3.');
+  });
+
+  it('persists a new ranking and re-reads the list from it', async () => {
+    givenCompany();
+    givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
+    givenNetwork('net_2', 'company_1', 'Silver Care Network', 1);
+    givenNetwork('net_3', 'company_1', 'Basic Network', 2);
+
+    const first = renderApp(ROUTES.companies.detail('company_1'));
+
+    // Every row offers a handle, so any of them can be moved.
+    expect(
+      await screen.findByRole('button', { name: /Reorder Golden Care Network/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Reorder Basic Network/i })).toBeInTheDocument();
+
+    // jsdom reports zero-sized rects, so dnd-kit cannot resolve a pointer drop
+    // target. The endpoint the card calls on drop is exercised directly.
+    await fetch('/api/v1/companies/company_1/medical-networks/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ orderedIds: ['net_1', 'net_3', 'net_2'] }),
+    });
+
+    const rankOf = (id: string) =>
+      store.medicalNetworks.find((network) => network.id === id)?.sortOrder;
+    expect(rankOf('net_1')).toBe(0);
+    expect(rankOf('net_3')).toBe(1);
+    expect(rankOf('net_2')).toBe(2);
+
+    // And the saved ranking is what the card reads back.
+    first.unmount();
+    renderApp(ROUTES.companies.detail('company_1'));
+    const rows = await renderedNetworks();
+    expect(rows[0]).toContain('Golden Care Network');
+    expect(rows[1]).toContain('Basic Network');
+    expect(rows[2]).toContain('Silver Care Network');
+  });
+
+  it('refuses to reorder using a network belonging to another company', async () => {
+    givenCompany('company_1');
+    givenCompany('company_2', 'Southgate Mutual');
+    givenNetwork('net_a1', 'company_1', 'Golden Care Network', 0);
+    givenNetwork('net_b1', 'company_2', 'Harbour Hospitals', 0);
+
+    const response = await fetch('/api/v1/companies/company_1/medical-networks/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ orderedIds: ['net_b1', 'net_a1'] }),
+    });
+
+    expect(response.status).toBe(400);
+    // Neither company's ranking moved.
+    expect(store.medicalNetworks.every((network) => network.sortOrder === 0)).toBe(true);
+  });
+
+  it('adds a network at the bottom of the ranking, with no Save button', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
+
+    renderApp(ROUTES.companies.detail('company_1'));
+
+    await user.type(
+      await screen.findByLabelText(/New medical network/i),
+      'Silver Care Network{Enter}',
+    );
+
+    await waitFor(() => expect(store.medicalNetworks).toHaveLength(2));
+    // The end, not the top: nobody has said it is better than what is there.
+    expect(store.medicalNetworks[1]).toMatchObject({
+      companyId: 'company_1',
+      name: 'Silver Care Network',
+      sortOrder: 1,
+    });
+    expect(await screen.findByText('Silver Care Network')).toBeInTheDocument();
+  });
+
+  it('renames a network in place', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenNetwork('net_1', 'company_1', 'Golden Care Netwrok', 0);
+
+    renderApp(ROUTES.companies.detail('company_1'));
+    await user.click(await screen.findByRole('button', { name: /Edit Golden Care Netwrok/i }));
+
+    const input = await screen.findByLabelText(/Rename Golden Care Netwrok/i);
+    await user.clear(input);
+    await user.type(input, 'Golden Care Network{Enter}');
+
+    await waitFor(() => expect(store.medicalNetworks[0]?.name).toBe('Golden Care Network'));
+    // A plan points at the row, so the rank it was given is untouched.
+    expect(store.medicalNetworks[0]?.sortOrder).toBe(0);
+  });
+
+  it('deletes a network nothing is sold on, without asking', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    givenCompany();
+    givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
+
+    renderApp(ROUTES.companies.detail('company_1'));
+    await user.click(await screen.findByRole('button', { name: /Delete Golden Care Network/i }));
+
+    await waitFor(() => expect(store.medicalNetworks).toHaveLength(0));
+    expect(confirm).not.toHaveBeenCalled();
+    confirm.mockRestore();
+  });
+
+  it('sells a plan on a network chosen from the company’s list, never typed', async () => {
+    const user = userEvent.setup();
+    givenCompany('company_1', 'Northwind Assurance');
+    givenCompany('company_2', 'Southgate Mutual');
+    givenInsuranceType();
+    givenNetwork('net_a1', 'company_1', 'Golden Care Network', 0);
+    givenNetwork('net_b1', 'company_2', 'Harbour Hospitals', 0);
+
+    renderApp(ROUTES.companies.detail('company_1'));
+    await user.click((await screen.findAllByRole('button', { name: /Add plan/i }))[0]!);
+
+    const dialog = within(await screen.findByRole('dialog'));
+    const network = await dialog.findByLabelText(/Medical network/i);
+
+    // A select, not a box: the name cannot be invented on the plan.
+    expect(network.tagName).toBe('SELECT');
+    const offered = within(network).getAllByRole('option').map((o) => o.textContent);
+    expect(offered).toEqual(['Not stated', 'Golden Care Network']);
+
+    await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
+    await user.selectOptions(dialog.getByLabelText(/Insurance type/i), 'type_1');
+    await user.selectOptions(network, 'net_a1');
+    await user.type(dialog.getByLabelText(/Age from/i), '18');
+    await user.type(dialog.getByLabelText(/Age to/i), '60');
+    await user.click(dialog.getByRole('button', { name: /Add plan/i }));
+
+    await waitFor(() => expect(store.plans).toHaveLength(1));
+    // Recorded on the plan itself — no plan-specific network record is created.
+    expect(store.plans[0]?.medicalNetworkId).toBe('net_a1');
+    expect(store.medicalNetworks).toHaveLength(2);
+  });
+
+  it('refuses a plan sold on another company’s network', async () => {
+    givenCompany('company_1');
+    givenCompany('company_2', 'Southgate Mutual');
+    givenInsuranceType();
+    givenNetwork('net_b1', 'company_2', 'Harbour Hospitals', 0);
+
+    const response = await fetch('/api/v1/plans', {
+      method: 'POST',
+      body: JSON.stringify({
+        companyId: 'company_1',
+        insuranceTypeId: 'type_1',
+        name: 'Tier One',
+        code: 'TIER-ONE',
+        medicalNetworkId: 'net_b1',
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(store.plans).toHaveLength(0);
+  });
+
+  it('warns before deleting a network plans are sold on, and leaves them standing', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
+    store.plans[0]!.medicalNetworkId = 'net_1';
+
+    renderApp(ROUTES.companies.detail('company_1'));
+    await user.click(await screen.findByRole('button', { name: /Delete Golden Care Network/i }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('1 plan is'));
+    await waitFor(() => expect(store.medicalNetworks).toHaveLength(0));
+
+    // The plan survives; it simply stops naming a network.
+    expect(store.plans).toHaveLength(1);
+    expect(store.plans[0]?.medicalNetworkId).toBeNull();
+    confirm.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Plans, created inside the company
 // ---------------------------------------------------------------------------
 

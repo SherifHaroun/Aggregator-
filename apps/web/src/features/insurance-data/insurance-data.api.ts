@@ -13,6 +13,7 @@ import type {
   ComparisonRequestInput,
   ComparisonResultDto,
   CompanyDto,
+  CompanyMedicalNetworkDto,
   InsuranceOptionDto,
   InsuranceTypeDto,
   OptionChoiceDto,
@@ -125,6 +126,91 @@ export function useSaveCompany(id?: string) {
 export function useDeleteCompany() {
   return useInvalidatingMutation(keys.companies, (id: string) =>
     api.delete<void>(`/companies/${id}`),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The provider networks a company sells
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE COMPANY'S networks, in the order that company ranks them.
+ *
+ * Scoped by the company in the path, never filtered client-side: one insurer's
+ * network estate is not another's, and a list that could show the wrong one is
+ * a list that eventually will.
+ */
+export function useMedicalNetworks(companyId: string | undefined) {
+  return useQuery({
+    queryKey: [...keys.companies, companyId, 'medical-networks'],
+    queryFn: () => api.get<CompanyMedicalNetworkDto[]>(`/companies/${companyId}/medical-networks`),
+    enabled: Boolean(companyId),
+  });
+}
+
+/**
+ * Every network write refreshes that company and its plans.
+ *
+ * A plan names its network, so a rename has to reach the plan rows showing it,
+ * and a deletion has to reach the plans that just lost one.
+ */
+function useNetworkMutation<TResult, TInput>(
+  companyId: string,
+  mutationFn: (input: TInput) => Promise<TResult>,
+) {
+  const queryClient = useQueryClient();
+
+  return useMutation<TResult, unknown, TInput>({
+    mutationFn,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({
+        queryKey: [...keys.companies, companyId, 'medical-networks'],
+      });
+      void queryClient.invalidateQueries({ queryKey: keys.companies });
+      void queryClient.invalidateQueries({ queryKey: keys.plans });
+    },
+  });
+}
+
+/** Add a network. It lands at the bottom of the company's ranking. */
+export function useCreateMedicalNetwork(companyId: string) {
+  return useNetworkMutation<CompanyMedicalNetworkDto, { name: string }>(companyId, (input) =>
+    api.post<CompanyMedicalNetworkDto>(`/companies/${companyId}/medical-networks`, input),
+  );
+}
+
+/** Rename one. Plans point at the row, so a correction reaches them all. */
+export function useSaveMedicalNetwork(companyId: string) {
+  return useNetworkMutation<CompanyMedicalNetworkDto, { networkId: string; name: string }>(
+    companyId,
+    ({ networkId, name }) =>
+      api.patch<CompanyMedicalNetworkDto>(
+        `/companies/${companyId}/medical-networks/${networkId}`,
+        { name },
+      ),
+  );
+}
+
+/**
+ * Remove one.
+ *
+ * Refused without `force` while plans are sold on it — the API says how many,
+ * so the employee can be told before anything changes.
+ */
+export function useDeleteMedicalNetwork(companyId: string) {
+  return useNetworkMutation<void, { networkId: string; force?: boolean }>(
+    companyId,
+    ({ networkId, force }) =>
+      api.delete<void>(
+        `/companies/${companyId}/medical-networks/${networkId}${force ? '?force=true' : ''}`,
+      ),
+  );
+}
+
+/** The company's own ranking of its networks, best first. */
+export function useReorderMedicalNetworks(companyId: string) {
+  return useNetworkMutation<void, { orderedIds: string[] }>(companyId, (input) =>
+    api.post<void>(`/companies/${companyId}/medical-networks/reorder`, input),
   );
 }
 

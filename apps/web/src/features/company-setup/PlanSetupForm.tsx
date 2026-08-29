@@ -22,6 +22,7 @@ import {
 } from '@/components/ui';
 import {
   useInsuranceTypes,
+  useMedicalNetworks,
   useSaveInsuranceType,
   useSavePlan,
   useSavePlanConfiguration,
@@ -35,6 +36,7 @@ const EMPTY = {
   name: '',
   insuranceTypeId: '',
   newTypeName: '',
+  medicalNetworkId: '',
   customerType: 'INDIVIDUAL' as CustomerTypeId,
   geographicalCoverage: 'LOCAL' as GeographicalCoverageId,
   ageFrom: '',
@@ -66,6 +68,8 @@ export function PlanSetupForm({
 }) {
   const { notify } = useToast();
   const insuranceTypes = useInsuranceTypes({ isActive: true });
+  // Only THIS company's networks. Another insurer's list is not on offer here.
+  const networks = useMedicalNetworks(companyId);
   const saveType = useSaveInsuranceType();
   const savePlan = useSavePlan();
   const saveConfiguration = useSavePlanConfiguration();
@@ -132,6 +136,8 @@ export function PlanSetupForm({
         insuranceTypeId,
         name: values.name.trim(),
         code: derivePlanCode(values.name),
+        // Empty means the document does not say — never an invented network.
+        medicalNetworkId: values.medicalNetworkId === '' ? null : values.medicalNetworkId,
         isActive: true,
       });
 
@@ -222,6 +228,34 @@ export function PlanSetupForm({
             </Field>
           </div>
         ) : null}
+
+        {/* Chosen from the company's own list, never typed: a network is the
+            company's, and a name invented here would belong to nothing. */}
+        <Field
+          label="Medical network"
+          error={fieldErrors.medicalNetworkId}
+          hint={
+            (networks.data?.length ?? 0) === 0
+              ? 'This company has no networks yet. Add them on the company screen.'
+              : 'Leave blank where the document does not say.'
+          }
+        >
+          {(props) => (
+            <Select
+              {...props}
+              value={values.medicalNetworkId}
+              disabled={(networks.data?.length ?? 0) === 0}
+              onChange={(event) => setValue('medicalNetworkId', event.target.value)}
+            >
+              <option value="">Not stated</option>
+              {(networks.data ?? []).map((network) => (
+                <option key={network.id} value={network.id}>
+                  {network.name}
+                </option>
+              ))}
+            </Select>
+          )}
+        </Field>
 
         <Field label="Customer type" required error={fieldErrors.customerType}>
           {(props) => (
