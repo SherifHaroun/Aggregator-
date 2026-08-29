@@ -1,49 +1,63 @@
 /**
- * How the limitations chosen on a benefit turn into a number the comparison
- * can use.
+ * How the answers ticked on a benefit's settings turn into a number the
+ * comparison can use.
  *
- * Pure and database-free, like every rule here: the API supplies the weights it
- * read, this decides what they are worth, and both are testable apart.
+ * Pure and database-free, like every rule here: the API supplies the ranking it
+ * read, this decides what it is worth, and both are testable apart.
  */
 
 import {
   LIMITATION_FLOOR,
-  LIMITATION_WEIGHT_MAX,
-  LIMITATION_WEIGHT_MIN,
+  LIMITATION_MAX_RESTRICTION,
   NO_LIMITATIONS_LABEL,
 } from '../config/limitations.js';
 
-/** A limitation as it applies to one benefit on one configuration. */
+/** One ticked answer, as it applies to a benefit on one configuration. */
 export interface AppliedLimitation {
   id: string;
   name: string;
-  /** Share of the benefit's cover this restriction removes, 0..1. */
-  restrictionWeight: number;
-}
-
-/** Keep a stored weight inside the range the configuration allows. */
-export function clampLimitationWeight(weight: number): number {
-  if (!Number.isFinite(weight)) return LIMITATION_WEIGHT_MIN;
-  return Math.min(LIMITATION_WEIGHT_MAX, Math.max(LIMITATION_WEIGHT_MIN, weight));
+  /** Position in its own setting's ranked list. 0 is the mildest. */
+  rank: number;
+  /** How many answers that setting offers in total. */
+  rankCount: number;
 }
 
 /**
- * What fraction of its cover a benefit keeps once its limitations are applied.
+ * What share of a benefit's cover ONE ticked answer removes, from where it sits
+ * in its setting's list.
+ *
+ * Relative to that list and nothing else. The top answer costs NOTHING: it is
+ * the mildest the setting offers, and a plan carrying only it is carrying the
+ * best case on the list. The bottom costs the most the ceiling allows, and
+ * everything between is spaced evenly — so dragging one answer above another is
+ * a complete judgement, with no number typed anywhere.
+ *
+ * A list of one discriminates between nothing, so it costs nothing rather than
+ * an arbitrary amount.
+ */
+export function limitationWeight(rank: number, rankCount: number): number {
+  if (rankCount <= 1) return 0;
+  const position = Math.min(Math.max(rank, 0), rankCount - 1);
+  return (position / (rankCount - 1)) * LIMITATION_MAX_RESTRICTION;
+}
+
+/**
+ * What fraction of its cover a benefit keeps once its restrictions are applied.
  *
  * Restrictions COMPOUND rather than add: cover locked to one network AND
  * limited to basic procedures keeps 70% of 75%, not 45%. Adding weights would
- * let three ordinary qualifications wipe a benefit out entirely, and would make
- * the result depend on how finely the catalogue happens to be split — two
- * limitations of 0.2 would outweigh one of 0.3 describing the same thing.
+ * let three ordinary qualifications wipe a benefit out, and would make the
+ * result depend on how finely a list happens to be split — two mild answers
+ * would outweigh one harsh one describing the same thing.
  *
- * Returns 1 when nothing is selected: no qualifications recorded means cover
- * with no qualifications, which is the best a benefit can be.
+ * Returns 1 when nothing is ticked: no qualification recorded means cover with
+ * no qualifications, which is the best a benefit can be.
  */
 export function limitationFactor(limitations: readonly AppliedLimitation[]): number {
   if (limitations.length === 0) return 1;
 
   const kept = limitations.reduce(
-    (factor, limitation) => factor * (1 - clampLimitationWeight(limitation.restrictionWeight)),
+    (factor, limitation) => factor * (1 - limitationWeight(limitation.rank, limitation.rankCount)),
     1,
   );
 
@@ -51,7 +65,7 @@ export function limitationFactor(limitations: readonly AppliedLimitation[]): num
   return LIMITATION_FLOOR + (1 - LIMITATION_FLOOR) * kept;
 }
 
-/** How the limitations on a benefit read on screen. */
+/** How the restrictions on a benefit read on screen. */
 export function describeLimitations(limitations: readonly AppliedLimitation[]): string {
   if (limitations.length === 0) return NO_LIMITATIONS_LABEL;
   return limitations.map((limitation) => limitation.name).join(' · ');

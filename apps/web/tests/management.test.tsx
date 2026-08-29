@@ -12,7 +12,7 @@
 
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROUTES } from '@/config/routes';
 import { createStore, installFakeApi, type FakeStore } from './fake-api';
 import { renderApp } from './render';
@@ -83,6 +83,49 @@ function givenPlan(id = 'plan_1', companyId = 'company_1', typeId = 'type_1') {
  * The list belongs to the BENEFIT, so it is defined once here and every plan
  * that carries the benefit picks from it.
  */
+/**
+ * A benefit with a setting that takes SEVERAL answers, e.g. the conditions on
+ * a dental limit.
+ *
+ * The list belongs to the setting, so it is defined against the field rather
+ * than against the benefit: one benefit asks several questions at once.
+ */
+function givenMultiSetting(optionId = 'option_1', label = 'Limitations') {
+  const option = store.options.find((entry) => entry.id === optionId);
+  if (!option) throw new Error('define the benefit first');
+  const fieldId = `${optionId}_multi`;
+  option.fields = [
+    ...(option.fields ?? []),
+    {
+      id: fieldId,
+      optionId,
+      label,
+      key: 'limitations',
+      dataType: 'MULTI',
+      unit: null,
+      helpText: null,
+      isRequired: false,
+      sortOrder: 1,
+      isActive: true,
+      ...timestamps,
+    },
+  ];
+  return fieldId;
+}
+
+/** One answer on a setting's ranked list, at the rank given. */
+function givenAnswer(id: string, optionFieldId: string, label: string, sortOrder: number) {
+  store.choices.push({
+    id,
+    optionFieldId,
+    label,
+    sortOrder,
+    rankCount: 0,
+    isActive: true,
+    ...timestamps,
+  });
+}
+
 function givenRankedOption(id = 'option_1', name = 'Medical Network') {
   store.options.push({
     id,
@@ -112,17 +155,19 @@ function givenRankedOption(id = 'option_1', name = 'Medical Network') {
   store.choices.push(
     {
       id: 'choice_gold',
-      optionId: id,
+      optionFieldId: `${id}_rank`,
       label: 'Golden Care Network',
       sortOrder: 0,
+      rankCount: 2,
       isActive: true,
       ...timestamps,
     },
     {
       id: 'choice_orange',
-      optionId: id,
+      optionFieldId: `${id}_rank`,
       label: 'Orange Care Network',
       sortOrder: 1,
+      rankCount: 2,
       isActive: true,
       ...timestamps,
     },
@@ -1426,47 +1471,47 @@ describe('dynamic insurance options', () => {
    * plans quoting the same figure scored the same. Ticking a catalogue record
    * instead is what makes the difference count.
    */
-  it('records a limitation on a benefit, chosen from the catalogue', async () => {
+  /**
+   * The qualification the comparison can actually read.
+   *
+   * A note saying "basic procedures only" was invisible to the engine, so two
+   * plans quoting the same figure scored the same. Ticking an answer on the
+   * benefit's OWN setting is what makes the difference count.
+   */
+  it('ticks an answer on the benefit’s own setting', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
     givenOption();
+    const fieldId = givenMultiSetting();
+    givenAnswer('answer_1', fieldId, 'Basic procedures only', 0);
     store.planOptions.push({
       id: 'planOption_1',
       planConfigurationId: configurationId,
       optionId: 'option_1',
       sortOrder: 0,
     });
-    store.limitations.push({
-      id: 'limitation_1',
-      name: 'Basic procedures only',
-      description: null,
-      scope: 'VALUE',
-      restrictionWeight: 0.25,
-      sortOrder: 0,
-      isActive: true,
-      createdAt: new Date(0).toISOString(),
-      updatedAt: new Date(0).toISOString(),
-    });
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
     await user.click(
       await screen.findByRole('button', {
-        name: 'Any limitations for Aurora Wellness Programme',
+        name: 'Limitations for Aurora Wellness Programme',
       }),
     );
     await user.click(await screen.findByLabelText(/Basic procedures only/));
 
-    await waitFor(() => expect(store.planOptions[0]?.limitationIds).toEqual(['limitation_1']));
+    await waitFor(() =>
+      expect(store.planOptions[0]?.tickedChoiceIds).toEqual(['answer_1']),
+    );
 
     // The row now states the condition rather than showing an empty box.
     await user.keyboard('{Escape}');
     await waitFor(() =>
       expect(
-        screen.getByRole('button', { name: 'Any limitations for Aurora Wellness Programme' }),
+        screen.getByRole('button', { name: 'Limitations for Aurora Wellness Programme' }),
       ).toHaveTextContent('Basic procedures only'),
     );
   });
@@ -1536,13 +1581,30 @@ describe('dynamic insurance options', () => {
     expect(await screen.findByText(/No benefit matches/)).toBeInTheDocument();
   });
 
-  it('adds a limitation the catalogue does not have yet, without leaving the row', async () => {
+  /**
+   * The ranking IS the weighting.
+   *
+   * Nobody can answer "is in-network-only worth 0.30 or 0.35?", so the question
+   * is never asked. Dragging one condition above another says which is harsher,
+   * and that is what the comparison reads.
+   */
+  /**
+   * The ranking IS the weighting.
+   *
+   * Nobody can answer "is in-network-only worth 0.30 or 0.35?", so the question
+   * is never asked. Dragging one answer above another says which is harsher,
+   * and that is what the comparison reads.
+   */
+  it('ranks a setting’s answers, and renames and deletes them from the same list', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
     givenOption();
+    const fieldId = givenMultiSetting();
+    givenAnswer('answer_1', fieldId, 'Basic procedures only', 0);
+    givenAnswer('answer_2', fieldId, 'In-network only', 1);
     store.planOptions.push({
       id: 'planOption_1',
       planConfigurationId: configurationId,
@@ -1554,15 +1616,97 @@ describe('dynamic insurance options', () => {
 
     await user.click(
       await screen.findByRole('button', {
-        name: 'Any limitations for Aurora Wellness Programme',
+        name: 'Limitations for Aurora Wellness Programme',
       }),
     );
-    await user.type(await screen.findByLabelText('New limitation'), 'In-network only');
+    await user.click(await screen.findByRole('button', { name: 'Rank & edit' }));
+
+    // Both ends are named, so the order is never left as a guess.
+    expect(await screen.findByText(/mildest/)).toBeInTheDocument();
+    expect(screen.getByText(/harshest/)).toBeInTheDocument();
+
+    // Rename one — plans record WHICH answer they gave, so this is safe.
+    await user.click(screen.getByRole('button', { name: 'Edit In-network only' }));
+    const field = await screen.findByLabelText('Rename In-network only');
+    await user.clear(field);
+    await user.type(field, 'In-network only (no reimbursement)');
+    await user.tab();
+
+    await waitFor(() =>
+      expect(store.choices.find((c) => c.id === 'answer_2')?.label).toBe(
+        'In-network only (no reimbursement)',
+      ),
+    );
+
+    // Delete one nothing records: no warning is needed.
+    await user.click(screen.getByRole('button', { name: 'Delete Basic procedures only' }));
+    await waitFor(() => expect(store.choices).toHaveLength(1));
+  });
+
+  it('warns before deleting an answer that plans still record', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    const fieldId = givenMultiSetting();
+    givenAnswer('answer_1', fieldId, 'Basic procedures only', 0);
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+      tickedChoiceIds: ['answer_1'],
+    });
+
+    // Removing it makes that benefit read as UNRESTRICTED, so the API refuses
+    // and the count is put to the employee. Declining leaves everything alone.
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Limitations for Aurora Wellness Programme',
+      }),
+    );
+    await user.click(await screen.findByRole('button', { name: 'Rank & edit' }));
+    await user.click(await screen.findByRole('button', { name: 'Delete Basic procedures only' }));
+
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(store.choices).toHaveLength(1);
+    confirm.mockRestore();
+  });
+
+  it('adds an answer the setting does not offer yet, without leaving the row', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption();
+    givenMultiSetting();
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(
+      await screen.findByRole('button', {
+        name: 'Limitations for Aurora Wellness Programme',
+      }),
+    );
+    await user.type(await screen.findByLabelText('New answer'), 'In-network only');
     await user.click(screen.getByRole('button', { name: 'Add' }));
 
-    // Created AND applied: an employee who typed it plainly meant it to apply.
-    await waitFor(() => expect(store.limitations).toHaveLength(1));
-    await waitFor(() => expect(store.planOptions[0]?.limitationIds).toHaveLength(1));
+    // Created AND ticked: an employee who typed it plainly meant it to apply.
+    await waitFor(() => expect(store.choices).toHaveLength(1));
+    await waitFor(() => expect(store.planOptions[0]?.tickedChoiceIds).toHaveLength(1));
   });
 
   it('renames a benefit, and the coverage row follows', async () => {

@@ -22,7 +22,7 @@ export function toPlanDto(
     createdAt: toIso(plan.createdAt),
     updatedAt: toIso(plan.updatedAt),
     ...(plan.configurations
-      ? { configurations: plan.configurations.map(toPlanConfigurationDto) }
+      ? { configurations: plan.configurations.map((configuration) => toPlanConfigurationDto(configuration)) }
       : {}),
   };
 }

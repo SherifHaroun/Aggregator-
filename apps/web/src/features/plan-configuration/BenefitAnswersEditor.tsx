@@ -45,19 +45,19 @@ import { cn } from '@/lib/cn';
  * is only the order they appear in.
  */
 export function BenefitAnswersEditor({
-  optionId,
+  optionFieldId,
   choices,
   ranked,
 }: {
-  optionId: string;
+  optionFieldId: string;
   choices: OptionChoiceDto[];
   /** True when position decides quality — a RANK benefit. */
   ranked: boolean;
 }) {
   const { notify } = useToast();
-  const create = useCreateOptionChoice(optionId);
-  const remove = useDeleteOptionChoice(optionId);
-  const reorder = useReorderOptionChoices(optionId);
+  const create = useCreateOptionChoice();
+  const remove = useDeleteOptionChoice();
+  const reorder = useReorderOptionChoices();
 
   const [label, setLabel] = useState('');
   /**
@@ -88,7 +88,7 @@ export function BenefitAnswersEditor({
     const orderedIds = arrayMove(ordered, from, to).map((choice) => choice.id);
     setPending(orderedIds);
     reorder.mutate(
-      { orderedIds },
+      { optionFieldId, orderedIds },
       {
         onSettled: () => setPending(null),
         onError: (error) => notify(describeError(error, 'the order'), 'error'),
@@ -101,7 +101,7 @@ export function BenefitAnswersEditor({
     if (trimmed === '') return;
 
     create.mutate(
-      { label: trimmed },
+      { optionFieldId, label: trimmed },
       {
         onSuccess: () => setLabel(''),
         onError: (error) => notify(describeError(error, 'the answer'), 'error'),
@@ -141,7 +141,7 @@ export function BenefitAnswersEditor({
                   ranked={ranked}
                   onRemove={() =>
                     remove.mutate(
-                      { choiceId: choice.id },
+                      { optionFieldId, choiceId: choice.id },
                       { onError: (error) => notify(describeError(error, 'the answer'), 'error') }
                     )
                   }

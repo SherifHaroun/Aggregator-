@@ -1,109 +1,72 @@
 /**
  * ============================================================================
- *  LIMITATIONS — THE QUALIFICATIONS ON A BENEFIT, MADE COMPARABLE
+ *  SETTINGS THAT TAKE SEVERAL ANSWERS, AND WHAT THEY COST
  * ============================================================================
  *
  * A plan document rarely states cover as a bare figure. It says "800 EGP for
- * BASIC PROCEDURES", "100% IN-NETWORK ONLY", "covered AT AUTHORIZED CENTERS",
- * "1 in 20 members ratio". Those qualifications decide what the cover is
- * actually worth, and until now they lived in a free-text note that the
- * comparison could not read — so two plans quoting 800 EGP scored identically
- * whether one paid for everything and the other only for fillings.
+ * BASIC PROCEDURES", "100% IN-NETWORK ONLY", "covered AT AUTHORIZED CENTERS".
+ * Those qualifications decide what the cover is actually worth, and while they
+ * sat in a free-text note the comparison could not read them — so two plans
+ * quoting 800 EGP scored identically whether one paid for everything and the
+ * other only for fillings.
  *
- * A limitation is therefore a RECORD, chosen from a catalogue, not prose. This
- * file holds only the SYSTEM CONFIGURATION around them: which boxes offer
- * which list, how much a restriction is allowed to count, and how several of
- * them combine. The limitations themselves — their wording and their weight —
- * are insurance data and live in the database, where an employee can add to
- * them without a deploy.
+ * They are therefore RECORDS, ticked on a setting that belongs to one benefit.
+ * Inpatient cover has its own settings — coverage, co-payment, network access,
+ * room type, ICU, what is included — and each owns the answers it offers.
+ * "Private room" is not an answer to "what percentage", and "1 in 20 members
+ * ratio" has nothing to say about a room.
  *
- * THE DEFAULT IS UNRESTRICTED. A benefit with nothing selected is cover with
- * no qualifications attached — "all procedures, all cases" — and scores full
- * marks. Restrictions only ever subtract, so leaving the box alone can never
- * quietly penalise a plan.
+ * THE ANSWER LIST IS RANKED, AND THE RANK IS THE JUDGEMENT.
+ *
+ * How much a condition costs is not something code can know. So each setting's
+ * list is ordered MILDEST FIRST, and that order is the whole of it: the person
+ * who knows the market decides that basic-procedures-only costs more than a
+ * co-payment by dragging one above the other. No weight is typed, and none is
+ * invented here.
+ *
+ * Ranking is RELATIVE TO ITS OWN LIST, exactly as the plan comparison is
+ * relative to the plans that matched. The top answer is the mildest the setting
+ * offers and costs nothing; the bottom is the harshest and costs most.
+ *
+ * NOTHING TICKED MEANS NOTHING RECORDED — which for a restriction reads as
+ * unqualified cover, and scores full marks. Restrictions only ever subtract, so
+ * leaving a box alone can never quietly penalise a plan.
  */
 
-import type { OptionFieldDataType } from './option-field-types.js';
-import type { ConfigOption, OptionRegistry } from './option-registry.js';
-
-/**
- * Which benefits a limitation is offered on.
- *
- * The two lists answer different questions and must not be mixed: a benefit
- * carrying a figure is qualified by what the figure buys ("basic procedures
- * only"), while a benefit carrying wording is qualified by the STATE of the
- * cover ("sliding scale", "not specified"). Offering both lists everywhere
- * would bury the four useful entries under twenty irrelevant ones.
- */
-export const LIMITATION_SCOPE_IDS = ['VALUE', 'TEXT'] as const;
-
-export type LimitationScope = (typeof LIMITATION_SCOPE_IDS)[number];
-
-export interface LimitationScopeOption extends ConfigOption<LimitationScope> {}
-
-export const LIMITATION_SCOPES: OptionRegistry<LimitationScope, LimitationScopeOption> = {
-  VALUE: {
-    id: 'VALUE',
-    label: 'Amounts and percentages',
-    description: 'Offered on a benefit quoted as a limit or a percentage.',
-    order: 1,
-    enabled: true,
-  },
-  TEXT: {
-    id: 'TEXT',
-    label: 'Wording',
-    description: 'Offered on a benefit whose cover is described rather than counted.',
-    order: 2,
-    enabled: true,
-  },
-};
-
-/**
- * Which list a benefit is offered, decided by the kind of value it carries.
- *
- * Declared per DATA TYPE, never per benefit name, so a benefit invented
- * tomorrow gets the right list without a code change — the same rule the
- * comparison direction follows.
- */
-export function limitationScopeForDataType(
-  dataType: OptionFieldDataType | null | undefined,
-): LimitationScope {
-  return dataType === 'TEXT' ? 'TEXT' : 'VALUE';
-}
-
-/** What the box is called wherever it is shown. */
+/** What a settings box is called wherever one is shown. */
 export const LIMITATIONS_LABEL = 'Any limitations';
 
-/**
- * What a benefit means when nothing is selected.
- *
- * Shown in the empty box and in the comparison, so an employee is never left
- * guessing whether blank means "unrestricted" or "nobody filled this in".
- */
+/** What a benefit means when no restriction is ticked. */
 export const NO_LIMITATIONS_LABEL = 'No limitations — covered in all cases';
 
-/**
- * How restrictive a single limitation may be declared to be: the share of the
- * benefit's cover it takes away. 0 qualifies the cover without reducing it
- * ("in and out of network" is a statement of fact, not a restriction); 1 would
- * remove all of it.
- */
-export const LIMITATION_WEIGHT_MIN = 0;
-export const LIMITATION_WEIGHT_MAX = 1;
+/** How a ranked answer list describes itself while it is being edited. */
+export const LIMITATION_RANK_LABEL = 'Ranked least restrictive first';
+
+/** Shown on a setting whose answer list nobody has filled in yet. */
+export const NO_LIMITATIONS_DEFINED_LABEL =
+  'No answers defined for this setting yet. Add the ones its documents state.';
 
 /**
- * The most that limitations may reduce a benefit's score, combined.
+ * The most cover the HARSHEST answer on a list may remove.
+ *
+ * A ceiling rather than a free hand, because the ranking says which condition
+ * is harsher, never that any single one wipes the benefit out.
+ */
+export const LIMITATION_MAX_RESTRICTION = 0.6;
+
+/**
+ * The most that ticked restrictions may reduce a benefit's score, combined.
  *
  * Restricted cover is still cover. Without a floor, a benefit carrying four
- * qualifications could sink to nothing and rank level with a plan that does
- * not provide it at all — which is false, and would push the recommendation
- * towards plans that stay silent rather than plans that are honest about their
+ * qualifications could sink to nothing and rank level with a plan that does not
+ * provide it at all — which is false, and would push the recommendation towards
+ * plans that stay silent rather than plans that are honest about their
  * conditions. Silence must never outrank disclosure.
  */
 export const LIMITATION_FLOOR = 0.35;
 
-/** Most limitations one benefit may carry on one configuration. */
+/** Most answers one setting may have ticked on one configuration. */
 export const BENEFIT_LIMITATION_MAX = 8;
 
-/** Longest a limitation's name may be. */
+/** Longest an answer's wording may be. */
 export const LIMITATION_NAME_MAX_LENGTH = 120;

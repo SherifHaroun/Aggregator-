@@ -1,12 +1,14 @@
 /**
- * The answers a benefit offers.
+ * The answers a SETTING offers, and the order they are ranked in.
  *
- * On a RANK benefit the list IS the cover, and its order is what the comparison
- * judges by. On a TEXT benefit the same list is offered as suggestions so one
- * answer stays one answer instead of becoming thirty spellings.
+ * The list belongs to the setting rather than to the benefit, because one
+ * benefit asks several questions at once: inpatient cover has a coverage
+ * percentage, a co-payment, network access, a room type, an ICU allowance and
+ * a list of inclusions. "Private room" is an answer to exactly one of those.
  *
- * The list belongs to the BENEFIT, not to a plan: "Golden Care Network" is
- * defined once for "Medical Network" and every company's plan picks from it.
+ * On a RANK setting the top answer is the BEST cover; on a MULTI setting of
+ * restrictions the top is the MILDEST. Either way the order is the judgement,
+ * and no weight is ever typed.
  */
 
 import { BENEFIT_CHOICE_MAX, type OptionChoiceDto } from '@aggregator/shared';
@@ -20,84 +22,101 @@ import type {
   UpdateOptionChoiceInput,
 } from './insurance-options.schemas.js';
 
-export function toOptionChoiceDto(choice: OptionChoice): OptionChoiceDto {
+/**
+ * `rankCount` travels with every answer because a rank means nothing without
+ * it: third of four is a strong statement, third of thirty is barely one.
+ */
+export function toOptionChoiceDto(choice: OptionChoice, rankCount: number): OptionChoiceDto {
   return {
     id: choice.id,
-    optionId: choice.optionId,
+    optionFieldId: choice.optionFieldId,
     label: choice.label,
     sortOrder: choice.sortOrder,
+    rankCount,
     isActive: choice.isActive,
     createdAt: toIso(choice.createdAt),
     updatedAt: toIso(choice.updatedAt),
   };
 }
 
-/** Read clause for a benefit's answers, in the employee's order. */
+/** A setting's answers, with the list length already applied to each. */
+export function toChoiceDtos(choices: OptionChoice[]): OptionChoiceDto[] {
+  return choices.map((choice) => toOptionChoiceDto(choice, choices.length));
+}
+
+/** Read clause for a setting's answers, in rank order. */
 export const choicesInclude = {
   choices: { where: { isActive: true }, orderBy: { sortOrder: 'asc' as const } },
 } as const;
 
-export async function listOptionChoices(optionId: string): Promise<OptionChoiceDto[]> {
-  const option = await getPrisma().insuranceOption.findUnique({
-    where: { id: optionId },
+export async function listOptionChoices(optionFieldId: string): Promise<OptionChoiceDto[]> {
+  const field = await getPrisma().optionField.findUnique({
+    where: { id: optionFieldId },
     select: { id: true },
   });
-  if (!option) throw notFound('Insurance option');
+  if (!field) throw notFound('Setting');
 
-  const choices = await getPrisma().optionChoice.findMany({
-    where: { optionId, isActive: true },
-    orderBy: { sortOrder: 'asc' },
-  });
-  return choices.map(toOptionChoiceDto);
+  return toChoiceDtos(
+    await getPrisma().optionChoice.findMany({
+      where: { optionFieldId, isActive: true },
+      orderBy: { sortOrder: 'asc' },
+    }),
+  );
 }
 
 /**
- * Add an answer, at the END of the list.
+ * Add an answer, at the BOTTOM of the list.
  *
- * The end rather than the top because position means quality here: a new
- * network silently landing above the best one would rewrite the ranking of
- * every plan that quotes the others. The employee drags it where it belongs.
+ * The bottom rather than the top because position is meaning here: on a ranked
+ * setting the top is "the best cover we know of", and on a list of restrictions
+ * it is "the mildest". An answer nobody has ranked yet is an unknown, and
+ * landing it at either extreme by default would quietly re-judge every plan
+ * that already carries the others. The bottom is visible, and a drag away.
  */
 export async function createOptionChoice(
-  optionId: string,
+  optionFieldId: string,
   input: CreateOptionChoiceInput,
 ): Promise<OptionChoiceDto> {
   const prisma = getPrisma();
 
-  const option = await prisma.insuranceOption.findUnique({
-    where: { id: optionId },
-    select: { id: true, isUmbrella: true },
+  const field = await prisma.optionField.findUnique({
+    where: { id: optionFieldId },
+    select: { id: true },
   });
-  if (!option) throw notFound('Insurance option');
-  if (option.isUmbrella) {
-    throw conflict('A group of benefits carries no value, so it offers no answers.');
-  }
+  if (!field) throw notFound('Setting');
 
   const clash = await prisma.optionChoice.findFirst({
-    where: { optionId, label: { equals: input.label, mode: 'insensitive' } },
+    where: { optionFieldId, label: { equals: input.label, mode: 'insensitive' } },
     select: { label: true },
   });
   if (clash) {
-    throw conflict(`This benefit already offers "${clash.label}".`, {
+    throw conflict(`This setting already offers "${clash.label}".`, {
       label: ['This answer already exists.'],
     });
   }
 
-  const total = await prisma.optionChoice.count({ where: { optionId, isActive: true } });
+  const total = await prisma.optionChoice.count({ where: { optionFieldId, isActive: true } });
   if (total >= BENEFIT_CHOICE_MAX) {
-    throw conflict(`A benefit may offer at most ${BENEFIT_CHOICE_MAX} answers.`);
+    throw conflict(`A setting may offer at most ${BENEFIT_CHOICE_MAX} answers.`);
   }
 
-  const choice = await prisma.optionChoice.create({
+  await prisma.optionChoice.create({
     data: {
-      optionId,
+      optionFieldId,
       label: input.label,
-      sortOrder:
-        input.sortOrder ??
-        nextSortOrder(await prisma.optionChoice.aggregate({ where: { optionId }, _max: { sortOrder: true } })),
+      sortOrder: nextSortOrder(
+        await prisma.optionChoice.aggregate({
+          where: { optionFieldId },
+          _max: { sortOrder: true },
+        }),
+      ),
     },
   });
-  return toOptionChoiceDto(choice);
+
+  // Re-read: adding an answer lengthens the list every other rank is read
+  // against, so the whole set has to be reported afresh.
+  const answers = await listOptionChoices(optionFieldId);
+  return answers[answers.length - 1]!;
 }
 
 export async function updateOptionChoice(
@@ -112,70 +131,122 @@ export async function updateOptionChoice(
   if (input.label !== undefined && input.label.toLowerCase() !== existing.label.toLowerCase()) {
     const clash = await prisma.optionChoice.findFirst({
       where: {
-        optionId: existing.optionId,
+        optionFieldId: existing.optionFieldId,
         id: { not: choiceId },
         label: { equals: input.label, mode: 'insensitive' },
       },
       select: { label: true },
     });
     if (clash) {
-      throw conflict(`This benefit already offers "${clash.label}".`, {
+      throw conflict(`This setting already offers "${clash.label}".`, {
         label: ['This answer already exists.'],
       });
     }
   }
 
   /**
-   * Renaming is safe at any time: plans store this row's ID, never its
-   * wording, so correcting a spelling reaches every plan at once and breaks
-   * nothing.
+   * Renaming is safe at any time: plans record WHICH answer they gave, by id,
+   * never its wording — so correcting a spelling reaches every plan at once and
+   * breaks nothing.
    */
   const choice = await prisma.optionChoice.update({ where: { id: choiceId }, data: input });
-  return toOptionChoiceDto(choice);
+  const total = await prisma.optionChoice.count({
+    where: { optionFieldId: choice.optionFieldId, isActive: true },
+  });
+  return toOptionChoiceDto(choice, total);
 }
 
 /**
- * Put the answers in order. THIS is the ranking.
+ * Put a setting's answers in order. THIS is the weighting.
  *
- * Reordering deliberately does not touch a single plan value — plans hold the
- * chosen row's id — so moving a network up changes how good every plan that
- * quotes it is judged to be, and changes nothing about what those plans say.
+ * Not a single plan value is touched — a plan records which answer it gave, not
+ * what that answer is worth — so re-ranking changes how every affected plan is
+ * judged and changes nothing about what any of them says.
  */
-export async function reorderOptionChoices(optionId: string, orderedIds: string[]): Promise<void> {
+export async function reorderOptionChoices(
+  optionFieldId: string,
+  orderedIds: string[],
+): Promise<void> {
   const prisma = getPrisma();
 
   const owned = await prisma.optionChoice.count({
-    where: { optionId, id: { in: orderedIds } },
+    where: { optionFieldId, id: { in: orderedIds } },
   });
   if (owned !== orderedIds.length) {
-    throw badRequest('The list contains answers that do not belong to this benefit.');
+    throw badRequest('The list contains answers that do not belong to this setting.');
   }
 
   await prisma.$transaction(async (tx) => {
-    await applyOrder(tx.optionChoice, orderedIds);
+    await applyOrder(tx, 'option_choices', orderedIds);
   });
 }
 
 /**
  * Remove an answer.
  *
- * Refused while a plan still gives it. Deleting it would leave those plans
- * pointing at nothing — the comparison would read them as unrankable, and the
- * screen would show a blank where a network used to be. Rename it, or change
- * those plans first.
+ * Refused by default while plans still record it: on a ranked setting they
+ * would be left pointing at nothing, and on a list of restrictions every one of
+ * them would silently start reading as UNRESTRICTED. `force` carries it through
+ * once the caller has been told how many plans that is.
  */
-export async function deleteOptionChoice(choiceId: string): Promise<void> {
+export async function deleteOptionChoice(choiceId: string, { force = false } = {}): Promise<void> {
   const prisma = getPrisma();
 
   const choice = await prisma.optionChoice.findUnique({ where: { id: choiceId } });
   if (!choice) throw notFound('Answer');
 
-  const usage = await prisma.planOptionValue.count({ where: { textValue: choiceId } });
-  if (usage > 0) {
+  const [picked, ticked] = await Promise.all([
+    prisma.planOptionValue.count({ where: { textValue: choiceId } }),
+    prisma.planOptionValueChoice.count({ where: { choiceId } }),
+  ]);
+  const usage = picked + ticked;
+
+  if (usage > 0 && !force) {
     throw conflict(
-      `"${choice.label}" is given by ${usage} plan ${usage === 1 ? 'configuration' : 'configurations'} and cannot be deleted. Change those plans first, or rename this answer.`,
+      `"${choice.label}" is recorded on ${usage} plan ${usage === 1 ? 'benefit' : 'benefits'}. Removing it takes it off ${usage === 1 ? 'that one' : 'those'} too. Rename it instead, or confirm to remove it everywhere.`,
+      { usageCount: [String(usage)] },
     );
   }
 
-  await prisma.optionChoice.delete({ where: { id: choiceId } });
+  await prisma.$transaction(async (tx) => {
+    /**
+     * Ticked rows cascade with the answer. A RANK value has to be cleared by
+     * hand: it stores the id in a plain column, and an id pointing at nothing
+     * would render as a blank rather than as "not recorded".
+     */
+    await tx.planOptionValue.updateMany({
+      where: { textValue: choiceId },
+      data: { textValue: null },
+    });
+    await tx.optionChoice.delete({ where: { id: choiceId } });
+  });
+}
+
+/**
+ * Validate the answers ticked on ONE setting.
+ *
+ * Checked as a set: unknown ids, ids belonging to another setting, retired
+ * answers and duplicates are all refused outright rather than silently dropped,
+ * because a half-written set would misstate the cover — and misstating cover is
+ * the one thing this whole feature exists to stop.
+ */
+export async function resolveTickedChoices(
+  optionFieldId: string,
+  choiceIds: string[],
+): Promise<string[]> {
+  const unique = [...new Set(choiceIds)];
+  if (unique.length !== choiceIds.length) {
+    throw badRequest('The same answer was supplied more than once.');
+  }
+  if (unique.length === 0) return [];
+
+  const found = await getPrisma().optionChoice.findMany({
+    where: { id: { in: unique }, optionFieldId, isActive: true },
+    select: { id: true },
+  });
+  if (found.length !== unique.length) {
+    throw badRequest('One of those answers does not belong to this setting.');
+  }
+
+  return unique;
 }

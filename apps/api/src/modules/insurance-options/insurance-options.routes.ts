@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { success } from '../../lib/api-response.js';
 import { reorderSchema } from '../../lib/ordering.js';
 import { listQuerySchema } from '../../lib/pagination.js';
@@ -124,64 +125,17 @@ insuranceOptionsRouter.post(
   }),
 );
 
-// --- The answers a benefit offers, nested under it --------------------------
-
-insuranceOptionsRouter.get(
-  '/:id/choices',
-  asyncHandler(async (req, res) => {
-    res.json(success(await listOptionChoices(param(req, 'id'))));
-  }),
-);
-
-insuranceOptionsRouter.post(
-  '/:id/choices',
-  asyncHandler(async (req, res) => {
-    res
-      .status(201)
-      .json(
-        success(
-          await createOptionChoice(param(req, 'id'), createOptionChoiceSchema.parse(req.body)),
-        ),
-      );
-  }),
-);
-
-/**
- * Put the answers in order — on a ranked benefit, THIS is the ranking.
- *
- * Declared before `/:id/choices/:choiceId` so "reorder" is never read as an id.
- */
-insuranceOptionsRouter.post(
-  '/:id/choices/reorder',
-  asyncHandler(async (req, res) => {
-    const { orderedIds } = reorderOptionChoicesSchema.parse(req.body);
-    await reorderOptionChoices(param(req, 'id'), orderedIds);
-    res.status(204).send();
-  }),
-);
-
-insuranceOptionsRouter.patch(
-  '/:id/choices/:choiceId',
-  asyncHandler(async (req, res) => {
-    res.json(
-      success(
-        await updateOptionChoice(param(req, 'choiceId'), updateOptionChoiceSchema.parse(req.body)),
-      ),
-    );
-  }),
-);
-
-insuranceOptionsRouter.delete(
-  '/:id/choices/:choiceId',
-  asyncHandler(async (req, res) => {
-    await deleteOptionChoice(param(req, 'choiceId'));
-    res.status(204).send();
-  }),
-);
-
 // --- Option fields, addressed directly --------------------------------------
 
 export const optionFieldsRouter: Router = Router();
+
+/** Deleting an answer plans still record takes a deliberate `force=true`. */
+const deleteAnswerQuerySchema = z.object({
+  force: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => value === 'true'),
+});
 
 optionFieldsRouter.patch(
   '/:fieldId',
@@ -191,6 +145,76 @@ optionFieldsRouter.patch(
         await updateOptionField(param(req, 'fieldId'), updateOptionFieldSchema.parse(req.body)),
       ),
     );
+  }),
+);
+
+
+/**
+ * The answers ONE SETTING offers, and their ranking.
+ *
+ * Nested under the setting rather than under the benefit, because that is where
+ * the list lives: a benefit asks several questions at once and each has its own
+ * answers. "Private room" belongs to the room-type setting and to nothing else.
+ */
+optionFieldsRouter.get(
+  '/:fieldId/choices',
+  asyncHandler(async (req, res) => {
+    res.json(success(await listOptionChoices(param(req, 'fieldId'))));
+  }),
+);
+
+optionFieldsRouter.post(
+  '/:fieldId/choices',
+  asyncHandler(async (req, res) => {
+    res
+      .status(201)
+      .json(
+        success(
+          await createOptionChoice(param(req, 'fieldId'), createOptionChoiceSchema.parse(req.body)),
+        ),
+      );
+  }),
+);
+
+/**
+ * Rank the answers. THIS is the weighting — the order is the judgement.
+ *
+ * Declared before `/:fieldId/choices/:choiceId` so "reorder" is never read as
+ * an id.
+ */
+optionFieldsRouter.post(
+  '/:fieldId/choices/reorder',
+  asyncHandler(async (req, res) => {
+    const { orderedIds } = reorderOptionChoicesSchema.parse(req.body);
+    await reorderOptionChoices(param(req, 'fieldId'), orderedIds);
+    res.status(204).send();
+  }),
+);
+
+optionFieldsRouter.patch(
+  '/:fieldId/choices/:choiceId',
+  asyncHandler(async (req, res) => {
+    res.json(
+      success(
+        await updateOptionChoice(param(req, 'choiceId'), updateOptionChoiceSchema.parse(req.body)),
+      ),
+    );
+  }),
+);
+
+/**
+ * Remove an answer.
+ *
+ * `?force=true` carries it through when plans still record it, taking it off
+ * those plans too. Without it the request is refused with a message saying how
+ * many plans would change.
+ */
+optionFieldsRouter.delete(
+  '/:fieldId/choices/:choiceId',
+  asyncHandler(async (req, res) => {
+    const { force } = deleteAnswerQuerySchema.parse(req.query);
+    await deleteOptionChoice(param(req, 'choiceId'), { force });
+    res.status(204).send();
   }),
 );
 

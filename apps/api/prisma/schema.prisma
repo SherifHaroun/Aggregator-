@@ -34,16 +34,12 @@ enum OptionFieldDataType {
   CURRENCY
   TEXT
   BOOLEAN
-  /// One entry from the benefit's own ordered list — see `OptionChoice`.
+  /// One entry from the FIELD's own ranked list — see `OptionChoice`.
   /// Stored as the chosen entry's ID, never its position.
   RANK
-}
-
-/// Which kind of benefit box offers a limitation.
-/// SYSTEM CONFIGURATION, mirrored by `LIMITATION_SCOPES` in @aggregator/shared.
-enum LimitationScope {
-  VALUE
-  TEXT
+  /// SEVERAL entries from that list, e.g. what an inpatient stay includes.
+  /// The ticked rows live in `PlanOptionValueChoice`.
+  MULTI
 }
 
 /// Who a configuration is priced for.
@@ -180,10 +176,6 @@ model InsuranceOption {
   fields      OptionField[]
   planOptions PlanOption[]
 
-  /// The answers this benefit offers. Ordered, and on a RANK benefit that
-  /// order is what the comparison judges by.
-  choices OptionChoice[]
-
   @@index([isActive])
   @@index([parentId, sortOrder])
   @@map("insurance_options")
@@ -219,77 +211,16 @@ model OptionField {
 
   values PlanOptionValue[]
 
+  /// The answers THIS setting offers, ranked. Only RANK and MULTI use them:
+  /// the list belongs to the setting, because "in-network only" qualifies a
+  /// coverage percentage and has nothing to say about a room type.
+  choices         OptionChoice[]
+  selectedChoices PlanOptionValueChoice[]
+
   @@unique([optionId, key])
   @@unique([optionId, label])
   @@index([optionId, isActive])
   @@map("option_fields")
-}
-
-// ============================================================================
-//  LIMITATIONS (the catalogue of qualifications)
-// ============================================================================
-
-/// A qualification a benefit can carry — "in-network only", "basic procedures
-/// only", "1 in 20 members ratio", "sliding scale".
-///
-/// GLOBAL, exactly like `InsuranceOption`: defined once and offered wherever
-/// its scope applies, so "in-network only" is one record however many plans
-/// impose it. Which limitations a plan imposes lives on `PlanOptionLimitation`.
-///
-/// This exists because a plan document never quotes a bare figure. "800 EGP"
-/// and "800 EGP for basic procedures" are different cover, and while the
-/// difference sat in a free-text note the comparison could not read it — the
-/// two scored identically. A limitation is a record so it can be ranked.
-model Limitation {
-  id          String  @id @default(cuid())
-  /// Unique across the catalogue, case-insensitively — enforced by a folded
-  /// index the `benefit_limitations` migration adds, as for benefit names.
-  name        String  @unique
-  description String?
-
-  /// Which benefits offer it: those quoted as a figure, or those quoted in
-  /// words. The two lists answer different questions and are never mixed.
-  scope LimitationScope @default(VALUE)
-
-  /// The share of a benefit's cover this restriction removes, 0..1.
-  ///
-  /// 0 qualifies without reducing — "in and out of network" states a fact
-  /// rather than imposing a limit. A business decision per record rather than
-  /// a constant in code, so a restriction can be re-weighed from the website.
-  restrictionWeight Decimal @default(0) @db.Decimal(4, 3)
-
-  sortOrder Int     @default(0)
-  isActive  Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  planOptions PlanOptionLimitation[]
-
-  @@index([scope, isActive, sortOrder])
-  @@map("limitations")
-}
-
-/// One limitation imposed on ONE benefit of ONE configuration.
-///
-/// Hangs off `PlanOption` for the same reason values do: the same benefit is
-/// restricted differently on Diamond than on Silver, so the restriction belongs
-/// to the attachment and never to the benefit itself.
-///
-/// NO ROW MEANS NO RESTRICTION. An empty set is unqualified cover — the best a
-/// benefit can be — never "unknown".
-model PlanOptionLimitation {
-  planOptionId String
-  planOption   PlanOption @relation(fields: [planOptionId], references: [id], onDelete: Cascade)
-
-  limitationId String
-  limitation   Limitation @relation(fields: [limitationId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@id([planOptionId, limitationId])
-  @@index([limitationId])
-  @@map("plan_option_limitations")
 }
 
 /// One answer a benefit offers, in a list the employee puts in order.
@@ -308,9 +239,9 @@ model PlanOptionLimitation {
 /// reordering this list changes how good an answer is judged to be and never
 /// which answer a plan is recorded as giving.
 model OptionChoice {
-  id       String          @id @default(cuid())
-  optionId String
-  option   InsuranceOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  id            String      @id @default(cuid())
+  optionFieldId String
+  optionField   OptionField @relation(fields: [optionFieldId], references: [id], onDelete: Cascade)
 
   label     String
   sortOrder Int     @default(0)
@@ -319,10 +250,36 @@ model OptionChoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// The same answer cannot be offered twice by one benefit.
-  @@unique([optionId, label])
-  @@index([optionId, sortOrder])
+  /// Where this answer was ticked on a MULTI setting.
+  selectedBy PlanOptionValueChoice[]
+
+  /// The same answer cannot be offered twice by one setting.
+  @@unique([optionFieldId, label])
+  @@index([optionFieldId, sortOrder])
   @@map("option_choices")
+}
+
+/// One answer ticked for a MULTI setting, on one benefit of one configuration.
+///
+/// The row exists because the answer was ticked; NO ROW MEANS IT WAS NOT. An
+/// empty set therefore reads as "the document does not say" — never as
+/// "includes nothing", which is a different and much stronger claim.
+model PlanOptionValueChoice {
+  planOptionId String
+  planOption   PlanOption @relation(fields: [planOptionId], references: [id], onDelete: Cascade)
+
+  optionFieldId String
+  optionField   OptionField @relation(fields: [optionFieldId], references: [id], onDelete: Cascade)
+
+  choiceId String
+  choice   OptionChoice @relation(fields: [choiceId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@id([planOptionId, choiceId])
+  @@index([choiceId])
+  @@index([planOptionId, optionFieldId])
+  @@map("plan_option_value_choices")
 }
 
 // ============================================================================
@@ -458,8 +415,9 @@ model PlanOption {
 
   values PlanOptionValue[]
 
-  /// The qualifications this benefit carries HERE. Empty means unrestricted.
-  limitations PlanOptionLimitation[]
+  /// The answers ticked for this benefit's MULTI settings on this
+  /// configuration. No row means nothing was recorded.
+  selectedChoices PlanOptionValueChoice[]
 
   /// An option can appear at most once in a configuration.
   @@unique([planConfigurationId, optionId])

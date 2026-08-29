@@ -278,14 +278,31 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
               ? wording.value
               : null,
         /**
-         * The recorded qualifications, with the weights the business gave
-         * them. Empty means the cover carries no conditions.
+         * The restrictions this plan records, read off the benefit's OWN
+         * settings.
+         *
+         * Every MULTI setting the benefit has is a list of answers ranked
+         * mildest-first, so a ticked answer's position in its own list is what
+         * it costs. Empty means nothing was recorded, which for a restriction
+         * is unqualified cover.
          */
-        limitations: (planOption?.limitations ?? []).map((limitation) => ({
-          id: limitation.id,
-          name: limitation.name,
-          restrictionWeight: limitation.restrictionWeight,
-        })),
+        limitations: (planOption?.values ?? [])
+          .filter((value) => value.dataType === 'MULTI')
+          .flatMap((value) =>
+            (value.selectedChoiceIds ?? []).flatMap((choiceId) => {
+              const answer = (value.choices ?? []).find((choice) => choice.id === choiceId);
+              return answer
+                ? [
+                    {
+                      id: answer.id,
+                      name: answer.label,
+                      rank: answer.sortOrder,
+                      rankCount: answer.rankCount,
+                    },
+                  ]
+                : [];
+            }),
+          ),
       };
     });
 

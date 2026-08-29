@@ -21,6 +21,7 @@ export const OPTION_FIELD_DATA_TYPES_IDS = [
   'TEXT',
   'BOOLEAN',
   'RANK',
+  'MULTI',
 ] as const;
 
 export type OptionFieldDataType = (typeof OPTION_FIELD_DATA_TYPES_IDS)[number];
@@ -99,6 +100,30 @@ export const OPTION_FIELD_DATA_TYPES: OptionRegistry<
     defaultUnit: null,
     /** Included beats not included. */
     comparison: 'HIGHER_IS_BETTER',
+  },
+  MULTI: {
+    id: 'MULTI',
+    label: 'Several answers',
+    description: 'Any number of a list you put in order, e.g. what a stay includes.',
+    order: 7,
+    enabled: true,
+    /**
+     * The ticked answers live in their own table, not in a value column.
+     *
+     * A set cannot go in a typed column without being encoded, and an encoded
+     * set is a set nothing can join against — no count, no "which plans tick
+     * this", no cascade when an answer is deleted. `PlanOptionValueChoice`
+     * holds them as rows, so this field's value column stays empty.
+     */
+    storage: 'TEXT',
+    defaultUnit: null,
+    /**
+     * Not ranked as a figure. A set of ticked answers means different things on
+     * different settings — more inclusions is better cover, more restrictions
+     * is worse — so the engine reads the answers themselves rather than
+     * treating the count as a score.
+     */
+    comparison: 'NOT_COMPARABLE',
   },
   RANK: {
     id: 'RANK',

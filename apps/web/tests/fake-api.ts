@@ -19,7 +19,6 @@ import {
   type CompanyDto,
   type InsuranceOptionDto,
   type InsuranceTypeDto,
-  type LimitationDto,
   type OptionChoiceDto,
   type OptionFieldDto,
   type PlanConfigurationDto,
@@ -39,17 +38,16 @@ interface StoredPlanOption {
   optionId: string;
   sortOrder: number;
   note?: string | null;
-  /** Ids of the catalogue limitations this benefit carries. Absent = none. */
-  limitationIds?: string[];
+/** Ids of the answers ticked on this benefit, across all its settings. */
+  tickedChoiceIds?: string[];
 }
 
 export interface FakeStore {
   companies: CompanyDto[];
   insuranceTypes: InsuranceTypeDto[];
   options: InsuranceOptionDto[];
-  /** The answers benefits offer, across every benefit. */
+  /** The answers settings offer, across every setting. */
   choices: OptionChoiceDto[];
-  limitations: LimitationDto[];
   plans: PlanDto[];
   configurations: PlanConfigurationDto[];
   planOptions: StoredPlanOption[];
@@ -74,7 +72,6 @@ export function createStore(): FakeStore {
     insuranceTypes: [],
     options: [],
     choices: [],
-    limitations: [],
     plans: [],
     configurations: [],
     planOptions: [],
@@ -150,7 +147,7 @@ function route({
   search: URLSearchParams;
 }): Response | null {
   const segments = path.split('/').filter(Boolean);
-  const [resource, first, second, third] = segments;
+  const [resource, first, second, third, fourth] = segments;
 
   // --- companies -----------------------------------------------------------
   if (resource === 'companies') {
@@ -207,7 +204,10 @@ function route({
       const withUsage = (option: InsuranceOptionDto): InsuranceOptionDto => ({
         ...option,
         usageCount: store.planOptions.filter((item) => item.optionId === option.id).length,
-        choices: choicesFor(store, option.id),
+        fields: (option.fields ?? []).map((field) => ({
+          ...field,
+          choices: choicesFor(store, field.id),
+        })),
       });
       return ok(
         page(
@@ -417,7 +417,9 @@ function route({
   }
 
   // --- option fields addressed directly ------------------------------------
-  if (resource === 'option-fields' && first) {
+  // The field ITSELF. Anything deeper — its answers — is handled below, so
+  // this must not swallow `/option-fields/:id/choices/...`.
+  if (resource === 'option-fields' && first && !second) {
     const owner = store.options.find((option) => option.fields?.some((f) => f.id === first));
     if (!owner) return fail(404, 'NOT_FOUND', 'The record was not found.');
     if (method === 'PATCH') {
@@ -733,7 +735,7 @@ function route({
           optionId: planOption.optionId,
           sortOrder: planOption.sortOrder,
           note: planOption.note ?? null,
-          limitationIds: [...(planOption.limitationIds ?? [])],
+          tickedChoiceIds: [...(planOption.tickedChoiceIds ?? [])],
         };
         store.planOptions.push(copied);
         for (const value of store.values.filter((item) => item.planOptionId === planOption.id)) {
@@ -801,11 +803,11 @@ function route({
     }
   }
 
-  // --- the answers a benefit offers ----------------------------------------
-  if (resource === 'insurance-options' && second === 'choices') {
+  // --- the answers ONE SETTING offers --------------------------------------
+  if (resource === 'option-fields' && second === 'choices') {
     if (method === 'GET') return ok(choicesFor(store, first!));
 
-    /** Ordering IS the ranking, so it is written through its own route. */
+    /** Ordering IS the weighting, so it is written through its own route. */
     if (method === 'POST' && third === 'reorder') {
       (body.orderedIds as unknown as string[]).forEach((choiceId, index) => {
         const target = store.choices.find((choice) => choice.id === choiceId);
@@ -817,11 +819,12 @@ function route({
     if (method === 'POST') {
       const created: OptionChoiceDto = {
         id: id('choice'),
-        optionId: first!,
+        optionFieldId: first!,
         label: String(body.label),
-        // Added at the END: landing at the top would silently re-rank every
-        // plan that gives one of the answers already listed.
+        // The END of the list: an unranked answer is an unknown, and landing it
+        // at the mild end would flatter every plan that carries it.
         sortOrder: choicesFor(store, first!).length,
+        rankCount: choicesFor(store, first!).length + 1,
         ...meta(),
       };
       store.choices.push(created);
@@ -836,34 +839,17 @@ function route({
     }
 
     if (method === 'DELETE' && third) {
+      const used = store.planOptions.filter((planOption) =>
+        (planOption.tickedChoiceIds ?? []).includes(third),
+      );
+      if (used.length > 0 && search.get('force') !== 'true') {
+        return fail(409, 'CONFLICT', `"` + third + `" is recorded on ` + used.length + ' plan benefits.');
+      }
+      for (const planOption of used) {
+        planOption.tickedChoiceIds = (planOption.tickedChoiceIds ?? []).filter((x) => x !== third);
+      }
       store.choices = store.choices.filter((choice) => choice.id !== third);
       return noContent();
-    }
-  }
-
-  // --- limitations ---------------------------------------------------------
-  if (resource === 'limitations') {
-    if (method === 'GET' && !first) {
-      const scope = search.get('scope');
-      const items = store.limitations
-        .filter((limitation) => (scope ? limitation.scope === scope : true))
-        .sort((a, b) => a.sortOrder - b.sortOrder);
-      return ok({ items, total: items.length, page: 1, pageSize: items.length });
-    }
-    if (method === 'POST') {
-      const created: LimitationDto = {
-        id: id('limitation'),
-        name: String(body.name),
-        description: null,
-        scope: (body.scope as LimitationDto['scope']) ?? 'VALUE',
-        restrictionWeight: (body.restrictionWeight as number) ?? 0,
-        sortOrder: store.limitations.length,
-        isActive: true,
-        createdAt: now(),
-        updatedAt: now(),
-      };
-      store.limitations.push(created);
-      return ok(created, 201);
     }
   }
 
@@ -881,9 +867,16 @@ function route({
       else store.values.push({ planOptionId: planOption.id, optionFieldId: third, value });
       return ok(hydratePlanOption(store, planOption));
     }
-    /** A complete replace: an empty array states that there are none. */
-    if (second === 'limitations' && method === 'PUT') {
-      planOption.limitationIds = (body.limitationIds as unknown as string[]) ?? [];
+    /**
+     * A complete replace for ONE setting: answers ticked on the others are left
+     * exactly as they are.
+     */
+    if (second === 'settings' && fourth === 'choices' && method === 'PUT') {
+      const forThisField = new Set(
+        store.choices.filter((choice) => choice.optionFieldId === third).map((choice) => choice.id),
+      );
+      const kept = (planOption.tickedChoiceIds ?? []).filter((cid) => !forThisField.has(cid));
+      planOption.tickedChoiceIds = [...kept, ...((body.choiceIds as unknown as string[]) ?? [])];
       return ok(hydratePlanOption(store, planOption));
     }
     if (second === 'note' && method === 'PATCH') {
@@ -940,10 +933,6 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
     isUmbrella: option?.isUmbrella ?? false,
     parentOptionId: option?.parentId ?? null,
     note: planOption.note ?? null,
-    // Catalogue order, as the real API returns them. Empty is unrestricted.
-    limitations: store.limitations
-      .filter((limitation) => (planOption.limitationIds ?? []).includes(limitation.id))
-      .sort((a, b) => a.sortOrder - b.sortOrder),
     sortOrder: planOption.sortOrder,
     createdAt: now(),
     updatedAt: now(),
@@ -952,8 +941,10 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
         (value) => value.planOptionId === planOption.id && value.optionFieldId === field.id,
       );
       const value = stored?.value ?? null;
-      const offersChoices = field.dataType === 'RANK' || field.dataType === 'TEXT';
-      const choices = choicesFor(store, planOption.optionId);
+      const offersChoices =
+        field.dataType === 'RANK' || field.dataType === 'MULTI' || field.dataType === 'TEXT';
+      // The answers belong to THIS setting, ranked within it.
+      const choices = choicesFor(store, field.id);
 
       return {
         id: stored ? `${planOption.id}:${field.id}` : '',
@@ -965,9 +956,13 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
         value,
         ...(offersChoices ? { choices } : {}),
         ...(field.dataType === 'RANK'
+          ? { choiceLabel: choices.find((choice) => choice.id === value)?.label ?? null }
+          : {}),
+        ...(field.dataType === 'MULTI'
           ? {
-              choiceLabel:
-                choices.find((choice) => choice.id === value)?.label ?? null,
+              selectedChoiceIds: (planOption.tickedChoiceIds ?? []).filter((cid) =>
+                choices.some((choice) => choice.id === cid),
+              ),
             }
           : {}),
       };
@@ -975,11 +970,12 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
   };
 }
 
-/** One benefit's answers, in the employee's order. */
-function choicesFor(store: FakeStore, optionId: string): OptionChoiceDto[] {
-  return store.choices
-    .filter((choice) => choice.optionId === optionId)
+/** One SETTING's answers, in rank order, each knowing how long the list is. */
+function choicesFor(store: FakeStore, optionFieldId: string): OptionChoiceDto[] {
+  const answers = store.choices
+    .filter((choice) => choice.optionFieldId === optionFieldId)
     .sort((a, b) => a.sortOrder - b.sortOrder);
+  return answers.map((choice) => ({ ...choice, rankCount: answers.length }));
 }
 
 function blankCompany() {

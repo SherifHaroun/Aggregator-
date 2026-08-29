@@ -57,11 +57,18 @@ const words = (
   limitations,
 });
 
-/** A restriction of a given severity, named for what the test is checking. */
-const limit = (name: string, restrictionWeight: number): AppliedLimitation => ({
-  id: name.toLowerCase().replace(/\W+/g, '_'),
+/**
+ * A restriction at a given place in its list.
+ *
+ * Severity is a POSITION, not a number somebody typed: rank 0 is the mildest
+ * condition the list holds and `rankCount - 1` the harshest, which is exactly
+ * what dragging the list into order says.
+ */
+const limit = (name: string, rank: number, rankCount: number): AppliedLimitation => ({
+  id: name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
   name,
-  restrictionWeight,
+  rank,
+  rankCount,
 });
 
 /**
@@ -360,7 +367,7 @@ describe('limitations', () => {
     const results = scoreCandidates([
       plan('open', 'Company A', 1000, [pct('den', 'Dental', 80)]),
       plan('closed', 'Company B', 1000, [
-        pct('den', 'Dental', 80, [limit('Basic procedures only', 0.25)]),
+        pct('den', 'Dental', 80, [limit('Basic procedures only', 2, 4)]),
       ]),
     ]);
 
@@ -386,27 +393,71 @@ describe('limitations', () => {
 
   it('compounds several conditions instead of adding them up', () => {
     const results = scoreCandidates([
-      plan('one', 'Company A', 1000, [pct('den', 'Dental', 80, [limit('Half', 0.5)])]),
+      plan('one', 'Company A', 1000, [pct('den', 'Dental', 80, [limit('Harshest', 4, 5)])]),
       plan('two', 'Company B', 1000, [
-        pct('den', 'Dental', 80, [limit('Quarter', 0.25), limit('Third', 0.25)]),
+        pct('den', 'Dental', 80, [limit('Middling', 2, 5), limit('Also middling', 2, 5)]),
       ]),
     ]);
 
     const one = results.find((r) => r.configurationId === 'one')!.benefits[0]!;
     const two = results.find((r) => r.configurationId === 'two')!.benefits[0]!;
 
-    // 0.5 taken at once is worse than 0.25 twice (0.5625 kept), so splitting a
-    // restriction across two catalogue entries cannot make it bite harder.
+    // Compounding, not adding: two middling conditions keep more than one at
+    // the bottom of the list, so splitting a restriction across two entries
+    // cannot make it bite harder than stating it once.
     expect(two.limitationFactor).toBeGreaterThan(one.limitationFactor);
+  });
+
+  it('costs nothing at the top of the list and most at the bottom', () => {
+    const results = scoreCandidates([
+      plan('mild', 'Company A', 1000, [pct('den', 'Dental', 80, [limit('Mildest', 0, 4)])]),
+      plan('harsh', 'Company B', 1000, [pct('den', 'Dental', 80, [limit('Harshest', 3, 4)])]),
+    ]);
+
+    const mild = results.find((r) => r.configurationId === 'mild')!.benefits[0]!;
+    const harsh = results.find((r) => r.configurationId === 'harsh')!.benefits[0]!;
+
+    // The top of the list is the mildest condition the list holds, so carrying
+    // only it is not a mark against the plan at all.
+    expect(mild.limitationFactor).toBe(1);
+    expect(harsh.limitationFactor).toBeLessThan(1);
+    expect(recommended(results)?.configurationId).toBe('mild');
+  });
+
+  it('re-ranks every plan when the list is reordered, and only then', () => {
+    const cell = (rank: number) =>
+      scoreCandidates([
+        plan('a', 'Company A', 1000, [
+          pct('den', 'Dental', 80, [limit('In-network only', rank, 4)]),
+        ]),
+      ])[0]!.benefits[0]!;
+
+    // The same condition, before and after it is dragged to the harsh end.
+    const before = cell(1);
+    const after = cell(3);
+
+    expect(after.limitationFactor).toBeLessThan(before.limitationFactor);
+    // What the plan SAYS is untouched: it still imposes the same condition.
+    expect(after.limitationsDisplay).toBe(before.limitationsDisplay);
+  });
+
+  it('does not let a list of one invent a penalty', () => {
+    // A list holding a single condition discriminates between nothing, so every
+    // plan carrying it sits in the same place and it costs nothing.
+    const results = scoreCandidates([
+      plan('a', 'Company A', 1000, [pct('den', 'Dental', 80, [limit('The only one', 0, 1)])]),
+    ]);
+
+    expect(results[0]!.benefits[0]!.limitationFactor).toBe(1);
   });
 
   it('keeps heavily restricted cover above no cover at all', () => {
     const results = scoreCandidates([
       plan('restricted', 'Company A', 1000, [
         pct('den', 'Dental', 80, [
-          limit('In-network only', 0.9),
-          limit('Basic procedures only', 0.9),
-          limit('Prior approval', 0.9),
+          limit('In-network only', 3, 4),
+          limit('Basic procedures only', 3, 4),
+          limit('Prior approval', 3, 4),
         ]),
       ]),
       plan('absent', 'Company B', 1000, [pct('den', 'Dental', null)]),
@@ -440,7 +491,7 @@ describe('limitations', () => {
     const results = scoreCandidates([
       plan('open', 'Company A', 1000, [words('phys', 'Physiotherapy', 'Covered')]),
       plan('vague', 'Company B', 1000, [
-        words('phys', 'Physiotherapy', 'Not specified', [limit('Not specified', 0.5)]),
+        words('phys', 'Physiotherapy', 'Not specified', [limit('Not specified', 3, 4)]),
       ]),
     ]);
 
@@ -456,7 +507,7 @@ describe('limitations', () => {
     const results = scoreCandidates([
       plan('open', 'Company A', 1200, [pct('den', 'Dental', 80)]),
       plan('closed', 'Company B', 1000, [
-        pct('den', 'Dental', 80, [limit('In-network only', 0.4)]),
+        pct('den', 'Dental', 80, [limit('In-network only', 2, 4)]),
       ]),
     ]);
 

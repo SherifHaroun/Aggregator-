@@ -2,7 +2,7 @@ import type { PlanOptionDto } from '@aggregator/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { applyOrder, nextSortOrder } from '../../lib/ordering.js';
 import { getPrisma } from '../../lib/prisma.js';
-import { resolveLimitationsForPlanOption } from '../limitations/limitations.service.js';
+import { resolveTickedChoices } from '../insurance-options/option-choices.service.js';
 import { buildValueColumns } from './plan-option-values.js';
 import { planOptionInclude, toPlanOptionDto } from './plan-options.mapper.js';
 import type { AddPlanOptionInput, PlanOptionValueInputPayload } from './plan-options.schemas.js';
@@ -180,7 +180,7 @@ export async function reorderPlanOptions(
   }
 
   await prisma.$transaction(async (tx) => {
-    await applyOrder(tx.planOption, orderedIds);
+    await applyOrder(tx, 'plan_options', orderedIds);
   });
 }
 
@@ -206,40 +206,51 @@ export async function setPlanOptionNote(
 }
 
 /**
- * Replace the qualifications one benefit carries on one configuration.
+ * Replace the answers ticked on ONE setting of one benefit.
  *
  * Written as a complete set rather than added and removed one at a time,
  * because that is what the control does and what the record means: these are
- * the restrictions, and anything absent is not imposed. An empty list is a
- * legitimate, meaningful write — it says the cover has no conditions.
+ * the answers, and anything absent was not given. An empty list is a
+ * legitimate, meaningful write — on a list of restrictions it says the cover
+ * carries none.
  *
- * The rows are replaced inside one transaction, so a benefit is never briefly
- * seen carrying half its restrictions by a comparison running at the same time.
+ * Scoped to the setting, because a benefit has several and writing one must
+ * never disturb what was ticked on another.
  */
-export async function setPlanOptionLimitations(
+export async function setPlanOptionChoices(
   planOptionId: string,
-  limitationIds: string[],
+  optionFieldId: string,
+  choiceIds: string[],
 ): Promise<PlanOptionDto> {
   const prisma = getPrisma();
 
   const planOption = await prisma.planOption.findUnique({
     where: { id: planOptionId },
-    select: { id: true },
+    select: { id: true, optionId: true },
   });
   if (!planOption) throw notFound('Plan option');
 
-  const resolved = await resolveLimitationsForPlanOption(limitationIds);
+  const field = await prisma.optionField.findFirst({
+    where: { id: optionFieldId, optionId: planOption.optionId },
+    select: { id: true, dataType: true },
+  });
+  if (!field) throw badRequest('That setting does not belong to this benefit.');
+  if (field.dataType !== 'MULTI') {
+    throw badRequest('Only a setting that takes several answers can be ticked this way.');
+  }
+
+  const resolved = await resolveTickedChoices(optionFieldId, choiceIds);
 
   await prisma.$transaction(async (tx) => {
-    await tx.planOptionLimitation.deleteMany({
+    await tx.planOptionValueChoice.deleteMany({
       where:
         resolved.length === 0
-          ? { planOptionId }
-          : { planOptionId, limitationId: { notIn: resolved } },
+          ? { planOptionId, optionFieldId }
+          : { planOptionId, optionFieldId, choiceId: { notIn: resolved } },
     });
     if (resolved.length > 0) {
-      await tx.planOptionLimitation.createMany({
-        data: resolved.map((limitationId) => ({ planOptionId, limitationId })),
+      await tx.planOptionValueChoice.createMany({
+        data: resolved.map((choiceId) => ({ planOptionId, optionFieldId, choiceId })),
         skipDuplicates: true,
       });
     }
@@ -311,22 +322,26 @@ async function writeValues(
   const fieldsById = new Map(fields.map((field) => [field.id, field]));
 
   /**
-   * A ranked value is the id of one of the benefit's own answers. Checked here
-   * rather than in `buildValueColumns`, which sees a field but not the benefit
-   * the answers belong to. Without this an id from another benefit — or a
-   * deleted one — would store cleanly and then read back as blank.
+   * A ranked value is the id of one of THAT SETTING'S own answers. Checked
+   * here rather than in `buildValueColumns`, which sees the field but not the
+   * list behind it. Without this an id from another setting — or a deleted
+   * one — would store cleanly and then read back as blank.
    */
-  const ranked = fields.some((field) => field.dataType === 'RANK');
-  const choiceIds = ranked
-    ? new Set(
-        (
-          await prisma.optionChoice.findMany({
-            where: { optionId, isActive: true },
-            select: { id: true },
-          })
-        ).map((choice) => choice.id),
-      )
-    : new Set<string>();
+  const rankedFieldIds = fields
+    .filter((field) => field.dataType === 'RANK')
+    .map((field) => field.id);
+  const choiceIdsByField = new Map<string, Set<string>>();
+  if (rankedFieldIds.length > 0) {
+    const answers = await prisma.optionChoice.findMany({
+      where: { optionFieldId: { in: rankedFieldIds }, isActive: true },
+      select: { id: true, optionFieldId: true },
+    });
+    for (const answer of answers) {
+      const set = choiceIdsByField.get(answer.optionFieldId) ?? new Set<string>();
+      set.add(answer.id);
+      choiceIdsByField.set(answer.optionFieldId, set);
+    }
+  }
 
   const rows = values.map((entry) => {
     const field = fieldsById.get(entry.optionFieldId);
@@ -338,10 +353,10 @@ async function writeValues(
       field.dataType === 'RANK' &&
       typeof entry.value === 'string' &&
       entry.value.trim() !== '' &&
-      !choiceIds.has(entry.value)
+      !(choiceIdsByField.get(field.id)?.has(entry.value) ?? false)
     ) {
-      throw badRequest(`"${field.label}" must be one of the answers this benefit offers.`, {
-        [field.key]: ['Choose one of the answers listed for this benefit.'],
+      throw badRequest(`"${field.label}" must be one of the answers this setting offers.`, {
+        [field.key]: ['Choose one of the answers listed for this setting.'],
       });
     }
 

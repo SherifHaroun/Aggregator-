@@ -15,8 +15,6 @@ import type {
   CompanyDto,
   InsuranceOptionDto,
   InsuranceTypeDto,
-  LimitationDto,
-  LimitationScope,
   OptionChoiceDto,
   Paginated,
   PlanConfigurationDto,
@@ -38,7 +36,6 @@ export const keys = {
   companies: ['companies'] as const,
   insuranceTypes: ['insurance-types'] as const,
   insuranceOptions: ['insurance-options'] as const,
-  limitations: ['limitations'] as const,
   plans: ['plans'] as const,
   planConfigurations: ['plan-configurations'] as const,
   comparison: ['comparison'] as const,
@@ -402,9 +399,6 @@ function optimisticPlanOption(
     isUmbrella: option.isUmbrella,
     parentOptionId: option.parentId,
     note: null,
-    // A benefit just dropped carries no restrictions, which is also what an
-    // empty list means once the server confirms it: unqualified cover.
-    limitations: [],
     sortOrder,
     createdAt: now,
     updatedAt: now,
@@ -637,119 +631,94 @@ export function useSavePlanOptionValue() {
  * The server's row is written straight into the cache, as with values.
  */
 // ---------------------------------------------------------------------------
-// The answers a benefit offers
+// The answers a SETTING offers
 // ---------------------------------------------------------------------------
 
 /**
- * Add an answer to a benefit's list.
+ * Every write here refreshes the configurations as well as the catalogue.
  *
- * Every mutation here invalidates the catalogue AND the configurations: the
- * list decides how a ranked value renders and how it is compared, so a board
- * showing yesterday's list would show the wrong network name.
+ * A setting's answer list decides how its value RENDERS and how it is SCORED,
+ * so a board left showing yesterday's list would be showing the wrong wording
+ * and the wrong judgement.
  */
-function invalidateChoices(queryClient: QueryClient) {
-  void queryClient.invalidateQueries({ queryKey: keys.insuranceOptions });
-  void queryClient.invalidateQueries({ queryKey: keys.planConfigurations });
-}
-
-export function useCreateOptionChoice(optionId: string) {
+function useAnswerMutation<TResult, TInput>(mutationFn: (input: TInput) => Promise<TResult>) {
   const queryClient = useQueryClient();
 
-  return useMutation<OptionChoiceDto, unknown, { label: string }>({
-    mutationFn: (input) =>
-      api.post<OptionChoiceDto>(`/insurance-options/${optionId}/choices`, input),
-    onSuccess: () => invalidateChoices(queryClient),
+  return useMutation<TResult, unknown, TInput>({
+    mutationFn,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.insuranceOptions });
+      void queryClient.invalidateQueries({ queryKey: keys.planConfigurations });
+    },
   });
 }
 
-export function useRenameOptionChoice(optionId: string) {
-  const queryClient = useQueryClient();
-
-  return useMutation<OptionChoiceDto, unknown, { choiceId: string; label: string }>({
-    mutationFn: ({ choiceId, label }) =>
-      api.patch<OptionChoiceDto>(`/insurance-options/${optionId}/choices/${choiceId}`, { label }),
-    onSuccess: () => invalidateChoices(queryClient),
-  });
+/** Add an answer to one setting's list. It lands at the harshest end. */
+export function useCreateOptionChoice() {
+  return useAnswerMutation<OptionChoiceDto, { optionFieldId: string; label: string }>(
+    ({ optionFieldId, label }) =>
+      api.post<OptionChoiceDto>(`/option-fields/${optionFieldId}/choices`, { label }),
+  );
 }
 
-export function useDeleteOptionChoice(optionId: string) {
-  const queryClient = useQueryClient();
-
-  return useMutation<void, unknown, { choiceId: string }>({
-    mutationFn: ({ choiceId }) =>
-      api.delete(`/insurance-options/${optionId}/choices/${choiceId}`),
-    onSuccess: () => invalidateChoices(queryClient),
-  });
-}
-
-/** Put the answers in order. On a ranked benefit, this IS the ranking. */
-export function useReorderOptionChoices(optionId: string) {
-  const queryClient = useQueryClient();
-
-  return useMutation<void, unknown, { orderedIds: string[] }>({
-    mutationFn: ({ orderedIds }) =>
-      api.post(`/insurance-options/${optionId}/choices/reorder`, { orderedIds }),
-    onSuccess: () => invalidateChoices(queryClient),
-  });
+/** Rename one. A plan records WHICH answer it gave, by id, so this is safe. */
+export function useSaveOptionChoice() {
+  return useAnswerMutation<
+    OptionChoiceDto,
+    { optionFieldId: string; choiceId: string; label: string }
+  >(({ optionFieldId, choiceId, label }) =>
+    api.patch<OptionChoiceDto>(`/option-fields/${optionFieldId}/choices/${choiceId}`, { label }),
+  );
 }
 
 /**
- * The catalogue of qualifications, narrowed to what one kind of benefit box
- * offers.
+ * Remove one.
  *
- * Held for a long time and shared by every row on the board: the list is small,
- * changes rarely, and a picker that refetched it per benefit would issue thirty
- * identical requests to open one configuration.
+ * Refused without `force` while plans still record it, and the API's message
+ * says how many — so the caller can put that to the employee before anything
+ * changes.
  */
-export function useLimitations(scope: LimitationScope) {
-  return useQuery({
-    queryKey: [...keys.limitations, scope],
-    queryFn: () =>
-      api.get<Paginated<LimitationDto>>(
-        `/limitations${query({ scope, isActive: true, pageSize: LIST_PAGE_SIZE })}`,
+export function useDeleteOptionChoice() {
+  return useAnswerMutation<void, { optionFieldId: string; choiceId: string; force?: boolean }>(
+    ({ optionFieldId, choiceId, force }) =>
+      api.delete<void>(
+        `/option-fields/${optionFieldId}/choices/${choiceId}${force ? '?force=true' : ''}`,
       ),
-    select: (page) => page.items,
-    staleTime: 5 * 60 * 1000,
-  });
+  );
+}
+
+/** Rank a setting's answers, mildest first. THIS is the weighting. */
+export function useReorderOptionChoices() {
+  return useAnswerMutation<void, { optionFieldId: string; orderedIds: string[] }>(
+    ({ optionFieldId, orderedIds }) =>
+      api.post<void>(`/option-fields/${optionFieldId}/choices/reorder`, { orderedIds }),
+  );
 }
 
 /**
- * Add a qualification to the catalogue.
+ * Replace the answers ticked on ONE setting of one benefit.
  *
- * Offered from the picker itself, because an employee entering a plan meets a
- * wording the catalogue lacks exactly when they are entering it — sending them
- * to another screen to add it is how free-text notes got used instead.
+ * Scoped to the setting, because a benefit has several and they are filled in
+ * independently — writing one must never disturb another. The server's row goes
+ * straight into the cache, like every other inline save on the board.
  */
-export function useCreateLimitation() {
-  const queryClient = useQueryClient();
-
-  return useMutation<
-    LimitationDto,
-    unknown,
-    { name: string; scope: LimitationScope; restrictionWeight?: number }
-  >({
-    mutationFn: (input) => api.post<LimitationDto>('/limitations', input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: keys.limitations }),
-  });
-}
-
-/**
- * Replace the qualifications one benefit carries on one configuration.
- *
- * A complete set, not a toggle: an empty array clears every restriction and
- * states that the cover has none. The response goes straight into the cache
- * like every other inline save, so nothing on the board is refetched.
- */
-export function useSavePlanOptionLimitations() {
+export function useSavePlanOptionChoices() {
   const queryClient = useQueryClient();
 
   return useMutation<
     PlanOptionDto,
     unknown,
-    { planOptionId: string; planConfigurationId: string; limitationIds: string[] }
+    {
+      planOptionId: string;
+      planConfigurationId: string;
+      optionFieldId: string;
+      choiceIds: string[];
+    }
   >({
-    mutationFn: ({ planOptionId, limitationIds }) =>
-      api.put<PlanOptionDto>(`/plan-options/${planOptionId}/limitations`, { limitationIds }),
+    mutationFn: ({ planOptionId, optionFieldId, choiceIds }) =>
+      api.put<PlanOptionDto>(`/plan-options/${planOptionId}/settings/${optionFieldId}/choices`, {
+        choiceIds,
+      }),
     onSuccess: (saved, { planConfigurationId }) =>
       updateConfigurationOptions(queryClient, planConfigurationId, (options) =>
         mapChanged(options, (item) => (item.id === saved.id ? saved : item)),

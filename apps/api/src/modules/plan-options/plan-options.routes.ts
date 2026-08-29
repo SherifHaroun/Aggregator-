@@ -2,8 +2,8 @@ import { Router } from 'express';
 import { success } from '../../lib/api-response.js';
 import { param } from '../../lib/request.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
-import { setPlanOptionLimitationsSchema } from '../limitations/limitations.schemas.js';
 import {
+  setPlanOptionChoicesSchema,
   setPlanOptionNoteSchema,
   setPlanOptionValueSchema,
   setPlanOptionValuesSchema,
@@ -11,7 +11,7 @@ import {
 import {
   getPlanOption,
   removePlanOption,
-  setPlanOptionLimitations,
+  setPlanOptionChoices,
   setPlanOptionNote,
   setPlanOptionValue,
   setPlanOptionValues,
@@ -65,16 +65,25 @@ planOptionsRouter.patch(
 );
 
 /**
- * The qualifications this benefit carries on this configuration.
+ * The answers ticked on ONE setting of this benefit.
  *
- * A full replace: the payload is the complete set, and an empty array states
- * that the cover carries no restrictions at all.
+ * A full replace for that setting, and an empty array states that none of its
+ * answers apply. Addressed by setting because a benefit has several and they
+ * are filled in independently.
  */
 planOptionsRouter.put(
-  '/:planOptionId/limitations',
+  '/:planOptionId/settings/:optionFieldId/choices',
   asyncHandler(async (req, res) => {
-    const { limitationIds } = setPlanOptionLimitationsSchema.parse(req.body);
-    res.json(success(await setPlanOptionLimitations(param(req, 'planOptionId'), limitationIds)));
+    const { choiceIds } = setPlanOptionChoicesSchema.parse(req.body);
+    res.json(
+      success(
+        await setPlanOptionChoices(
+          param(req, 'planOptionId'),
+          param(req, 'optionFieldId'),
+          choiceIds,
+        ),
+      ),
+    );
   }),
 );
 

@@ -199,10 +199,31 @@ describe('migrations', () => {
     expect(sql).toMatch(/"planId", "customerType", "geographicalCoverage"/);
   });
 
-  it('contains no INSERT statements — the database starts empty', () => {
+  /**
+   * A migration may MOVE data that employees entered; it may never INVENT any.
+   *
+   * The rule being protected is "the database starts empty" — no benefit, no
+   * company and no limitation ships in the code. Reshaping records that already
+   * exist is a different act: when the answer list moved from the benefit down
+   * to the setting, every recorded condition had to travel with it, or plans
+   * would have silently started reading as unrestricted.
+   *
+   * `INSERT ... SELECT` can only copy rows that are already there, so it is
+   * allowed. `INSERT ... VALUES` conjures rows from the migration file itself,
+   * which is exactly what seeding is, so it stays banned.
+   */
+  it('invents no data — migrations may move records, never author them', () => {
     for (const name of dirs) {
       const sql = readFileSync(join(migrationsDir, name, 'migration.sql'), 'utf8');
-      expect(sql).not.toMatch(/^\s*INSERT\s+INTO/im);
+      const inserts = sql.match(/^\s*INSERT\s+INTO[\s\S]*?;/gim) ?? [];
+
+      for (const statement of inserts) {
+        expect(
+          /\bSELECT\b/i.test(statement),
+          `${name} writes rows with literal VALUES, which is seed data:\n${statement.slice(0, 200)}`,
+        ).toBe(true);
+        expect(/\bVALUES\s*\(/i.test(statement)).toBe(false);
+      }
     }
   });
 });

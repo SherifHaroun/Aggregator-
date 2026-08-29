@@ -45,3 +45,15 @@ export const setPlanOptionNoteSchema = z.object({
 });
 
 export type SetPlanOptionNoteInput = z.infer<typeof setPlanOptionNoteSchema>;
+
+/**
+ * The complete set of answers ticked on ONE setting.
+ *
+ * A replace rather than an add/remove pair, because that is how the control
+ * behaves: the employee ticks and unticks a list and the result is saved. An
+ * EMPTY ARRAY IS MEANINGFUL — it clears the setting and states that none of its
+ * answers apply.
+ */
+export const setPlanOptionChoicesSchema = z.object({
+  choiceIds: z.array(z.string().min(1)).max(50),
+});

@@ -10,7 +10,6 @@
 
 import type { CustomerTypeId } from '../config/customer-types.js';
 import type { GeographicalCoverageId } from '../config/geographical-coverage.js';
-import type { LimitationScope } from '../config/limitations.js';
 import type { OptionFieldDataType } from '../config/option-field-types.js';
 import type { ResolvedAverageAge } from './comparison.js';
 
@@ -63,11 +62,6 @@ export interface InsuranceOptionDto extends RecordMeta {
   parentId: string | null;
   /** Present when the option was fetched with its field definitions. */
   fields?: OptionFieldDto[];
-  /**
-   * The answers this benefit offers, in the employee's order. Ranked cover is
-   * judged by position in this list; text cover merely suggests from it.
-   */
-  choices?: OptionChoiceDto[];
   /** Present on an umbrella fetched with its sub-benefits, in display order. */
   children?: InsuranceOptionDto[];
   /**
@@ -79,17 +73,22 @@ export interface InsuranceOptionDto extends RecordMeta {
 }
 
 /**
- * One answer a benefit offers.
+ * One answer a SETTING offers.
  *
- * On a RANK benefit the list is ordered and `sortOrder` decides how good the
- * answer is — 0 is the best. On a TEXT benefit the same list is offered as
- * suggestions and the order is only the order they appear in.
+ * The list belongs to the setting, not to the benefit: inpatient cover asks
+ * about a room type and about network access at the same time, and neither
+ * list is an answer to the other's question.
+ *
+ * `sortOrder` is the rank. On a RANK setting 0 is the BEST answer; on a MULTI
+ * setting of restrictions 0 is the MILDEST. Either way the order is the whole
+ * of the judgement, and `rankCount` says how long the list is — third of four
+ * is a very different thing from third of thirty.
  */
 export interface OptionChoiceDto extends RecordMeta {
-  optionId: string;
+  optionFieldId: string;
   label: string;
-  /** Position in the list. 0 is best on a ranked benefit. */
   sortOrder: number;
+  rankCount: number;
 }
 
 /** One piece of information an option requires, defined by an employee. */
@@ -103,6 +102,8 @@ export interface OptionFieldDto extends RecordMeta {
   helpText: string | null;
   isRequired: boolean;
   sortOrder: number;
+  /** The answers this setting offers, ranked. RANK and MULTI only. */
+  choices?: OptionChoiceDto[];
 }
 
 /**
@@ -144,33 +145,6 @@ export interface PlanConfigurationDto extends RecordMeta {
   options?: PlanOptionDto[];
 }
 
-/**
- * A qualification that can be attached to a benefit — "in-network only",
- * "basic procedures only", "sliding scale".
- *
- * GLOBAL, exactly like a benefit: defined once and offered wherever its scope
- * applies, so "in-network only" is one record rather than one per plan. What
- * differs between plans is WHICH limitations they carry, and that lives on
- * `PlanOptionDto.limitations`.
- */
-export interface LimitationDto extends RecordMeta {
-  name: string;
-  description: string | null;
-  /** Which kind of benefit box offers this limitation. */
-  scope: LimitationScope;
-  /**
-   * The share of a benefit's cover this restriction removes, 0..1.
-   *
-   * 0 qualifies the cover without reducing it — "in and out of network" states
-   * a fact rather than imposing a limit. Editable per record, so the business
-   * can re-weigh a restriction without a deploy.
-   */
-  restrictionWeight: number;
-  sortOrder: number;
-  /** How many plan benefits currently carry it. Returned by the catalogue. */
-  usageCount?: number;
-}
-
 /** The value an option field takes inside one specific plan. */
 export interface PlanOptionValueDto {
   id: string;
@@ -189,13 +163,19 @@ export interface PlanOptionValueDto {
    */
   value: number | string | boolean | null;
   /**
-   * The answers this field offers, in order. Present for RANK — where the list
-   * is required to render or rank the value at all — and for TEXT, where it is
-   * offered as suggestions.
+   * The answers this setting offers, ranked. Required to render or rank a RANK
+   * or MULTI value at all; offered as suggestions on a TEXT one.
    */
   choices?: OptionChoiceDto[];
   /** The chosen answer's wording, resolved from `choices`. RANK only. */
   choiceLabel?: string | null;
+  /**
+   * The answers TICKED on this setting. MULTI only.
+   *
+   * An empty list means nothing was recorded — which for a list of inclusions
+   * reads as "the document does not say", never as "includes nothing".
+   */
+  selectedChoiceIds?: string[];
 }
 
 /** An option attached to ONE configuration, with its values and position. */
@@ -217,15 +197,6 @@ export interface PlanOptionDto {
    * in `limitations` instead.
    */
   note: string | null;
-  /**
-   * The qualifications recorded against this benefit on THIS configuration, in
-   * catalogue order.
-   *
-   * An EMPTY LIST MEANS UNRESTRICTED — cover with no conditions attached, which
-   * scores full marks. It never means "nobody filled this in", which is why a
-   * blank box says so on screen.
-   */
-  limitations: LimitationDto[];
   sortOrder: number;
   createdAt: string;
   updatedAt: string;

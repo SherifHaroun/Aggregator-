@@ -27,9 +27,15 @@ import type {
 } from './insurance-options.schemas.js';
 
 const fieldsInclude = {
-  fields: { where: { isActive: true }, orderBy: { sortOrder: 'asc' as const } },
-  /** The answers the benefit offers, in the employee's order. */
-  choices: { where: { isActive: true }, orderBy: { sortOrder: 'asc' as const } },
+  fields: {
+    where: { isActive: true },
+    orderBy: { sortOrder: 'asc' as const },
+    /** Each SETTING's own ranked answers — the list belongs to it, not to the
+     *  benefit, because one benefit asks several questions at once. */
+    include: {
+      choices: { where: { isActive: true }, orderBy: { sortOrder: 'asc' as const } },
+    },
+  },
 };
 
 /**
@@ -282,7 +288,14 @@ async function changeValueKind(
   const nowRanked = target.dataType === 'RANK';
   const choiceLabels = wasRanked
     ? new Map(
-        (await tx.optionChoice.findMany({ where: { optionId }, select: { id: true, label: true } }))
+        (
+          await tx.optionChoice.findMany({
+            // The answers belong to THIS setting, not to the benefit: a benefit
+            // has several settings and each has its own list.
+            where: { optionFieldId: field.id },
+            select: { id: true, label: true },
+          })
+        )
           .map((choice) => [choice.id, choice.label] as const),
       )
     : new Map<string, string>();
@@ -494,7 +507,7 @@ export async function deleteInsuranceOption(
 export async function reorderInsuranceOptions(orderedIds: string[]): Promise<void> {
   const prisma = getPrisma();
   await prisma.$transaction(async (tx) => {
-    await applyOrder(tx.insuranceOption, orderedIds);
+    await applyOrder(tx, 'insurance_options', orderedIds);
   });
 }
 
@@ -601,6 +614,6 @@ export async function deleteOptionField(fieldId: string): Promise<void> {
 export async function reorderOptionFields(orderedIds: string[]): Promise<void> {
   const prisma = getPrisma();
   await prisma.$transaction(async (tx) => {
-    await applyOrder(tx.optionField, orderedIds);
+    await applyOrder(tx, 'option_fields', orderedIds);
   });
 }

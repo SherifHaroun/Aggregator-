@@ -8,6 +8,8 @@ import {
 
 export function toPlanConfigurationDto(
   configuration: PlanConfiguration & { options?: PlanOptionWithRelations[] },
+  /** Size of each limitation scope's list — see `readLimitationRankCounts`. */
+  rankCounts: Record<string, number> = {},
 ): PlanConfigurationDto {
   return {
     id: configuration.id,
@@ -30,6 +32,8 @@ export function toPlanConfigurationDto(
     isActive: configuration.isActive,
     createdAt: toIso(configuration.createdAt),
     updatedAt: toIso(configuration.updatedAt),
-    ...(configuration.options ? { options: configuration.options.map(toPlanOptionDto) } : {}),
+    ...(configuration.options
+      ? { options: configuration.options.map(toPlanOptionDto) }
+      : {}),
   };
 }

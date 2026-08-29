@@ -1,0 +1,21 @@
+-- Limitations are RANKED, not weighed.
+--
+-- `benefit_limitations` gave each limitation a `restrictionWeight` — the share
+-- of a benefit's cover it removes — for an employee to set. Nobody can
+-- meaningfully answer "is in-network-only worth 0.30 or 0.35?", and the numbers
+-- that shipped were guesses. What an employee CAN answer, immediately and
+-- confidently, is whether one condition is harsher than another.
+--
+-- So the order of the list becomes the judgement, and the weight is derived
+-- from it: mildest first, costing nothing, down to the harshest. `sortOrder`
+-- already held that order for display; it is now what the comparison reads.
+--
+-- The column goes rather than being left to rot. A stored weight beside a
+-- ranking is two answers to one question, and the day they disagree the screen
+-- shows one and the comparison uses the other.
+--
+-- Nothing else changes: which limitations exist, and which plans carry them,
+-- are untouched. Existing rows keep the order they already had, so no plan's
+-- recorded cover moves.
+
+ALTER TABLE "limitations" DROP COLUMN "restrictionWeight";

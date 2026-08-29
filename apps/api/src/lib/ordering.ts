@@ -4,6 +4,7 @@
  * identically everywhere.
  */
 
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 
 export const reorderSchema = z.object({
@@ -11,16 +12,51 @@ export const reorderSchema = z.object({
   orderedIds: z.array(z.string().min(1)).min(1),
 });
 
-/** The subset of a Prisma delegate this helper needs. */
-interface SortableDelegate {
-  update(args: { where: { id: string }; data: { sortOrder: number } }): Promise<unknown>;
+/**
+ * The tables that carry a `sortOrder`.
+ *
+ * A closed list, and the ONLY thing interpolated into the statement below.
+ * Table names come from this union — never from a request — which is what makes
+ * the raw query safe.
+ */
+export type SortableTable =
+  | 'insurance_options'
+  | 'option_fields'
+  | 'option_choices'
+  | 'plan_options'
+  | 'limitations';
+
+/** The subset of a Prisma client this helper needs. */
+interface RawClient {
+  $executeRaw(query: TemplateStringsArray, ...values: unknown[]): Promise<number>;
 }
 
-/** Assign `sortOrder = index` following `orderedIds`. Run inside a transaction. */
-export async function applyOrder(delegate: SortableDelegate, orderedIds: string[]): Promise<void> {
-  await Promise.all(
-    orderedIds.map((id, index) => delegate.update({ where: { id }, data: { sortOrder: index } })),
-  );
+/**
+ * Assign `sortOrder = index` following `orderedIds`.
+ *
+ * ONE statement, whatever the list's length. An UPDATE per row looks harmless
+ * on a list of five and is fatal on a list of thirty: each is a round trip to
+ * the database, and against a hosted Postgres thirty of them run past Prisma's
+ * five-second interactive-transaction timeout — the reorder then fails with the
+ * list half-written. `unnest ... WITH ORDINALITY` turns the whole new order
+ * into a single UPDATE, so cost stays flat and the write is atomic by itself.
+ *
+ * Ids that do not belong to the caller's list simply match nothing; every
+ * caller checks ownership before getting here.
+ */
+export async function applyOrder(
+  client: RawClient,
+  table: SortableTable,
+  orderedIds: string[],
+): Promise<void> {
+  if (orderedIds.length === 0) return;
+
+  await client.$executeRaw`
+    UPDATE ${Prisma.raw(`"${table}"`)} AS t
+    SET "sortOrder" = ordered.position - 1
+    FROM unnest(${orderedIds}::text[]) WITH ORDINALITY AS ordered(id, position)
+    WHERE t.id = ordered.id
+  `;
 }
 
 /**

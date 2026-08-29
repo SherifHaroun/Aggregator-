@@ -54,7 +54,7 @@ import {
 import { cn } from '@/lib/cn';
 import { EditBenefitDialog } from './EditBenefitDialog';
 import { NewBenefitDialog } from './NewBenefitDialog';
-import { PlanOptionLimitations } from './PlanOptionLimitations';
+import { PlanOptionSettingChoices } from './PlanOptionSettingChoices';
 import {
   PlanOptionNoteInline,
   PlanOptionValueInline,
@@ -792,14 +792,21 @@ const AttachedBenefit = memo(function AttachedBenefit({
           no cover of its own. */}
       {planOption.isUmbrella ? null : (
         <div className="mt-2 space-y-1 pl-6">
-          <PlanOptionLimitations
-            planOptionId={planOption.id}
-            planConfigurationId={planOption.planConfigurationId}
-            optionName={planOption.optionName}
-            dataType={splitValues(planOption).main?.dataType ?? null}
-            selected={planOption.limitations}
-            disabled={pending}
-          />
+          {/* One box per setting that takes several answers. They are separate
+              questions — network access is not a room type — so each keeps its
+              own list and its own ranking. */}
+          {planOption.values
+            .filter((value) => value.dataType === 'MULTI')
+            .map((value) => (
+              <PlanOptionSettingChoices
+                key={value.optionFieldId}
+                planOptionId={planOption.id}
+                planConfigurationId={planOption.planConfigurationId}
+                optionName={planOption.optionName}
+                value={value}
+                disabled={pending}
+              />
+            ))}
           <PlanOptionNoteInline
             planOptionId={planOption.id}
             planConfigurationId={planOption.planConfigurationId}
@@ -837,14 +844,18 @@ const AttachedBenefit = memo(function AttachedBenefit({
               </div>
 
               <div className="space-y-1">
-                <PlanOptionLimitations
-                  planOptionId={child.id}
-                  planConfigurationId={child.planConfigurationId}
-                  optionName={child.optionName}
-                  dataType={splitValues(child).main?.dataType ?? null}
-                  selected={child.limitations}
-                  disabled={isOptimisticPlanOption(child)}
-                />
+                {child.values
+                  .filter((value) => value.dataType === 'MULTI')
+                  .map((value) => (
+                    <PlanOptionSettingChoices
+                      key={value.optionFieldId}
+                      planOptionId={child.id}
+                      planConfigurationId={child.planConfigurationId}
+                      optionName={child.optionName}
+                      value={value}
+                      disabled={isOptimisticPlanOption(child)}
+                    />
+                  ))}
                 <PlanOptionNoteInline
                   planOptionId={child.id}
                   planConfigurationId={child.planConfigurationId}

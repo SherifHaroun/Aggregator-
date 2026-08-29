@@ -179,8 +179,12 @@ export function EditBenefitDialog({
                 is judged by the order, text cover merely suggests from it. */}
             {values.valueKind === 'RANK' || values.valueKind === 'TEXT' ? (
               <BenefitAnswersEditor
-                optionId={benefit.id}
-                choices={latest.data?.choices ?? benefit.choices ?? []}
+                optionFieldId={mainField?.id ?? ''}
+                choices={
+                  (latest.data?.fields ?? benefit.fields ?? []).find(
+                    (field) => field.key !== ALTERNATIVE_VALUE_KEY,
+                  )?.choices ?? []
+                }
                 ranked={values.valueKind === 'RANK'}
               />
             ) : null}

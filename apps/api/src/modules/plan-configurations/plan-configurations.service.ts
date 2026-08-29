@@ -58,7 +58,12 @@ export async function listPlanConfigurations(
     prisma.planConfiguration.count({ where }),
   ]);
 
-  return paginate(items.map(toPlanConfigurationDto), total, query);
+  // The list carries no benefits, so no rank denominators are needed.
+  return paginate(
+    items.map((configuration) => toPlanConfigurationDto(configuration)),
+    total,
+    query,
+  );
 }
 
 export async function getPlanConfiguration(id: string): Promise<PlanConfigurationDto> {
@@ -110,7 +115,7 @@ export async function duplicatePlanConfiguration(
     include: {
       options: {
         orderBy: { sortOrder: 'asc' },
-        include: { values: true, limitations: true },
+        include: { values: true, selectedChoices: true },
       },
     },
   });
@@ -194,22 +199,23 @@ export async function duplicatePlanConfiguration(
       if (values.length > 0) await tx.planOptionValue.createMany({ data: values });
 
       /**
-       * The restrictions travel with the figures they qualify. A copy that
+       * The ticked answers travel with the figures they qualify. A copy that
        * kept "800 EGP" but dropped "basic procedures only" would not be the
        * same cover — it would read as better than the plan it came from, and
        * would rank higher in a comparison.
        */
-      const limitations = source.options.flatMap((planOption) => {
+      const ticked = source.options.flatMap((planOption) => {
         const planOptionId = planOptionIdByOptionId.get(planOption.optionId);
         if (!planOptionId) return [];
-        return planOption.limitations.map((row) => ({
+        return planOption.selectedChoices.map((row) => ({
           planOptionId,
-          limitationId: row.limitationId,
+          optionFieldId: row.optionFieldId,
+          choiceId: row.choiceId,
         }));
       });
 
-      if (limitations.length > 0) {
-        await tx.planOptionLimitation.createMany({ data: limitations });
+      if (ticked.length > 0) {
+        await tx.planOptionValueChoice.createMany({ data: ticked });
       }
     }
 
