@@ -10,6 +10,7 @@
  * the application code never mentions them.
  */
 
+import type { CustomerTypeId, OptionFieldDto } from '@aggregator/shared';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -986,7 +987,9 @@ describe('company medical networks', () => {
 
     // A select, not a box: the name cannot be invented on the plan.
     expect(network.tagName).toBe('SELECT');
-    const offered = within(network).getAllByRole('option').map((o) => o.textContent);
+    const offered = within(network)
+      .getAllByRole('option')
+      .map((o) => o.textContent);
     expect(offered).toEqual(['Not stated', 'Golden Care Network']);
 
     await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
@@ -1760,9 +1763,7 @@ describe('dynamic insurance options', () => {
     );
     await user.click(await screen.findByLabelText(/Basic procedures only/));
 
-    await waitFor(() =>
-      expect(store.planOptions[0]?.tickedChoiceIds).toEqual(['answer_1']),
-    );
+    await waitFor(() => expect(store.planOptions[0]?.tickedChoiceIds).toEqual(['answer_1']));
 
     // The row now states the condition rather than showing an empty box.
     await user.keyboard('{Escape}');
@@ -2270,12 +2271,13 @@ describe('dynamic insurance options', () => {
      */
     const available = await screen.findByLabelText('Zenith Travel Assistance Available value');
     expect(available.tagName).toBe('SELECT');
-    expect(
-      screen.getByLabelText('Zenith Travel Assistance Provider value').tagName,
-    ).toBe('INPUT');
+    expect(screen.getByLabelText('Zenith Travel Assistance Provider value').tagName).toBe('INPUT');
 
     await user.selectOptions(available, 'true');
-    await user.type(screen.getByLabelText('Zenith Travel Assistance Provider value'), 'Any network clinic');
+    await user.type(
+      screen.getByLabelText('Zenith Travel Assistance Provider value'),
+      'Any network clinic',
+    );
 
     // No Save button anywhere: each box goes on its own.
     expect(screen.queryByRole('button', { name: /^Save / })).not.toBeInTheDocument();
@@ -2521,6 +2523,361 @@ describe('global benefits', () => {
     await user.click(screen.getByRole('button', { name: /^Save$/ }));
 
     expect(await screen.findByText(/already exists/i)).toBeInTheDocument();
+    expect(store.options).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Pre-existing & Chronic Conditions — one benefit's own settings
+// ---------------------------------------------------------------------------
+
+const PRE_EXISTING = 'Pre-existing & Chronic Conditions';
+
+/**
+ * The benefit as an employee defined it: two core fields the documents always
+ * state, and four conditions they only sometimes do.
+ *
+ * Mirrors the definition held in the database. Nothing in the product creates
+ * it, and no test asserts on the wording of an answer the employee could
+ * rename — only on the structure the card is built from.
+ */
+function givenPreExistingBenefit() {
+  const field = (
+    key: string,
+    label: string,
+    dataType: OptionFieldDto['dataType'],
+    extras: Partial<OptionFieldDto> = {},
+  ): OptionFieldDto => ({
+    id: `pre_${key}`,
+    optionId: 'option_pre',
+    label,
+    key,
+    dataType,
+    unit: null,
+    helpText: null,
+    isRequired: false,
+    sortOrder: 0,
+    isActive: true,
+    isOptional: false,
+    parentFieldId: null,
+    showWhenChoiceId: null,
+    customerTypes: [],
+    ...timestamps,
+    ...extras,
+  });
+
+  store.options.push({
+    id: 'option_pre',
+    name: PRE_EXISTING,
+    description: null,
+    sortOrder: 0,
+    isUmbrella: false,
+    parentId: null,
+    isActive: true,
+    ...timestamps,
+    fields: [
+      // Core: stated as a matter of course, so always on screen.
+      field('limit', 'Limit', 'CURRENCY', { sortOrder: 0 }),
+      field('period', 'Period', 'RANK', { sortOrder: 1, isRequired: true }),
+      field('period_description', 'Period description', 'TEXT', {
+        parentFieldId: 'pre_period',
+        showWhenChoiceId: 'choice_period_other',
+      }),
+
+      // Conditions: a toggle each, asking nothing until switched on.
+      field('co_payment', 'Co-payment', 'PERCENTAGE', {
+        unit: '%',
+        isOptional: true,
+        sortOrder: 2,
+      }),
+      field('waiting_period', 'Waiting period', 'NUMBER', {
+        unit: 'months',
+        isOptional: true,
+        sortOrder: 3,
+      }),
+      field('specific_conditions', 'Specific conditions', 'MULTI', {
+        isOptional: true,
+        sortOrder: 4,
+      }),
+      field('limit_applies_to', 'Limit applies to', 'RANK', { isOptional: true, sortOrder: 5 }),
+      field('limit_applies_to_other', 'Description', 'TEXT', {
+        parentFieldId: 'pre_limit_applies_to',
+        showWhenChoiceId: 'choice_applies_other',
+      }),
+    ],
+  });
+
+  ['Within annual limit', 'Per year', 'Per policy period', 'Per member', 'Lifetime'].forEach(
+    (label, index) => givenAnswer(`choice_period_${index}`, 'pre_period', label, index),
+  );
+  givenAnswer('choice_period_other', 'pre_period', 'Other', 5);
+
+  ['Diabetes', 'Hypertension', 'Cancer'].forEach((label, index) =>
+    givenAnswer(`choice_condition_${index}`, 'pre_specific_conditions', label, index),
+  );
+
+  [
+    'All pre-existing conditions',
+    'Specific conditions',
+    'Chronic conditions only',
+    'Pre-existing conditions only',
+  ].forEach((label, index) =>
+    givenAnswer(`choice_applies_${index}`, 'pre_limit_applies_to', label, index),
+  );
+  givenAnswer('choice_applies_other', 'pre_limit_applies_to', 'Other', 4);
+
+  return 'option_pre';
+}
+
+/** The benefit dragged onto one configuration, ready to be filled in. */
+function givenPreExistingOnAPlan(customerType: CustomerTypeId = 'INDIVIDUAL') {
+  givenCompany();
+  givenInsuranceType();
+  givenPlan();
+  const configurationId = givenConfiguration('cfg_1', 'plan_1', customerType);
+  givenPreExistingBenefit();
+  store.planOptions.push({
+    id: 'planOption_pre',
+    planConfigurationId: configurationId,
+    optionId: 'option_pre',
+    sortOrder: 0,
+  });
+  return configurationId;
+}
+
+const valueOf = (fieldId: string) =>
+  store.values.find((v) => v.planOptionId === 'planOption_pre' && v.optionFieldId === fieldId);
+
+describe('pre-existing and chronic conditions', () => {
+  it('takes a limit as a currency figure, grouped as it is typed', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const limit = await screen.findByLabelText(`${PRE_EXISTING} Limit value`);
+    await user.type(limit, '150000');
+    await user.tab();
+
+    // Read back grouped, stored plain.
+    expect(limit).toHaveValue('150,000');
+    await waitFor(() => expect(valueOf('pre_limit')?.value).toBe(150000));
+  });
+
+  it('asks for the period as a dropdown, marked required', async () => {
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const period = await screen.findByLabelText(`${PRE_EXISTING} Period value`);
+    // A dropdown, so the period cannot be typed a different way on every plan.
+    expect(period.tagName).toBe('SELECT');
+    expect(
+      within(period)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual([
+      'Not set',
+      'Within annual limit',
+      'Per year',
+      'Per policy period',
+      'Per member',
+      'Lifetime',
+      'Other',
+    ]);
+    expect(screen.getByText('Period').textContent).toContain('*');
+  });
+
+  it('reveals a description box when the period is Other, and not before', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    expect(screen.queryByLabelText(`${PRE_EXISTING} Period description value`)).toBeNull();
+
+    await user.selectOptions(
+      await screen.findByLabelText(`${PRE_EXISTING} Period value`),
+      'choice_period_other',
+    );
+
+    // "Other" is not an answer on its own — it asks what it actually was.
+    const description = await screen.findByLabelText(`${PRE_EXISTING} Period description value`);
+    await user.type(description, 'Per hospital stay');
+    await user.tab();
+    await waitFor(() => expect(valueOf('pre_period_description')?.value).toBe('Per hospital stay'));
+
+    // A different answer takes the box away again.
+    await user.selectOptions(
+      screen.getByLabelText(`${PRE_EXISTING} Period value`),
+      'choice_period_0',
+    );
+    await waitFor(() =>
+      expect(screen.queryByLabelText(`${PRE_EXISTING} Period description value`)).toBeNull(),
+    );
+  });
+
+  it('hides co-payment until the document is said to mention it', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const toggle = await screen.findByRole('checkbox', {
+      name: `Co-payment for ${PRE_EXISTING}`,
+    });
+    expect(toggle).not.toBeChecked();
+    expect(screen.queryByLabelText(`${PRE_EXISTING} Co-payment value`)).toBeNull();
+
+    await user.click(toggle);
+
+    const percentage = await screen.findByLabelText(`${PRE_EXISTING} Co-payment value`);
+    await user.type(percentage, '20');
+    await user.tab();
+    await waitFor(() => expect(valueOf('pre_co_payment')?.value).toBe(20));
+
+    // Switching it off says the document never mentioned it — nothing remains.
+    await user.click(toggle);
+    await waitFor(() => expect(valueOf('pre_co_payment')).toBeUndefined());
+    expect(screen.queryByLabelText(`${PRE_EXISTING} Co-payment value`)).toBeNull();
+  });
+
+  it('hides the waiting period until enabled, then counts it in months', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    expect(screen.queryByLabelText(`${PRE_EXISTING} Waiting period value`)).toBeNull();
+
+    await user.click(
+      await screen.findByRole('checkbox', { name: `Waiting period for ${PRE_EXISTING}` }),
+    );
+
+    const months = await screen.findByLabelText(`${PRE_EXISTING} Waiting period value`);
+    await user.type(months, '10');
+    await user.tab();
+    await waitFor(() => expect(valueOf('pre_waiting_period')?.value).toBe(10));
+    expect(screen.getByText('months')).toBeInTheDocument();
+  });
+
+  it('records several specific conditions, each its own value', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(
+      await screen.findByRole('checkbox', { name: `Specific conditions for ${PRE_EXISTING}` }),
+    );
+    await user.click(
+      await screen.findByRole('button', { name: `Specific conditions for ${PRE_EXISTING}` }),
+    );
+
+    await user.click(await screen.findByRole('checkbox', { name: 'Diabetes' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Hypertension' }));
+
+    // Two separate answers, not one sentence — a report can count them.
+    await waitFor(() =>
+      expect(
+        store.planOptions.find((item) => item.id === 'planOption_pre')?.tickedChoiceIds,
+      ).toEqual(['choice_condition_0', 'choice_condition_1']),
+    );
+
+    // And one the list does not offer yet is added without leaving the row.
+    await user.type(screen.getByLabelText('New answer'), 'Asthma');
+    await user.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() =>
+      expect(
+        store.choices.filter((choice) => choice.optionFieldId === 'pre_specific_conditions'),
+      ).toHaveLength(4),
+    );
+  });
+
+  it('offers Limit applies to as a dropdown that itself reveals a description', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(
+      await screen.findByRole('checkbox', { name: `Limit applies to for ${PRE_EXISTING}` }),
+    );
+
+    // The condition carries its own answer AND what that answer asks for next.
+    const applies = await screen.findByLabelText(`${PRE_EXISTING} Limit applies to value`);
+    expect(applies.tagName).toBe('SELECT');
+    expect(screen.queryByLabelText(`${PRE_EXISTING} Description value`)).toBeNull();
+
+    await user.selectOptions(applies, 'choice_applies_other');
+    await user.type(
+      await screen.findByLabelText(`${PRE_EXISTING} Description value`),
+      'Congenital conditions',
+    );
+    await user.tab();
+    await waitFor(() =>
+      expect(valueOf('pre_limit_applies_to_other')?.value).toBe('Congenital conditions'),
+    );
+  });
+
+  it('leaves untouched fields EMPTY, and never turns them into zero', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    // Nothing entered: the benefit is on the plan and says nothing else.
+    expect(await screen.findByLabelText(`${PRE_EXISTING} Limit value`)).toHaveValue('');
+    expect(store.values).toHaveLength(0);
+
+    // Switching a condition on without a figure is a real answer: it applies,
+    // the amount was not stated. The row exists; its value stays null.
+    await user.click(
+      await screen.findByRole('checkbox', { name: `Co-payment for ${PRE_EXISTING}` }),
+    );
+    await waitFor(() => expect(valueOf('pre_co_payment')).toBeDefined());
+    expect(valueOf('pre_co_payment')?.value).toBeNull();
+    expect(await screen.findByLabelText(`${PRE_EXISTING} Co-payment value`)).toHaveValue('');
+
+    // And a stated zero is still recorded as zero.
+    await user.type(screen.getByLabelText(`${PRE_EXISTING} Limit value`), '0');
+    await user.tab();
+    await waitFor(() => expect(valueOf('pre_limit')?.value).toBe(0));
+  });
+
+  it('never asks an individual plan for a member ratio', async () => {
+    const configurationId = givenPreExistingOnAPlan('INDIVIDUAL');
+    // A rule about a group, held on the benefit for SME and Family only.
+    const option = store.options.find((item) => item.id === 'option_pre')!;
+    option.fields = [
+      ...(option.fields ?? []),
+      {
+        id: 'pre_member_ratio',
+        optionId: 'option_pre',
+        label: 'Member ratio',
+        key: 'member_ratio',
+        dataType: 'BOOLEAN',
+        unit: null,
+        helpText: null,
+        isRequired: false,
+        sortOrder: 6,
+        isActive: true,
+        isOptional: true,
+        parentFieldId: null,
+        showWhenChoiceId: null,
+        customerTypes: ['SME', 'FAMILY'],
+        ...timestamps,
+      },
+    ];
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    expect(
+      await screen.findByRole('checkbox', { name: `Co-payment for ${PRE_EXISTING}` }),
+    ).toBeInTheDocument();
+    // An individual policy has no group, so the question is not put at all.
+    expect(screen.queryByRole('checkbox', { name: /Member ratio/i })).toBeNull();
+    // No separate benefit was invented for it either.
     expect(store.options).toHaveLength(1);
   });
 });

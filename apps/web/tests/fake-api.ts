@@ -25,6 +25,7 @@ import {
   type PlanConfigurationDto,
   type PlanDto,
   type PlanOptionDto,
+  type PlanOptionValueDto,
 } from '@aggregator/shared';
 
 interface StoredValue {
@@ -39,7 +40,7 @@ interface StoredPlanOption {
   optionId: string;
   sortOrder: number;
   note?: string | null;
-/** Ids of the answers ticked on this benefit, across all its settings. */
+  /** Ids of the answers ticked on this benefit, across all its settings. */
   tickedChoiceIds?: string[];
 }
 
@@ -961,7 +962,11 @@ function route({
         (planOption.tickedChoiceIds ?? []).includes(third),
       );
       if (used.length > 0 && search.get('force') !== 'true') {
-        return fail(409, 'CONFLICT', `"` + third + `" is recorded on ` + used.length + ' plan benefits.');
+        return fail(
+          409,
+          'CONFLICT',
+          `"` + third + `" is recorded on ` + used.length + ' plan benefits.',
+        );
       }
       for (const planOption of used) {
         planOption.tickedChoiceIds = (planOption.tickedChoiceIds ?? []).filter((x) => x !== third);
@@ -995,6 +1000,42 @@ function route({
       );
       const kept = (planOption.tickedChoiceIds ?? []).filter((cid) => !forThisField.has(cid));
       planOption.tickedChoiceIds = [...kept, ...((body.choiceIds as unknown as string[]) ?? [])];
+      return ok(hydratePlanOption(store, planOption));
+    }
+    /**
+     * A ROW IS THE TOGGLE: switching a condition on creates a row with no value
+     * yet, and switching it off removes the row and the inputs it owns. There
+     * is no enabled column, so nothing can disagree with anything else.
+     */
+    if (second === 'conditions' && third && method === 'PUT') {
+      const option = store.options.find((item) => item.id === planOption.optionId);
+      const field = (option?.fields ?? []).find((item) => item.id === third);
+      if (!field) return fail(400, 'BAD_REQUEST', 'That setting does not belong to this benefit.');
+      if (!field.isOptional) {
+        return fail(400, 'BAD_REQUEST', `"${field.label}" is a core field and is always shown.`);
+      }
+
+      const owned = new Set([
+        third,
+        ...(option?.fields ?? []).filter((item) => item.parentFieldId === third).map((i) => i.id),
+      ]);
+
+      if (body.enabled as unknown as boolean) {
+        const already = store.values.some(
+          (value) => value.planOptionId === planOption.id && value.optionFieldId === third,
+        );
+        // Created with a null value: the condition applies, the figure may not
+        // have been stated. That is not zero.
+        if (!already)
+          store.values.push({ planOptionId: planOption.id, optionFieldId: third, value: null });
+      } else {
+        store.values = store.values.filter(
+          (value) => !(value.planOptionId === planOption.id && owned.has(value.optionFieldId)),
+        );
+        planOption.tickedChoiceIds = (planOption.tickedChoiceIds ?? []).filter(
+          (cid) => !store.choices.some((c) => c.id === cid && owned.has(c.optionFieldId)),
+        );
+      }
       return ok(hydratePlanOption(store, planOption));
     }
     if (second === 'note' && method === 'PATCH') {
@@ -1043,6 +1084,67 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
   const option = store.options.find((item) => item.id === planOption.optionId);
   const fields = option?.fields ?? [];
 
+  /**
+   * A condition's own inputs are NESTED under it as `subValues`, exactly as the
+   * real mapper nests them — listed beside it they would render as core fields
+   * of their own, visible before the condition they belong to is switched on.
+   */
+  const inputsByParent = new Map<string, typeof fields>();
+  for (const field of fields) {
+    if (!field.parentFieldId) continue;
+    inputsByParent.set(field.parentFieldId, [
+      ...(inputsByParent.get(field.parentFieldId) ?? []),
+      field,
+    ]);
+  }
+
+  const toValue = (field: (typeof fields)[number]): PlanOptionValueDto => {
+    const stored = store.values.find(
+      (value) => value.planOptionId === planOption.id && value.optionFieldId === field.id,
+    );
+    const value = stored?.value ?? null;
+    const planOptionHasValue = stored !== undefined;
+    const offersChoices =
+      field.dataType === 'RANK' || field.dataType === 'MULTI' || field.dataType === 'TEXT';
+    // The answers belong to THIS setting, ranked within it.
+    const choices = choicesFor(store, field.id);
+
+    return {
+      id: stored ? `${planOption.id}:${field.id}` : '',
+      optionFieldId: field.id,
+      fieldKey: field.key,
+      fieldLabel: field.label,
+      dataType: field.dataType,
+      unit: field.unit,
+      value,
+      /**
+       * Defaults the real API always supplies. A fixture that predates a
+       * column should read as the column's neutral value — a core field,
+       * revealed by nothing, applying to every customer type — rather than
+       * as undefined, which would crash the screen rendering it.
+       */
+      isOptional: field.isOptional ?? false,
+      isRequired: field.isRequired ?? false,
+      isEnabled: field.isOptional ? planOptionHasValue : true,
+      showWhenChoiceId: field.showWhenChoiceId ?? null,
+      customerTypes: field.customerTypes ?? [],
+      ...(offersChoices ? { choices } : {}),
+      ...(field.dataType === 'RANK'
+        ? { choiceLabel: choices.find((choice) => choice.id === value)?.label ?? null }
+        : {}),
+      ...(field.dataType === 'MULTI'
+        ? {
+            selectedChoiceIds: (planOption.tickedChoiceIds ?? []).filter((cid) =>
+              choices.some((choice) => choice.id === cid),
+            ),
+          }
+        : {}),
+      ...(inputsByParent.has(field.id)
+        ? { subValues: (inputsByParent.get(field.id) ?? []).map(toValue) }
+        : {}),
+    };
+  };
+
   return {
     id: planOption.id,
     planConfigurationId: planOption.planConfigurationId,
@@ -1054,49 +1156,7 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
     sortOrder: planOption.sortOrder,
     createdAt: now(),
     updatedAt: now(),
-    values: fields.map((field) => {
-      const stored = store.values.find(
-        (value) => value.planOptionId === planOption.id && value.optionFieldId === field.id,
-      );
-      const value = stored?.value ?? null;
-      const planOptionHasValue = stored !== undefined;
-      const offersChoices =
-        field.dataType === 'RANK' || field.dataType === 'MULTI' || field.dataType === 'TEXT';
-      // The answers belong to THIS setting, ranked within it.
-      const choices = choicesFor(store, field.id);
-
-      return {
-        id: stored ? `${planOption.id}:${field.id}` : '',
-        optionFieldId: field.id,
-        fieldKey: field.key,
-        fieldLabel: field.label,
-        dataType: field.dataType,
-        unit: field.unit,
-        value,
-        /**
-         * Defaults the real API always supplies. A fixture that predates a
-         * column should read as the column's neutral value — a core field,
-         * revealed by nothing, applying to every customer type — rather than
-         * as undefined, which would crash the screen rendering it.
-         */
-        isOptional: field.isOptional ?? false,
-        isRequired: field.isRequired ?? false,
-        isEnabled: field.isOptional ? planOptionHasValue : true,
-        showWhenChoiceId: field.showWhenChoiceId ?? null,
-        customerTypes: field.customerTypes ?? [],
-        ...(offersChoices ? { choices } : {}),
-        ...(field.dataType === 'RANK'
-          ? { choiceLabel: choices.find((choice) => choice.id === value)?.label ?? null }
-          : {}),
-        ...(field.dataType === 'MULTI'
-          ? {
-              selectedChoiceIds: (planOption.tickedChoiceIds ?? []).filter((cid) =>
-                choices.some((choice) => choice.id === cid),
-              ),
-            }
-          : {}),
-      };
-    }),
+    values: fields.filter((field) => !field.parentFieldId).map(toValue),
   };
 }
 

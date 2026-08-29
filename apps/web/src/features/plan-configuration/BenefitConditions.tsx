@@ -102,7 +102,17 @@ function Condition({
    * answer currently chosen. A condition that reveals nothing asks for itself.
    */
   const inputs = revealedInputs(condition, customerType);
-  const asksForItself = (condition.subValues ?? []).length === 0;
+  /**
+   * Whether the condition itself takes an answer.
+   *
+   * A BOOLEAN condition that owns inputs is a pure container — the checkbox is
+   * already its yes/no, and asking again below it would ask the same question
+   * twice. Every other condition carries a real value of its own, and may ALSO
+   * reveal boxes under the answer chosen: "Limit applies to" is a dropdown, and
+   * picking Other reveals the box that says what it was. Both are drawn.
+   */
+  const asksForItself =
+    (condition.subValues ?? []).length === 0 || condition.dataType !== 'BOOLEAN';
 
   return (
     <div
@@ -125,9 +135,7 @@ function Condition({
           aria-label={`${condition.fieldLabel} for ${optionName}`}
           onChange={(event) => onToggle(event.target.checked)}
         />
-        <span className={cn('text-content', enabled && 'font-medium')}>
-          {condition.fieldLabel}
-        </span>
+        <span className={cn('text-content', enabled && 'font-medium')}>{condition.fieldLabel}</span>
       </label>
 
       {/* Grows from nothing rather than animating a measured height. */}
@@ -145,17 +153,17 @@ function Condition({
                   optionName={optionName}
                   value={condition}
                 />
-              ) : (
-                inputs.map((input) => (
-                  <ConditionInput
-                    key={input.optionFieldId}
-                    planOptionId={planOptionId}
-                    planConfigurationId={planConfigurationId}
-                    optionName={optionName}
-                    value={input}
-                  />
-                ))
-              )}
+              ) : null}
+
+              {inputs.map((input) => (
+                <ConditionInput
+                  key={input.optionFieldId}
+                  planOptionId={planOptionId}
+                  planConfigurationId={planConfigurationId}
+                  optionName={optionName}
+                  value={input}
+                />
+              ))}
             </div>
           ) : null}
         </div>
