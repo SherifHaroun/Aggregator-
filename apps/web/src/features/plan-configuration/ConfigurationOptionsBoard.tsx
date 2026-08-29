@@ -22,6 +22,7 @@ import {
   ALTERNATIVE_VALUE_KEY,
   UMBRELLA_BENEFIT_LABEL,
   benefitTypeLabel,
+  type CustomerTypeId,
   type InsuranceOptionDto,
   type PlanOptionDto,
   type PlanOptionValueDto,
@@ -54,11 +55,12 @@ import {
 import { cn } from '@/lib/cn';
 import { EditBenefitDialog } from './EditBenefitDialog';
 import { NewBenefitDialog } from './NewBenefitDialog';
+import { BenefitConditions } from './BenefitConditions';
+import { appliesToCustomerType, revealedInputs } from './settings';
 import { PlanOptionSettingChoices } from './PlanOptionSettingChoices';
 import {
   PlanOptionNoteInline,
   PlanOptionValueInline,
-  PlanOptionValuesForm,
   valueAsText,
 } from './PlanOptionValuesForm';
 
@@ -119,10 +121,13 @@ const flattenGroups = (groups: CoverageGroup[]): PlanOptionDto[] =>
  */
 export function ConfigurationOptionsBoard({
   configurationId,
+  customerType,
   attached,
   available,
 }: {
   configurationId: string;
+  /** Who this configuration is for. Some settings do not apply to everyone. */
+  customerType: CustomerTypeId;
   attached: PlanOptionDto[];
   /** The global catalogue — the same list for every company, groups included. */
   available: InsuranceOptionDto[];
@@ -358,6 +363,7 @@ export function ConfigurationOptionsBoard({
                     <AttachedBenefit
                       key={group.row.id}
                       planOption={group.row}
+                      customerType={customerType}
                       subBenefits={group.children}
                       groupName={
                         group.row.parentOptionId
@@ -722,12 +728,15 @@ const AvailableBenefit = memo(function AvailableBenefit({
  */
 const AttachedBenefit = memo(function AttachedBenefit({
   planOption,
+  customerType,
   subBenefits,
   groupName,
   onRemove,
   onAddSubBenefit,
 }: {
   planOption: PlanOptionDto;
+  /** Who this configuration is for — some settings do not apply to everyone. */
+  customerType: CustomerTypeId;
   subBenefits: PlanOptionDto[];
   /** Set when this row is a sub-benefit whose group is not attached here. */
   groupName?: string | undefined;
@@ -786,27 +795,30 @@ const AttachedBenefit = memo(function AttachedBenefit({
         </button>
       </div>
 
-{/* What qualifies the figure. The picked limitations are what the
-          comparison reads; the remark below them is for wording no catalogue
-          entry covers, and is never ranked. A group carries neither: it holds
-          no cover of its own. */}
+      {/* Core settings beyond the figure already beside the name: a benefit
+          asks several questions at once, and every one of them stays visible. */}
+      {planOption.isUmbrella ? null : (
+        <BenefitCoreFields
+          planOption={planOption}
+          customerType={customerType}
+          disabled={pending}
+        />
+      )}
+
+      {/* A group holds no cover of its own, so it asks nothing. */}
       {planOption.isUmbrella ? null : (
         <div className="mt-2 space-y-1 pl-6">
-          {/* One box per setting that takes several answers. They are separate
-              questions — network access is not a room type — so each keeps its
-              own list and its own ranking. */}
-          {planOption.values
-            .filter((value) => value.dataType === 'MULTI')
-            .map((value) => (
-              <PlanOptionSettingChoices
-                key={value.optionFieldId}
-                planOptionId={planOption.id}
-                planConfigurationId={planOption.planConfigurationId}
-                optionName={planOption.optionName}
-                value={value}
-                disabled={pending}
-              />
-            ))}
+          {/* Everything the document only sometimes states. */}
+          <BenefitConditions
+            planOptionId={planOption.id}
+            planConfigurationId={planOption.planConfigurationId}
+            optionName={planOption.optionName}
+            conditions={planOption.values.filter(
+              (value) => isCondition(value) && appliesToCustomerType(value, customerType),
+            )}
+            customerType={customerType}
+            disabled={pending}
+          />
           <PlanOptionNoteInline
             planOptionId={planOption.id}
             planConfigurationId={planOption.planConfigurationId}
@@ -844,18 +856,16 @@ const AttachedBenefit = memo(function AttachedBenefit({
               </div>
 
               <div className="space-y-1">
-                {child.values
-                  .filter((value) => value.dataType === 'MULTI')
-                  .map((value) => (
-                    <PlanOptionSettingChoices
-                      key={value.optionFieldId}
-                      planOptionId={child.id}
-                      planConfigurationId={child.planConfigurationId}
-                      optionName={child.optionName}
-                      value={value}
-                      disabled={isOptimisticPlanOption(child)}
-                    />
-                  ))}
+                <BenefitConditions
+                  planOptionId={child.id}
+                  planConfigurationId={child.planConfigurationId}
+                  optionName={child.optionName}
+                  conditions={child.values.filter(
+                    (value) => isCondition(value) && appliesToCustomerType(value, customerType),
+                  )}
+                  customerType={customerType}
+                  disabled={isOptimisticPlanOption(child)}
+                />
                 <PlanOptionNoteInline
                   planOptionId={child.id}
                   planConfigurationId={child.planConfigurationId}
@@ -879,13 +889,6 @@ const AttachedBenefit = memo(function AttachedBenefit({
         </div>
       ) : null}
 
-      {/* A benefit with values the product does not manage — several fields of
-          its own — keeps its full form below the row. */}
-      {planOption.isUmbrella || splitValues(planOption).managed ? null : (
-        <div className="mt-4">
-          <PlanOptionValuesForm planOption={planOption} />
-        </div>
-      )}
     </div>
   );
 });
@@ -899,14 +902,140 @@ const AttachedBenefit = memo(function AttachedBenefit({
  * else — a benefit built through the general API with several fields — is
  * neither, and keeps its full form below the row.
  */
+/**
+ * A setting the document only sometimes states.
+ *
+ * Told apart by the API rather than guessed at here: a condition is a toggle,
+ * and its input appears only once an employee says the document mentions it.
+ */
+const isCondition = (value: PlanOptionValueDto) => value.isOptional;
+
+/**
+ * The core settings a benefit asks for, beyond the figure already shown beside
+ * its name.
+ *
+ * Always visible, because a core field is something the documents state as a
+ * matter of course — a dental limit, a coverage percentage, the scope of
+ * procedures. Each box saves itself, and each may be left EMPTY: that reads as
+ * "the document does not say", and never as zero.
+ */
+function BenefitCoreFields({
+  planOption,
+  customerType,
+  disabled,
+}: {
+  planOption: PlanOptionDto;
+  customerType: CustomerTypeId;
+  disabled: boolean;
+}) {
+  const { main, alternative, managed } = splitValues(planOption);
+
+  /**
+   * Skip only what the row ALREADY shows.
+   *
+   * The figure beside the benefit's name is rendered by `BenefitValue`, and
+   * only when the benefit carries the one value it manages. A benefit with
+   * several core fields shows none of them up there — so excluding the first
+   * one here regardless would make it disappear from the card entirely.
+   */
+  const shownOnRow = managed
+    ? new Set([main?.optionFieldId, alternative?.optionFieldId])
+    : new Set<string | undefined>();
+
+  const rest = planOption.values.filter(
+    (value) =>
+      !value.isOptional &&
+      !shownOnRow.has(value.optionFieldId) &&
+      appliesToCustomerType(value, customerType),
+  );
+  if (rest.length === 0) return null;
+
+  return (
+    <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-3 pl-6">
+      {rest.flatMap((value) => [
+        <CoreField
+          key={value.optionFieldId}
+          planOption={planOption}
+          value={value}
+          disabled={disabled}
+        />,
+        /**
+         * What the chosen answer asks for next.
+         *
+         * "Other" is not an answer on its own — it means "none of these, and
+         * here is what it actually is" — so choosing it reveals the box that
+         * says. The same mechanism reveals the procedure checklist under
+         * "Specific procedures".
+         */
+        ...revealedInputs(value, customerType).map((input) => (
+          <CoreField
+            key={input.optionFieldId}
+            planOption={planOption}
+            value={input}
+            disabled={disabled}
+          />
+        )),
+      ])}
+    </div>
+  );
+}
+
+/** One labelled box, saving itself. Blank means the document does not say. */
+function CoreField({
+  planOption,
+  value,
+  disabled,
+}: {
+  planOption: PlanOptionDto;
+  value: PlanOptionValueDto;
+  disabled: boolean;
+}) {
+  if (value.dataType === 'MULTI') {
+    return (
+      <div className="flex flex-col gap-1">
+        <span className="text-content-subtle text-xs">{value.fieldLabel}</span>
+        <PlanOptionSettingChoices
+          planOptionId={planOption.id}
+          planConfigurationId={planOption.planConfigurationId}
+          optionName={planOption.optionName}
+          value={value}
+          disabled={disabled}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-content-subtle text-xs">
+        {value.fieldLabel}
+        {value.isRequired ? <span className="text-danger ml-0.5">*</span> : null}
+      </span>
+      <PlanOptionValueInline
+        planOptionId={planOption.id}
+        planConfigurationId={planOption.planConfigurationId}
+        optionName={`${planOption.optionName} ${value.fieldLabel}`}
+        optionFieldId={value.optionFieldId}
+        dataType={value.dataType}
+        unit={value.unit}
+        value={value.value === null ? '' : String(value.value)}
+        {...(value.choices ? { choices: value.choices } : {})}
+        disabled={disabled}
+      />
+    </label>
+  );
+}
+
 function splitValues(planOption: PlanOptionDto): {
   main: PlanOptionValueDto | undefined;
   alternative: PlanOptionValueDto | undefined;
   managed: boolean;
 } {
-  const alternative = planOption.values.find((value) => value.fieldKey === ALTERNATIVE_VALUE_KEY);
-  const main = planOption.values.find((value) => value.fieldKey !== ALTERNATIVE_VALUE_KEY);
-  const managed = planOption.values.length === (alternative ? 2 : 1);
+  // Core settings only: a condition is never the figure on the row.
+  const core = planOption.values.filter((value) => !value.isOptional);
+  const alternative = core.find((value) => value.fieldKey === ALTERNATIVE_VALUE_KEY);
+  const main = core.find((value) => value.fieldKey !== ALTERNATIVE_VALUE_KEY);
+  const managed = core.length === (alternative ? 2 : 1);
   return { main, alternative, managed };
 }
 

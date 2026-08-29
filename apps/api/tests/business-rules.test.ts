@@ -100,6 +100,12 @@ function field(label: string, dataType: OptionField['dataType'], isRequired = fa
     dataType,
     unit: null,
     helpText: null,
+    // A core field: shown as soon as the benefit is opened, never a toggle.
+    isOptional: false,
+    parentFieldId: null,
+    // Not revealed by an answer, and applicable to every customer type.
+    showWhenChoiceId: null,
+    customerTypes: [],
     isRequired,
     sortOrder: 0,
     isActive: true,

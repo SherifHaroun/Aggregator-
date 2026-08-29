@@ -143,6 +143,7 @@ export function PlanConfigurationDetailPage() {
 
             <ConfigurationOptionsBoard
               configurationId={current!.id}
+              customerType={current!.customerType}
               attached={current!.options ?? []}
               available={options.data ?? []}
             />

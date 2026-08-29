@@ -3,6 +3,7 @@ import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
 import { getPrisma } from '../../lib/prisma.js';
 import { planOptionInclude } from '../plan-options/plan-options.mapper.js';
+import { assertNetworkBelongsToCompany } from '../companies/medical-networks.service.js';
 import { toPlanDto } from './plans.mapper.js';
 import type { CreatePlanInput, DuplicatePlanInput, UpdatePlanInput } from './plans.schemas.js';
 
@@ -25,6 +26,8 @@ const planDetailInclude = {
       { ageTo: 'asc' as const },
     ],
   },
+  /** So a plan can name its network without the client fetching the company. */
+  medicalNetwork: true,
 };
 
 export async function listPlans(
@@ -137,6 +140,8 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
         name: input.name,
         code,
         description: input.description === undefined ? source.description : input.description,
+        // A copy is sold on the same network as the plan it came from.
+        medicalNetworkId: source.medicalNetworkId,
         isActive: input.isActive ?? source.isActive,
       },
       select: { id: true },
@@ -263,6 +268,8 @@ export async function createPlan(input: CreatePlanInput): Promise<PlanDto> {
   if (!company) throw notFound('Company');
   if (!insuranceType) throw notFound('Insurance type');
 
+  await assertNetworkBelongsToCompany(input.companyId, input.medicalNetworkId);
+
   const plan = await prisma.plan.create({ data: input, include: planDetailInclude });
   return toPlanDto(plan);
 }
@@ -284,6 +291,15 @@ export async function updatePlan(id: string, input: UpdatePlanInput): Promise<Pl
       select: { id: true },
     });
     if (!insuranceType) throw notFound('Insurance type');
+  }
+
+  if (input.medicalNetworkId !== undefined) {
+    const existing = await prisma.plan.findUnique({
+      where: { id },
+      select: { companyId: true },
+    });
+    if (!existing) throw notFound('Plan');
+    await assertNetworkBelongsToCompany(existing.companyId, input.medicalNetworkId);
   }
 
   const plan = await prisma.plan.update({

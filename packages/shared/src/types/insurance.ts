@@ -31,6 +31,8 @@ export interface CompanyDto extends RecordMeta {
   phone: string | null;
   mobile: string | null;
   address: string | null;
+  /** Present when the company was fetched with its networks, in its own order. */
+  medicalNetworks?: CompanyMedicalNetworkDto[];
 }
 
 export interface InsuranceTypeDto extends RecordMeta {
@@ -102,8 +104,48 @@ export interface OptionFieldDto extends RecordMeta {
   helpText: string | null;
   isRequired: boolean;
   sortOrder: number;
+  /**
+   * An ADDITIONAL CONDITION rather than a core field.
+   *
+   * Core fields are shown as soon as the benefit is opened. A condition is a
+   * toggle whose input appears only once it is turned on, because a document
+   * that never mentions a co-payment should not put an empty co-payment box in
+   * front of anybody — an empty box invites a zero, and a zero is a claim the
+   * document never made.
+   */
+  isOptional: boolean;
+  /** The condition this input belongs to, for conditions needing several boxes. */
+  parentFieldId: string | null;
+  /**
+   * Show this input only when the parent's answer is THIS one.
+   *
+   * "Other" is not an answer — it means "none of these, and here is what it
+   * actually is" — so picking it reveals the box that says. `null` on an input
+   * that belongs to a condition instead, which appears whenever it is on.
+   */
+  showWhenChoiceId: string | null;
+  /** Which customer types this setting applies to. EMPTY MEANS ALL OF THEM. */
+  customerTypes: CustomerTypeId[];
+  /** The inputs this condition owns — "1 in 20 members", "10 per year". */
+  subFields?: OptionFieldDto[];
   /** The answers this setting offers, ranked. RANK and MULTI only. */
   choices?: OptionChoiceDto[];
+}
+
+/**
+ * A provider network belonging to ONE insurance company.
+ *
+ * Not a benefit: a network is the estate of hospitals and clinics the company
+ * sells access to, and every plan that company offers picks one of them.
+ * `sortOrder` is the company's own ranking, best first.
+ */
+export interface CompanyMedicalNetworkDto extends RecordMeta {
+  companyId: string;
+  name: string;
+  description: string | null;
+  sortOrder: number;
+  /** How many plans are sold on it. Returned by the company endpoints. */
+  planCount?: number;
 }
 
 /**
@@ -116,6 +158,14 @@ export interface PlanDto extends RecordMeta {
   name: string;
   code: string;
   description: string | null;
+  /**
+   * The company network this plan is sold on. `null` where the document does
+   * not say — never a network invented on the plan, and never re-typed per age
+   * band: the network is a property of the product.
+   */
+  medicalNetworkId: string | null;
+  /** Resolved from the company's list, so a row can render without a join. */
+  medicalNetworkName?: string | null;
   /** Present when the plan was fetched with its configurations. */
   configurations?: PlanConfigurationDto[];
 }
@@ -176,6 +226,31 @@ export interface PlanOptionValueDto {
    * reads as "the document does not say", never as "includes nothing".
    */
   selectedChoiceIds?: string[];
+  /**
+   * Whether this setting APPLIES to the plan at all.
+   *
+   * For an optional condition this is the toggle: `false` means the document
+   * never mentioned it. `true` with a null `value` means it applies but the
+   * figure was not given — which is a different fact, and neither of them is
+   * zero. Core fields are always applicable, so this is always `true` for them.
+   */
+  isEnabled: boolean;
+  /**
+   * Whether this setting is an ADDITIONAL CONDITION rather than a core field.
+   *
+   * Copied from the field definition so a client can split the card into what
+   * is always shown and what waits behind a toggle, without fetching the
+   * catalogue alongside every plan.
+   */
+  isOptional: boolean;
+  /** Whether a plan must supply this value for the benefit to be complete. */
+  isRequired: boolean;
+  /** Shown only when the parent's answer is this one. See `OptionFieldDto`. */
+  showWhenChoiceId: string | null;
+  /** Which customer types this setting applies to. EMPTY MEANS ALL OF THEM. */
+  customerTypes: CustomerTypeId[];
+  /** The inputs this condition owns, each with its own value. */
+  subValues?: PlanOptionValueDto[];
 }
 
 /** An option attached to ONE configuration, with its values and position. */

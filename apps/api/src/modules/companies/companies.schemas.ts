@@ -40,5 +40,31 @@ export const createCompanySchema = z.object({
 /** Every field optional; `isActive` is how a company is deactivated/reactivated. */
 export const updateCompanySchema = createCompanySchema.partial();
 
+/** One provider network the company sells. Its rank is written by reorder. */
+export const createMedicalNetworkSchema = z.object({
+  name: z.string().trim().min(1).max(150),
+  description: optionalText(500),
+});
+
+export const updateMedicalNetworkSchema = createMedicalNetworkSchema.partial().extend({
+  isActive: z.boolean().optional(),
+});
+
+/** The company's whole list, best first. */
+export const reorderMedicalNetworksSchema = z.object({
+  orderedIds: z.array(z.string().min(1)).max(200),
+});
+
+/** Deleting a network plans are sold on takes a deliberate `force=true`. */
+export const deleteMedicalNetworkQuerySchema = z.object({
+  force: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((value) => value === 'true'),
+});
+
+export type CreateMedicalNetworkInput = z.infer<typeof createMedicalNetworkSchema>;
+export type UpdateMedicalNetworkInput = z.infer<typeof updateMedicalNetworkSchema>;
+
 export type CreateCompanyInput = z.infer<typeof createCompanySchema>;
 export type UpdateCompanyInput = z.infer<typeof updateCompanySchema>;

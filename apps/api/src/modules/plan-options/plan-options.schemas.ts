@@ -57,3 +57,15 @@ export type SetPlanOptionNoteInput = z.infer<typeof setPlanOptionNoteSchema>;
 export const setPlanOptionChoicesSchema = z.object({
   choiceIds: z.array(z.string().min(1)).max(50),
 });
+
+/**
+ * Whether an additional condition applies to this benefit.
+ *
+ * Turning it ON records that the document states the condition, even before any
+ * figure is entered. Turning it OFF removes the condition and any figure with
+ * it — the document never mentioned it, so nothing should remain that says it
+ * did.
+ */
+export const setPlanOptionConditionSchema = z.object({
+  enabled: z.boolean(),
+});

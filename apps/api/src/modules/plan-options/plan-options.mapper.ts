@@ -34,7 +34,21 @@ export function toPlanOptionDto(planOption: PlanOptionWithRelations): PlanOption
     tickedByFieldId.set(row.optionFieldId, ticked);
   }
 
-  const values: PlanOptionValueDto[] = planOption.option.fields.map((field) => {
+  /**
+   * One entry per TOP-LEVEL setting. A condition's own inputs are nested under
+   * it as `subValues` rather than listed beside it, so the card can render the
+   * toggle and everything it reveals as one unit.
+   */
+  const topLevel = planOption.option.fields.filter((field) => field.parentFieldId === null);
+  const inputsByCondition = new Map<string, typeof planOption.option.fields>();
+  for (const field of planOption.option.fields) {
+    if (!field.parentFieldId) continue;
+    const inputs = inputsByCondition.get(field.parentFieldId) ?? [];
+    inputs.push(field);
+    inputsByCondition.set(field.parentFieldId, inputs);
+  }
+
+  const toValue = (field: (typeof planOption.option.fields)[number]): PlanOptionValueDto => {
     const row = valuesByFieldId.get(field.id);
     const value = readValue(field, row);
     /**
@@ -54,6 +68,19 @@ export function toPlanOptionDto(planOption: PlanOptionWithRelations): PlanOption
       dataType: field.dataType,
       unit: field.unit,
       value,
+      /**
+       * A ROW IS THE TOGGLE.
+       *
+       * Its presence says the document states this condition — with a figure,
+       * or with the figure still blank because none was given. Its absence says
+       * the document never mentioned it. Neither of those is zero, and a core
+       * field is always applicable so it always reads `true`.
+       */
+      isEnabled: field.isOptional ? row !== undefined : true,
+      isOptional: field.isOptional,
+      isRequired: field.isRequired,
+      showWhenChoiceId: field.showWhenChoiceId,
+      customerTypes: field.customerTypes,
       ...(offersChoices ? { choices } : {}),
       // Resolved here so no client has to join a list to show a row.
       ...(field.dataType === 'RANK'
@@ -62,8 +89,14 @@ export function toPlanOptionDto(planOption: PlanOptionWithRelations): PlanOption
       ...(field.dataType === 'MULTI'
         ? { selectedChoiceIds: tickedByFieldId.get(field.id) ?? [] }
         : {}),
+      // The boxes this condition reveals when it is switched on.
+      ...(inputsByCondition.has(field.id)
+        ? { subValues: (inputsByCondition.get(field.id) ?? []).map(toValue) }
+        : {}),
     };
-  });
+  };
+
+  const values: PlanOptionValueDto[] = topLevel.map(toValue);
 
   return {
     id: planOption.id,

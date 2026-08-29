@@ -1,6 +1,7 @@
 import {
   BENEFIT_CHOICE_LABEL_MAX_LENGTH,
   BENEFIT_VALUE_KIND_IDS,
+  CUSTOMER_TYPE_IDS,
   OPTION_FIELD_DATA_TYPES_IDS,
 } from '@aggregator/shared';
 import { z } from 'zod';
@@ -20,6 +21,23 @@ export const optionFieldInputSchema = z.object({
   unit: z.string().trim().max(30).nullable().optional(),
   helpText: z.string().trim().max(500).nullable().optional(),
   isRequired: z.boolean().optional(),
+  /**
+   * An ADDITIONAL CONDITION rather than a core field: a toggle whose input
+   * appears only once an employee says the document states it.
+   */
+  isOptional: z.boolean().optional(),
+  /**
+   * The condition this input belongs to, for conditions that need more than one
+   * box — "1 in 20 members", "10 sessions per year".
+   */
+  parentFieldId: z.string().min(1).nullable().optional(),
+  /**
+   * Show this input only when the parent's answer is this one — the mechanism
+   * behind "Other", "Specific procedures" and "Subject to conditions".
+   */
+  showWhenChoiceId: z.string().min(1).nullable().optional(),
+  /** Which customer types this setting applies to. Omitted means all of them. */
+  customerTypes: z.array(z.enum(CUSTOMER_TYPE_IDS)).optional(),
   isActive: z.boolean().optional(),
 });
 

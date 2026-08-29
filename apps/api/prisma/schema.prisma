@@ -87,8 +87,42 @@ model Company {
 
   plans Plan[]
 
+  /// The provider networks THIS company sells, in the order it ranks them.
+  medicalNetworks CompanyMedicalNetwork[]
+
   @@index([isActive])
   @@map("companies")
+}
+
+/// A provider network belonging to ONE insurance company.
+///
+/// A network is not a benefit. "Golden Care Network" is not something a plan
+/// covers — it is the estate of hospitals and clinics the company sells access
+/// to, and every plan that company offers picks one of them. Modelling it as a
+/// benefit meant re-typing the same few names on every plan of every company
+/// and left no place to say that one company's network outranks another's.
+///
+/// `sortOrder` is the company's own ranking of its networks, best first.
+model CompanyMedicalNetwork {
+  id        String  @id @default(cuid())
+  companyId String
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The plans sold on this network.
+  plans Plan[]
+
+  /// One company cannot sell two networks of the same name.
+  @@unique([companyId, name])
+  @@index([companyId, sortOrder])
+  @@map("company_medical_networks")
 }
 
 // ============================================================================
@@ -204,6 +238,47 @@ model OptionField {
   isRequired Boolean             @default(false)
   sortOrder  Int                 @default(0)
 
+  /// An ADDITIONAL CONDITION rather than a core field.
+  ///
+  /// Core fields are shown the moment the benefit is opened. A condition is a
+  /// toggle, and its input appears only once the employee turns it on — because
+  /// a document that never mentions a co-payment should not put an empty
+  /// co-payment box in front of anybody.
+  ///
+  /// The toggle's state is not a column: A ROW IN `PlanOptionValue` IS THE
+  /// TOGGLE. Present means the condition applies (its value may still be
+  /// blank); absent means the document did not state it. One fact, one place.
+  isOptional Boolean @default(false)
+
+  /// The condition this input belongs to, for conditions that need more than
+  /// one box — "1 in 20 members", "10 sessions per year", "every 12 sessions".
+  ///
+  /// One level deep: a sub-input cannot own further inputs. Turning the parent
+  /// off removes its inputs with it.
+  parentFieldId String?
+  parentField   OptionField?  @relation("ConditionInputs", fields: [parentFieldId], references: [id], onDelete: Cascade)
+  subFields     OptionField[] @relation("ConditionInputs")
+
+  /// Show this input only when the parent's answer is THIS one.
+  ///
+  /// What turns a dropdown into a complete answer. "Other" is not an answer on
+  /// its own — it means "none of these, and here is what it actually is" — so
+  /// picking it reveals the box that says. The same mechanism reveals the
+  /// procedure checklist under "Specific procedures", and the conditions box
+  /// under "Subject to conditions".
+  ///
+  /// `null` on an input that belongs to a condition rather than to an answer:
+  /// those appear whenever their condition is switched on.
+  showWhenChoiceId String?
+  showWhenChoice   OptionChoice? @relation("AnswerReveals", fields: [showWhenChoiceId], references: [id], onDelete: Cascade)
+
+  /// Which customer types this setting applies to. EMPTY MEANS ALL OF THEM.
+  ///
+  /// Some questions only exist for some buyers: a member ratio — "one in twenty
+  /// members" — is a rule about a group, and an individual policy has no group.
+  /// Showing it on an individual plan invites an answer that cannot be true.
+  customerTypes CustomerType[]
+
   isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
@@ -220,6 +295,8 @@ model OptionField {
   @@unique([optionId, key])
   @@unique([optionId, label])
   @@index([optionId, isActive])
+  @@index([optionId, parentFieldId, sortOrder])
+  @@index([showWhenChoiceId])
   @@map("option_fields")
 }
 
@@ -252,6 +329,9 @@ model OptionChoice {
 
   /// Where this answer was ticked on a MULTI setting.
   selectedBy PlanOptionValueChoice[]
+
+  /// Inputs that appear only when THIS answer is the one chosen.
+  reveals OptionField[] @relation("AnswerReveals")
 
   /// The same answer cannot be offered twice by one setting.
   @@unique([optionFieldId, label])
@@ -306,6 +386,13 @@ model Plan {
   code        String
   description String?
 
+  /// The company network this plan is sold on, chosen from that company's own
+  /// list. `null` where the document does not say — never a network invented
+  /// here, and never re-typed per configuration: the network is a property of
+  /// the product, not of an age band.
+  medicalNetworkId String?
+  medicalNetwork   CompanyMedicalNetwork? @relation(fields: [medicalNetworkId], references: [id], onDelete: SetNull)
+
   isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
@@ -315,6 +402,7 @@ model Plan {
 
   @@unique([companyId, code])
   @@index([companyId, isActive])
+  @@index([medicalNetworkId])
   @@index([insuranceTypeId, isActive])
   @@map("plans")
 }

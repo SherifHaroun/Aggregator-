@@ -12,6 +12,11 @@ export const createPlanSchema = z.object({
   /** Unique per company. */
   code: z.string().trim().min(1).max(60),
   description: z.string().trim().max(2000).nullable().optional(),
+  /**
+   * The company network this plan is sold on, chosen from that company's own
+   * list. `null` where the document does not say.
+   */
+  medicalNetworkId: z.string().min(1).nullable().optional(),
   isActive: z.boolean().optional(),
 });
 

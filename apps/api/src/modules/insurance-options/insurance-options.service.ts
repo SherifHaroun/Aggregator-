@@ -526,6 +526,14 @@ function buildFieldCreateData(fields: OptionFieldInput[], taken: Set<string>, of
       ...(field.unit !== undefined ? { unit: field.unit } : {}),
       ...(field.helpText !== undefined ? { helpText: field.helpText } : {}),
       ...(field.isRequired !== undefined ? { isRequired: field.isRequired } : {}),
+      // A condition rather than a core field, and the condition it sits inside.
+      ...(field.isOptional !== undefined ? { isOptional: field.isOptional } : {}),
+      ...(field.parentFieldId !== undefined ? { parentFieldId: field.parentFieldId } : {}),
+      // Revealed by one answer, and scoped to the buyers it can apply to.
+      ...(field.showWhenChoiceId !== undefined
+        ? { showWhenChoiceId: field.showWhenChoiceId }
+        : {}),
+      ...(field.customerTypes !== undefined ? { customerTypes: field.customerTypes } : {}),
       ...(field.isActive !== undefined ? { isActive: field.isActive } : {}),
       sortOrder: offset + index,
     };

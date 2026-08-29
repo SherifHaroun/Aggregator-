@@ -2,6 +2,7 @@ import type { CompanyDto, Paginated } from '@aggregator/shared';
 import { inUse, notFound } from '../../lib/errors.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
 import { getPrisma } from '../../lib/prisma.js';
+import { networksInclude } from './medical-networks.service.js';
 import { toCompanyDto } from './companies.mapper.js';
 import type { CreateCompanyInput, UpdateCompanyInput } from './companies.schemas.js';
 
@@ -28,7 +29,11 @@ export async function listCompanies(query: ListQuery): Promise<Paginated<Company
 }
 
 export async function getCompany(id: string): Promise<CompanyDto> {
-  const company = await getPrisma().company.findUnique({ where: { id } });
+  // Read with its networks: the company screen edits them in place.
+  const company = await getPrisma().company.findUnique({
+    where: { id },
+    include: networksInclude,
+  });
   if (!company) throw notFound('Company');
   return toCompanyDto(company);
 }

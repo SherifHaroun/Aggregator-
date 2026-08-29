@@ -24,7 +24,7 @@ export type SortableTable =
   | 'option_fields'
   | 'option_choices'
   | 'plan_options'
-  | 'limitations';
+  | 'company_medical_networks';
 
 /** The subset of a Prisma client this helper needs. */
 interface RawClient {

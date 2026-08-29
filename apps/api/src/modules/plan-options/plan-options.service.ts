@@ -206,6 +206,65 @@ export async function setPlanOptionNote(
 }
 
 /**
+ * Turn an additional condition on or off for one benefit of one configuration.
+ *
+ * THE VALUE ROW IS THE TOGGLE. Switching on writes a row with no figure in it,
+ * which records that the document states the condition without inventing an
+ * amount it never gave. Switching off deletes the row and anything the
+ * condition revealed — the document never mentioned it, so nothing should
+ * remain that says it did.
+ *
+ * Refused on a core field: those are not conditions and cannot be switched off.
+ */
+export async function setPlanOptionCondition(
+  planOptionId: string,
+  optionFieldId: string,
+  enabled: boolean,
+): Promise<PlanOptionDto> {
+  const prisma = getPrisma();
+
+  const planOption = await prisma.planOption.findUnique({
+    where: { id: planOptionId },
+    select: { id: true, optionId: true },
+  });
+  if (!planOption) throw notFound('Plan option');
+
+  const field = await prisma.optionField.findFirst({
+    where: { id: optionFieldId, optionId: planOption.optionId },
+    select: { id: true, isOptional: true, label: true },
+  });
+  if (!field) throw badRequest('That setting does not belong to this benefit.');
+  if (!field.isOptional) {
+    throw badRequest(`"${field.label}" is a core field and is always shown.`);
+  }
+
+  // A condition owns its inputs, so switching it off takes them with it.
+  const inputs = await prisma.optionField.findMany({
+    where: { parentFieldId: optionFieldId },
+    select: { id: true },
+  });
+  const fieldIds = [optionFieldId, ...inputs.map((input) => input.id)];
+
+  if (enabled) {
+    await prisma.planOptionValue.createMany({
+      data: [{ planOptionId, optionFieldId }],
+      skipDuplicates: true,
+    });
+  } else {
+    await prisma.$transaction(async (tx) => {
+      await tx.planOptionValueChoice.deleteMany({
+        where: { planOptionId, optionFieldId: { in: fieldIds } },
+      });
+      await tx.planOptionValue.deleteMany({
+        where: { planOptionId, optionFieldId: { in: fieldIds } },
+      });
+    });
+  }
+
+  return getPlanOption(planOptionId);
+}
+
+/**
  * Replace the answers ticked on ONE setting of one benefit.
  *
  * Written as a complete set rather than added and removed one at a time,

@@ -402,15 +402,28 @@ function optimisticPlanOption(
     sortOrder,
     createdAt: now,
     updatedAt: now,
-    values: (option.fields ?? []).map((field) => ({
-      id: '',
-      optionFieldId: field.id,
-      fieldKey: field.key,
-      fieldLabel: field.label,
-      dataType: field.dataType,
-      unit: field.unit,
-      value: null,
-    })),
+    /**
+     * Top-level settings only, mirroring what the server sends back: a
+     * condition's own inputs arrive nested under it, and a benefit just dropped
+     * has no condition switched on yet.
+     */
+    values: (option.fields ?? [])
+      .filter((field) => field.parentFieldId === null)
+      .map((field) => ({
+        id: '',
+        optionFieldId: field.id,
+        fieldKey: field.key,
+        fieldLabel: field.label,
+        dataType: field.dataType,
+        unit: field.unit,
+        value: null,
+        isOptional: field.isOptional,
+        isRequired: field.isRequired,
+        showWhenChoiceId: field.showWhenChoiceId,
+        customerTypes: field.customerTypes,
+        // Nothing is stated about a benefit the moment it is dropped in.
+        isEnabled: !field.isOptional,
+      })),
   };
 }
 
@@ -702,6 +715,37 @@ export function useReorderOptionChoices() {
  * independently — writing one must never disturb another. The server's row goes
  * straight into the cache, like every other inline save on the board.
  */
+/**
+ * Turn an additional condition on or off for one benefit.
+ *
+ * Switching it on records that the document states the condition, before any
+ * figure is entered — which is a different fact from a figure of zero.
+ * Switching it off removes it and anything it revealed.
+ */
+export function useSavePlanOptionCondition() {
+  const queryClient = useQueryClient();
+
+  return useMutation<
+    PlanOptionDto,
+    unknown,
+    {
+      planOptionId: string;
+      planConfigurationId: string;
+      optionFieldId: string;
+      enabled: boolean;
+    }
+  >({
+    mutationFn: ({ planOptionId, optionFieldId, enabled }) =>
+      api.put<PlanOptionDto>(`/plan-options/${planOptionId}/conditions/${optionFieldId}`, {
+        enabled,
+      }),
+    onSuccess: (saved, { planConfigurationId }) =>
+      updateConfigurationOptions(queryClient, planConfigurationId, (options) =>
+        mapChanged(options, (item) => (item.id === saved.id ? saved : item)),
+      ),
+  });
+}
+
 export function useSavePlanOptionChoices() {
   const queryClient = useQueryClient();
 

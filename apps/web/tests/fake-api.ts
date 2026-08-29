@@ -941,6 +941,7 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
         (value) => value.planOptionId === planOption.id && value.optionFieldId === field.id,
       );
       const value = stored?.value ?? null;
+      const planOptionHasValue = stored !== undefined;
       const offersChoices =
         field.dataType === 'RANK' || field.dataType === 'MULTI' || field.dataType === 'TEXT';
       // The answers belong to THIS setting, ranked within it.
@@ -954,6 +955,17 @@ function hydratePlanOption(store: FakeStore, planOption: StoredPlanOption): Plan
         dataType: field.dataType,
         unit: field.unit,
         value,
+        /**
+         * Defaults the real API always supplies. A fixture that predates a
+         * column should read as the column's neutral value — a core field,
+         * revealed by nothing, applying to every customer type — rather than
+         * as undefined, which would crash the screen rendering it.
+         */
+        isOptional: field.isOptional ?? false,
+        isRequired: field.isRequired ?? false,
+        isEnabled: field.isOptional ? planOptionHasValue : true,
+        showWhenChoiceId: field.showWhenChoiceId ?? null,
+        customerTypes: field.customerTypes ?? [],
         ...(offersChoices ? { choices } : {}),
         ...(field.dataType === 'RANK'
           ? { choiceLabel: choices.find((choice) => choice.id === value)?.label ?? null }

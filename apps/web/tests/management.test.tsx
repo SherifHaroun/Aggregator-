@@ -107,6 +107,10 @@ function givenMultiSetting(optionId = 'option_1', label = 'Limitations') {
       isRequired: false,
       sortOrder: 1,
       isActive: true,
+      isOptional: false,
+      parentFieldId: null,
+      showWhenChoiceId: null,
+      customerTypes: [],
       ...timestamps,
     },
   ];
@@ -148,6 +152,10 @@ function givenRankedOption(id = 'option_1', name = 'Medical Network') {
         isRequired: false,
         sortOrder: 0,
         isActive: true,
+        isOptional: false,
+        parentFieldId: null,
+        showWhenChoiceId: null,
+        customerTypes: [],
         ...timestamps,
       },
     ],
@@ -196,6 +204,10 @@ function givenOption(id = 'option_1', name = 'Aurora Wellness Programme') {
         isRequired: false,
         sortOrder: 0,
         isActive: true,
+        isOptional: false,
+        parentFieldId: null,
+        showWhenChoiceId: null,
+        customerTypes: [],
         ...timestamps,
       },
     ],
@@ -2003,16 +2015,26 @@ describe('dynamic insurance options', () => {
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    // Boolean renders as a Yes/No select, text as a text box — driven by dataType.
-    const available = await screen.findByLabelText('Available');
+    /**
+     * Boolean renders as a Yes/No select, text as a text box — driven by
+     * dataType, with no code knowing what either field means.
+     *
+     * Both are core fields, so both are visible at once and each saves itself;
+     * the accessible name carries the benefit so thirty 'Coverage' boxes on one
+     * screen stay tellable apart.
+     */
+    const available = await screen.findByLabelText('Zenith Travel Assistance Available value');
     expect(available.tagName).toBe('SELECT');
-    expect(screen.getByLabelText('Provider').tagName).toBe('INPUT');
+    expect(
+      screen.getByLabelText('Zenith Travel Assistance Provider value').tagName,
+    ).toBe('INPUT');
 
     await user.selectOptions(available, 'true');
-    await user.type(screen.getByLabelText('Provider'), 'Any network clinic');
-    await user.click(screen.getByRole('button', { name: 'Save Zenith Travel Assistance' }));
+    await user.type(screen.getByLabelText('Zenith Travel Assistance Provider value'), 'Any network clinic');
 
-    await waitFor(() => expect(store.values).toHaveLength(2));
+    // No Save button anywhere: each box goes on its own.
+    expect(screen.queryByRole('button', { name: /^Save / })).not.toBeInTheDocument();
+    await waitFor(() => expect(store.values).toHaveLength(2), { timeout: 4000 });
     expect(store.values.find((v) => v.optionFieldId === 'f_available')?.value).toBe(true);
   });
 });

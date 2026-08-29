@@ -4,6 +4,7 @@ import { param } from '../../lib/request.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
 import {
   setPlanOptionChoicesSchema,
+  setPlanOptionConditionSchema,
   setPlanOptionNoteSchema,
   setPlanOptionValueSchema,
   setPlanOptionValuesSchema,
@@ -12,6 +13,7 @@ import {
   getPlanOption,
   removePlanOption,
   setPlanOptionChoices,
+  setPlanOptionCondition,
   setPlanOptionNote,
   setPlanOptionValue,
   setPlanOptionValues,
@@ -71,6 +73,28 @@ planOptionsRouter.patch(
  * answers apply. Addressed by setting because a benefit has several and they
  * are filled in independently.
  */
+/**
+ * Whether an additional condition applies to this benefit.
+ *
+ * Switching it on says the document states the condition, even before a figure
+ * is entered; switching it off removes it and anything it revealed.
+ */
+planOptionsRouter.put(
+  '/:planOptionId/conditions/:optionFieldId',
+  asyncHandler(async (req, res) => {
+    const { enabled } = setPlanOptionConditionSchema.parse(req.body);
+    res.json(
+      success(
+        await setPlanOptionCondition(
+          param(req, 'planOptionId'),
+          param(req, 'optionFieldId'),
+          enabled,
+        ),
+      ),
+    );
+  }),
+);
+
 planOptionsRouter.put(
   '/:planOptionId/settings/:optionFieldId/choices',
   asyncHandler(async (req, res) => {

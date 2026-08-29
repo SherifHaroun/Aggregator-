@@ -14,6 +14,11 @@ export function toOptionFieldDto(field: OptionField & { choices?: OptionChoice[]
     helpText: field.helpText,
     isRequired: field.isRequired,
     sortOrder: field.sortOrder,
+    // Core field, or a condition behind a toggle.
+    isOptional: field.isOptional,
+    parentFieldId: field.parentFieldId,
+    showWhenChoiceId: field.showWhenChoiceId,
+    customerTypes: field.customerTypes,
     isActive: field.isActive,
     createdAt: toIso(field.createdAt),
     updatedAt: toIso(field.updatedAt),

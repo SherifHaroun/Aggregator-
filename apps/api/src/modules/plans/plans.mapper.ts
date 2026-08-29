@@ -1,5 +1,5 @@
 import type { PlanDto } from '@aggregator/shared';
-import type { Plan, PlanConfiguration } from '@prisma/client';
+import type { CompanyMedicalNetwork, Plan, PlanConfiguration } from '@prisma/client';
 import { toIso } from '../../lib/decimal.js';
 import { toPlanConfigurationDto } from '../plan-configurations/plan-configurations.mapper.js';
 import type { PlanOptionWithRelations } from '../plan-options/plan-options.mapper.js';
@@ -9,7 +9,10 @@ export type PlanConfigurationWithOptions = PlanConfiguration & {
 };
 
 export function toPlanDto(
-  plan: Plan & { configurations?: PlanConfigurationWithOptions[] },
+  plan: Plan & {
+    configurations?: PlanConfigurationWithOptions[];
+    medicalNetwork?: CompanyMedicalNetwork | null;
+  },
 ): PlanDto {
   return {
     id: plan.id,
@@ -18,6 +21,12 @@ export function toPlanDto(
     name: plan.name,
     code: plan.code,
     description: plan.description,
+    medicalNetworkId: plan.medicalNetworkId,
+    // Resolved when the plan was read with its network, so a row renders
+    // without a second request.
+    ...(plan.medicalNetwork !== undefined
+      ? { medicalNetworkName: plan.medicalNetwork?.name ?? null }
+      : {}),
     isActive: plan.isActive,
     createdAt: toIso(plan.createdAt),
     updatedAt: toIso(plan.updatedAt),
