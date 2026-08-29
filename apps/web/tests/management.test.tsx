@@ -3062,3 +3062,59 @@ describe('a condition does not say its own name twice', () => {
     expect(screen.getAllByText('Member ratio')).toHaveLength(1);
   });
 });
+
+describe('a dropdown inside a condition is not cut off', () => {
+  it('stops clipping the reveal once it has finished opening', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const toggle = await screen.findByRole('checkbox', {
+      name: `Specific conditions for ${PRE_EXISTING}`,
+    });
+    await user.click(toggle);
+
+    const control = await screen.findByRole('button', {
+      name: `Specific conditions for ${PRE_EXISTING}`,
+    });
+
+    /**
+     * The reveal clips its content while it grows, or the row spills out at
+     * half height. A dropdown opens BELOW its control, so a clip that outlived
+     * the animation cut the panel off and the answers could not be reached.
+     */
+    const clip = control.closest('.overflow-hidden, .overflow-visible');
+    await waitFor(() => expect(clip).toHaveClass('overflow-visible'));
+
+    // And the answers are reachable and tickable.
+    await user.click(control);
+    await user.click(await screen.findByRole('checkbox', { name: 'Kidney disease' }));
+    await waitFor(() =>
+      expect(
+        store.planOptions.find((item) => item.id === 'planOption_pre')?.tickedChoiceIds,
+      ).toEqual(['choice_condition_5']),
+    );
+  });
+
+  it('clips again when the condition is switched off', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    const toggle = await screen.findByRole('checkbox', {
+      name: `Specific conditions for ${PRE_EXISTING}`,
+    });
+
+    await user.click(toggle);
+    const control = await screen.findByRole('button', {
+      name: `Specific conditions for ${PRE_EXISTING}`,
+    });
+    const clip = control.closest('.overflow-hidden, .overflow-visible');
+    await waitFor(() => expect(clip).toHaveClass('overflow-visible'));
+
+    // Collapsing must clip immediately, so nothing shows through a closed row.
+    await user.click(toggle);
+    await waitFor(() => expect(clip).toHaveClass('overflow-hidden'));
+  });
+});

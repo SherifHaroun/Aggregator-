@@ -1,11 +1,14 @@
 import type { CustomerTypeId, PlanOptionValueDto } from '@aggregator/shared';
-import { memo } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { describeError, useToast } from '@/components/ui';
 import { useSavePlanOptionCondition } from '@/features/insurance-data/insurance-data.api';
 import { cn } from '@/lib/cn';
 import { PlanOptionSettingChoices } from './PlanOptionSettingChoices';
 import { PlanOptionValueInline } from './PlanOptionValuesForm';
 import { revealedInputs } from './settings';
+
+/** How long the reveal takes to grow, matching the duration class below. */
+const REVEAL_MS = 200;
 
 /**
  * The conditions a benefit MAY carry, shown as toggles.
@@ -114,6 +117,25 @@ function Condition({
   const asksForItself =
     (condition.subValues ?? []).length === 0 || condition.dataType !== 'BOOLEAN';
 
+  /**
+   * Whether the row has finished opening.
+   *
+   * The reveal grows a grid row from `0fr` to `1fr`, which needs the content
+   * clipped or it spills out while the row is still short. But a dropdown
+   * inside opens BELOW its control — and a clipped container cuts that panel
+   * off, which is what made the eleven inpatient services impossible to tick.
+   * So the clip lasts exactly as long as the animation and no longer.
+   */
+  const [opened, setOpened] = useState(enabled);
+  useEffect(() => {
+    if (!enabled) {
+      setOpened(false);
+      return;
+    }
+    const settle = setTimeout(() => setOpened(true), REVEAL_MS + 20);
+    return () => clearTimeout(settle);
+  }, [enabled]);
+
   return (
     <div
       className={cn(
@@ -143,7 +165,7 @@ function Condition({
         className="grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none"
         style={{ gridTemplateRows: enabled ? '1fr' : '0fr' }}
       >
-        <div className="overflow-hidden">
+        <div className={opened ? 'overflow-visible' : 'overflow-hidden'}>
           {enabled ? (
             <div className="flex flex-wrap items-end gap-x-4 gap-y-2 px-1.5 pb-2.5 pl-8">
               {asksForItself ? (
