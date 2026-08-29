@@ -77,13 +77,27 @@ export function RecommendedPlanCard({
             >
               <dt className="text-content-muted min-w-0 truncate text-sm">
                 {benefit.optionName}
-                {/* The conditions the plan attaches to this figure. Shown
-                    under it because two plans can quote the same number and
-                    still be offering different cover — which is exactly what
-                    the comparison ranked them on. */}
+                {/**
+                 * The conditions the plan attaches to this figure. Shown under
+                 * it because two plans can quote the same number and still be
+                 * offering different cover.
+                 *
+                 * EACH ONE IS DRAWN SEPARATELY. Joined into a line, nine
+                 * recorded answers about what an inpatient stay includes read
+                 * as one vague remark — as if somebody had typed a sentence —
+                 * and the ninth is lost to truncation. They are nine separate
+                 * facts and they stay nine.
+                 */}
                 {benefit.limitations.length > 0 ? (
-                  <span className="text-content-subtle block text-xs">
-                    {benefit.limitations.map((limitation) => limitation.name).join(' · ')}
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    {benefit.limitations.map((limitation) => (
+                      <span
+                        key={limitation.id}
+                        className="bg-surface-muted text-content-subtle rounded-(--radius-control) px-1.5 py-0.5 text-xs"
+                      >
+                        {limitation.name}
+                      </span>
+                    ))}
                   </span>
                 ) : null}
               </dt>
@@ -167,8 +181,8 @@ export function ComparisonTable({
       display: string;
       isBest: boolean;
       muted: boolean;
-      /** The conditions attached to this figure, if any. */
-      qualifier?: string;
+      /** The conditions attached to this figure, each one its own answer. */
+      qualifiers?: string[];
     }[];
   }[] = [
     ...benefits.map((benefit, index) => ({
@@ -181,8 +195,10 @@ export function ComparisonTable({
           display: cell.display,
           isBest: cell.isBest,
           muted: !cell.covered,
+          // Kept as a list: a table cell showing nine answers as one sentence
+          // is a summary nobody wrote, and the ninth answer disappears.
           ...(cell.limitations.length > 0
-            ? { qualifier: cell.limitations.map((limitation) => limitation.name).join(' · ') }
+            ? { qualifiers: cell.limitations.map((limitation) => limitation.name) }
             : {}),
         };
       }),
@@ -267,9 +283,16 @@ export function ComparisonTable({
                     )}
                   >
                     {cell.display}
-                    {cell.qualifier ? (
-                      <span className="text-content-subtle block text-xs font-normal">
-                        {cell.qualifier}
+                    {cell.qualifiers ? (
+                      <span className="mt-1 flex flex-wrap justify-end gap-1 font-normal">
+                        {cell.qualifiers.map((qualifier) => (
+                          <span
+                            key={qualifier}
+                            className="bg-surface-muted text-content-subtle rounded-(--radius-control) px-1.5 py-0.5 text-xs"
+                          >
+                            {qualifier}
+                          </span>
+                        ))}
                       </span>
                     ) : null}
                     {cell.isBest && !cell.muted ? (
