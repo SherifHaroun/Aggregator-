@@ -3118,3 +3118,192 @@ describe('a dropdown inside a condition is not cut off', () => {
     await waitFor(() => expect(clip).toHaveClass('overflow-hidden'));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Maternity — the same benefit, asked differently of each customer type
+// ---------------------------------------------------------------------------
+
+const MATERNITY = 'Maternity Details';
+
+/** Mirrors the definition held in Railway production, field for field. */
+function givenMaternityOnAPlan(customerType: CustomerTypeId) {
+  givenCompany();
+  givenInsuranceType();
+  givenPlan();
+  const configurationId = givenConfiguration('cfg_1', 'plan_1', customerType);
+
+  const field = (
+    key: string,
+    label: string,
+    dataType: OptionFieldDto['dataType'],
+    extras: Partial<OptionFieldDto> = {},
+  ): OptionFieldDto => ({
+    id: `mat_${key}`,
+    optionId: 'option_mat',
+    label,
+    key,
+    dataType,
+    unit: null,
+    helpText: null,
+    isRequired: false,
+    sortOrder: 0,
+    isActive: true,
+    isOptional: false,
+    parentFieldId: null,
+    showWhenChoiceId: null,
+    customerTypes: [],
+    ...timestamps,
+    ...extras,
+  });
+
+  const GROUPS: CustomerTypeId[] = ['FAMILY', 'SME'];
+
+  store.options.push({
+    id: 'option_mat',
+    name: MATERNITY,
+    description: null,
+    sortOrder: 0,
+    isUmbrella: false,
+    parentId: null,
+    isActive: true,
+    ...timestamps,
+    fields: [
+      field('limit', 'Maternity Limit', 'CURRENCY', { sortOrder: 0 }),
+      field('coverage', 'Coverage', 'PERCENTAGE', { unit: '%', sortOrder: 1 }),
+      field('co_payment', 'Co-payment', 'PERCENTAGE', {
+        unit: '%',
+        isOptional: true,
+        sortOrder: 2,
+      }),
+      field('delivery_type', 'Delivery type', 'MULTI', { isOptional: true, sortOrder: 3 }),
+      field('waiting_period', 'Waiting period', 'NUMBER', {
+        unit: 'months',
+        isOptional: true,
+        sortOrder: 4,
+      }),
+      field('member_ratio', 'Member ratio', 'BOOLEAN', {
+        isOptional: true,
+        sortOrder: 5,
+        customerTypes: GROUPS,
+      }),
+      field('one_in', 'One in', 'NUMBER', {
+        parentFieldId: 'mat_member_ratio',
+        sortOrder: 0,
+        customerTypes: GROUPS,
+      }),
+      field('members', 'Members', 'NUMBER', {
+        parentFieldId: 'mat_member_ratio',
+        sortOrder: 1,
+        customerTypes: GROUPS,
+      }),
+    ],
+  });
+
+  ['Normal delivery', 'Caesarean section'].forEach((label, index) =>
+    givenAnswer(`delivery_${index}`, 'mat_delivery_type', label, index),
+  );
+
+  store.planOptions.push({
+    id: 'planOption_mat',
+    planConfigurationId: configurationId,
+    optionId: 'option_mat',
+    sortOrder: 0,
+  });
+  return configurationId;
+}
+
+const maternityConditions = () =>
+  screen
+    .queryAllByRole('checkbox')
+    .map((box) => box.getAttribute('aria-label') ?? '')
+    .filter((label) => label.endsWith(`for ${MATERNITY}`))
+    .map((label) => label.replace(` for ${MATERNITY}`, ''));
+
+describe('maternity', () => {
+  it('asks an Individual plan for everything EXCEPT a member ratio', async () => {
+    const configurationId = givenMaternityOnAPlan('INDIVIDUAL');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
+    expect(screen.getByLabelText(`${MATERNITY} Coverage value`)).toBeInTheDocument();
+
+    expect(maternityConditions()).toEqual(['Co-payment', 'Delivery type', 'Waiting period']);
+
+    // An individual policy has no group. Not disabled, not greyed — absent.
+    expect(screen.queryByRole('checkbox', { name: /Member ratio/i })).toBeNull();
+    expect(screen.queryByLabelText(`${MATERNITY} One in value`)).toBeNull();
+    expect(screen.queryByLabelText(`${MATERNITY} Members value`)).toBeNull();
+  });
+
+  it.each([['FAMILY' as CustomerTypeId], ['SME' as CustomerTypeId]])(
+    'asks a %s plan for a member ratio, as two numbers it enters itself',
+    async (customerType) => {
+      const user = userEvent.setup();
+      const configurationId = givenMaternityOnAPlan(customerType);
+
+      renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+      await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
+
+      expect(maternityConditions()).toEqual([
+        'Co-payment',
+        'Delivery type',
+        'Waiting period',
+        'Member ratio',
+      ]);
+
+      await user.click(screen.getByRole('checkbox', { name: `Member ratio for ${MATERNITY}` }));
+
+      // "One in 20 members" — whatever this document says, not a fixed ratio.
+      const oneIn = await screen.findByLabelText(`${MATERNITY} One in value`);
+      await user.type(oneIn, '20');
+      await user.tab();
+      await waitFor(() =>
+        expect(store.values.find((v) => v.optionFieldId === 'mat_one_in')?.value).toBe(20),
+      );
+    },
+  );
+
+  it('offers the delivery kinds as answers, and no figure as an answer', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenMaternityOnAPlan('INDIVIDUAL');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
+
+    await user.click(screen.getByRole('checkbox', { name: `Delivery type for ${MATERNITY}` }));
+    await user.click(await screen.findByRole('button', { name: `Delivery type for ${MATERNITY}` }));
+
+    expect(
+      (await screen.findAllByRole('checkbox'))
+        .map((box) => box.getAttribute('aria-label') ?? box.parentElement?.textContent ?? '')
+        .filter((label) => /delivery|Caesarean/i.test(label) && !label.includes('for ')),
+    ).toEqual(['Normal delivery', 'Caesarean section']);
+
+    // Not one amount, percentage or duration is offered as a pickable answer.
+    const numeric = (store.options[0]?.fields ?? []).filter((f) =>
+      ['CURRENCY', 'PERCENTAGE', 'NUMBER'].includes(f.dataType),
+    );
+    // Limit, Coverage, Co-payment, Waiting period, One in, Members.
+    expect(numeric.map((f) => f.label)).toHaveLength(6);
+    for (const f of numeric) {
+      expect(store.choices.filter((c) => c.optionFieldId === f.id)).toEqual([]);
+    }
+  });
+
+  it('leaves an untouched maternity limit empty, and keeps a stated zero', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenMaternityOnAPlan('INDIVIDUAL');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const limit = await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
+    expect(limit).toHaveValue('');
+    expect(store.values).toHaveLength(0);
+
+    await user.type(limit, '0');
+    await user.tab();
+    await waitFor(() =>
+      expect(store.values.find((v) => v.optionFieldId === 'mat_limit')?.value).toBe(0),
+    );
+  });
+});
