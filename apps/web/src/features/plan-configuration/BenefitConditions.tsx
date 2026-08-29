@@ -147,11 +147,16 @@ function Condition({
           {enabled ? (
             <div className="flex flex-wrap items-end gap-x-4 gap-y-2 px-1.5 pb-2.5 pl-8">
               {asksForItself ? (
+                /**
+                 * No label: the checkbox above already says "Room type", and
+                 * printing it again over the box says one thing twice.
+                 */
                 <ConditionInput
                   planOptionId={planOptionId}
                   planConfigurationId={planConfigurationId}
                   optionName={optionName}
                   value={condition}
+                  hideLabel
                 />
               ) : null}
 
@@ -184,11 +189,14 @@ function ConditionInput({
   planConfigurationId,
   optionName,
   value,
+  hideLabel = false,
 }: {
   planOptionId: string;
   planConfigurationId: string;
   optionName: string;
   value: PlanOptionValueDto;
+  /** True when the condition asks for ITSELF: its checkbox is already the label. */
+  hideLabel?: boolean;
 }) {
   if (value.dataType === 'MULTI') {
     return (
@@ -203,7 +211,7 @@ function ConditionInput({
 
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-content-subtle text-xs">{value.fieldLabel}</span>
+      {hideLabel ? null : <span className="text-content-subtle text-xs">{value.fieldLabel}</span>}
       <PlanOptionValueInline
         planOptionId={planOptionId}
         planConfigurationId={planConfigurationId}

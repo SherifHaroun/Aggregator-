@@ -3029,3 +3029,36 @@ describe('a multi-select shows its answers as answers', () => {
     expect(control.textContent).toBe('+ Included services');
   });
 });
+
+describe('a condition does not say its own name twice', () => {
+  it('labels an enabled condition once — on its checkbox, not again on its box', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(
+      await screen.findByRole('checkbox', { name: `Limit applies to for ${PRE_EXISTING}` }),
+    );
+    await screen.findByLabelText(`${PRE_EXISTING} Limit applies to value`);
+
+    // The checkbox names the condition. The control under it needs no caption
+    // of its own — repeating it reads as two separate things.
+    expect(screen.getAllByText('Limit applies to')).toHaveLength(1);
+  });
+
+  it('still labels each box of a condition that asks for more than one', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenPreExistingOnAPlan('FAMILY');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await user.click(
+      await screen.findByRole('checkbox', { name: `Member ratio for ${PRE_EXISTING}` }),
+    );
+
+    // "One in [ ] Members" — two boxes that must each say which is which.
+    expect(await screen.findByText('One in')).toBeInTheDocument();
+    expect(screen.getByText('Members')).toBeInTheDocument();
+    expect(screen.getAllByText('Member ratio')).toHaveLength(1);
+  });
+});
