@@ -121,15 +121,33 @@ export const PlanOptionSettingChoices = memo(function PlanOptionSettingChoices({
         aria-expanded={open}
         aria-label={`${value.fieldLabel} for ${optionName}`}
         className={cn(
-          'flex w-fit max-w-full items-center gap-1.5 rounded-(--radius-control) px-1.5 py-0.5 text-left text-xs font-medium',
+          'flex w-fit max-w-full flex-wrap items-center gap-1 rounded-(--radius-control) px-1.5 py-0.5 text-left text-xs font-medium',
           tickedNames.length > 0
             ? 'text-content-subtle hover:bg-surface-muted'
             : 'text-content-subtle hover:text-brand-strong hover:bg-brand-soft',
         )}
       >
-        <span className="truncate">
-          {tickedNames.length === 0 ? `+ ${value.fieldLabel}` : tickedNames.join(' · ')}
-        </span>
+        {/**
+         * Each answer is its OWN chip, never a joined sentence.
+         *
+         * "Surgeon fees, anaesthesia, ICU, room & board" reads as one vague
+         * remark and truncates into nonsense at nine answers — yet what is
+         * stored is nine separate facts. Nine chips say nine things, stay
+         * legible however many there are, and cannot be mistaken for prose
+         * somebody typed.
+         */}
+        {tickedNames.length === 0 ? (
+          <span className="truncate">+ {value.fieldLabel}</span>
+        ) : (
+          tickedNames.map((name) => (
+            <span
+              key={name}
+              className="bg-surface-muted text-content rounded-(--radius-control) px-1.5 py-0.5"
+            >
+              {name}
+            </span>
+          ))
+        )}
         {save.isPending ? <span className="shrink-0">Saving…</span> : null}
       </button>
 
@@ -149,7 +167,9 @@ export const PlanOptionSettingChoices = memo(function PlanOptionSettingChoices({
           </div>
 
           {answers.length === 0 ? (
-            <p className="text-content-subtle px-1.5 py-2 text-xs">{NO_LIMITATIONS_DEFINED_LABEL}</p>
+            <p className="text-content-subtle px-1.5 py-2 text-xs">
+              {NO_LIMITATIONS_DEFINED_LABEL}
+            </p>
           ) : managing ? (
             <AnswerRanking optionFieldId={value.optionFieldId} answers={answers} />
           ) : (
@@ -172,9 +192,7 @@ export const PlanOptionSettingChoices = memo(function PlanOptionSettingChoices({
             </div>
           )}
 
-          {managing ? null : (
-            <NewAnswer optionFieldId={value.optionFieldId} onCreated={toggle} />
-          )}
+          {managing ? null : <NewAnswer optionFieldId={value.optionFieldId} onCreated={toggle} />}
         </div>
       ) : null}
     </div>

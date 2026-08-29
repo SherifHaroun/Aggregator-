@@ -2959,3 +2959,73 @@ describe('pre-existing and chronic conditions', () => {
     expect(store.options[0]?.fields).toHaveLength(9);
   });
 });
+
+describe('a multi-select shows its answers as answers', () => {
+  it('renders each ticked answer separately, never as one joined sentence', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption('option_1', 'Inpatient & Daycase');
+    const fieldId = givenMultiSetting('option_1', 'Included services');
+    ['Operating room', 'Surgeon fees', 'ICU', 'Room & board'].forEach((label, index) =>
+      givenAnswer(`svc_${index}`, fieldId, label, index),
+    );
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+      tickedChoiceIds: ['svc_0', 'svc_1', 'svc_2', 'svc_3'],
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const control = await screen.findByRole('button', {
+      name: 'Included services for Inpatient & Daycase',
+    });
+
+    /**
+     * Four facts, four elements. Joined into "Operating room · Surgeon fees ·
+     * ICU · Room & board" they would read as one vague remark and truncate into
+     * nonsense — and what is stored is four separate answers.
+     */
+    const shown = within(control)
+      .getAllByText(/Operating room|Surgeon fees|ICU|Room & board/)
+      .map((chip) => chip.textContent);
+    expect(shown).toEqual(['Operating room', 'Surgeon fees', 'ICU', 'Room & board']);
+
+    // Each answer stays individually ticked and individually removable.
+    await user.click(control);
+    const services = await screen.findByRole('checkbox', { name: 'Surgeon fees' });
+    expect(services).toBeChecked();
+    await user.click(services);
+    await waitFor(() =>
+      expect(store.planOptions[0]?.tickedChoiceIds).toEqual(['svc_0', 'svc_2', 'svc_3']),
+    );
+  });
+
+  it('says nothing was recorded rather than inventing a summary', async () => {
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+    givenOption('option_1', 'Inpatient & Daycase');
+    givenMultiSetting('option_1', 'Included services');
+    store.planOptions.push({
+      id: 'planOption_1',
+      planConfigurationId: configurationId,
+      optionId: 'option_1',
+      sortOrder: 0,
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    // Unspecified stays unspecified — no "Includes: …" sentence is generated.
+    const control = await screen.findByRole('button', {
+      name: 'Included services for Inpatient & Daycase',
+    });
+    expect(control.textContent).toBe('+ Included services');
+  });
+});
