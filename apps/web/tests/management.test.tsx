@@ -3181,9 +3181,13 @@ function givenMaternityOnAPlan(customerType: CustomerTypeId) {
         isOptional: true,
         sortOrder: 4,
       }),
-      field('member_ratio', 'Member ratio', 'BOOLEAN', {
+      field('pregnancy_before_policy', 'Pregnancy before policy', 'BOOLEAN', {
         isOptional: true,
         sortOrder: 5,
+      }),
+      field('member_ratio', 'Member ratio', 'BOOLEAN', {
+        isOptional: true,
+        sortOrder: 6,
         customerTypes: GROUPS,
       }),
       field('one_in', 'One in', 'NUMBER', {
@@ -3227,7 +3231,12 @@ describe('maternity', () => {
     await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
     expect(screen.getByLabelText(`${MATERNITY} Coverage value`)).toBeInTheDocument();
 
-    expect(maternityConditions()).toEqual(['Co-payment', 'Delivery type', 'Waiting period']);
+    expect(maternityConditions()).toEqual([
+      'Co-payment',
+      'Delivery type',
+      'Waiting period',
+      'Pregnancy before policy',
+    ]);
 
     // An individual policy has no group. Not disabled, not greyed — absent.
     expect(screen.queryByRole('checkbox', { name: /Member ratio/i })).toBeNull();
@@ -3248,6 +3257,7 @@ describe('maternity', () => {
         'Co-payment',
         'Delivery type',
         'Waiting period',
+        'Pregnancy before policy',
         'Member ratio',
       ]);
 
@@ -3305,5 +3315,79 @@ describe('maternity', () => {
     await waitFor(() =>
       expect(store.values.find((v) => v.optionFieldId === 'mat_limit')?.value).toBe(0),
     );
+  });
+});
+
+describe('maternity: pregnancy before the policy started', () => {
+  it('is off by default and reveals a yes/no, never a text box', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenMaternityOnAPlan('INDIVIDUAL');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
+
+    const toggle = screen.getByRole('checkbox', {
+      name: `Pregnancy before policy for ${MATERNITY}`,
+    });
+    expect(toggle).not.toBeChecked();
+    expect(screen.queryByLabelText(`${MATERNITY} Pregnancy before policy value`)).toBeNull();
+
+    await user.click(toggle);
+
+    /**
+     * A yes/no the employee picks, not a sentence they write. Three states,
+     * all meaningful: off says the document never mentions it, "Not set" says
+     * it mentions it without saying which, and Yes/No is what it says.
+     */
+    const control = await screen.findByLabelText(`${MATERNITY} Pregnancy before policy value`);
+    expect(control.tagName).toBe('SELECT');
+    expect(
+      within(control)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Not set', 'Yes', 'No']);
+    expect(control).toHaveValue('');
+
+    await user.selectOptions(control, 'true');
+    await waitFor(() =>
+      expect(
+        store.values.find((v) => v.optionFieldId === 'mat_pregnancy_before_policy')?.value,
+      ).toBe(true),
+    );
+
+    // Switching it off says the document never mentioned it — nothing remains.
+    await user.click(toggle);
+    await waitFor(() =>
+      expect(
+        store.values.find((v) => v.optionFieldId === 'mat_pregnancy_before_policy'),
+      ).toBeUndefined(),
+    );
+  });
+
+  it('is asked of every customer type, unlike the member ratio', async () => {
+    const individual = renderApp(
+      ROUTES.configurations.detail('company_1', 'plan_1', givenMaternityOnAPlan('INDIVIDUAL')),
+    );
+    await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
+    expect(maternityConditions()).toContain('Pregnancy before policy');
+    expect(maternityConditions()).not.toContain('Member ratio');
+    individual.unmount();
+
+    // The SME configuration of the SAME plan, holding the SAME benefit.
+    const sme = givenConfiguration('cfg_sme', 'plan_1', 'SME');
+    store.planOptions.push({
+      id: 'planOption_mat',
+      planConfigurationId: sme,
+      optionId: 'option_mat',
+      sortOrder: 0,
+    });
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', sme));
+    await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
+    expect(maternityConditions()).toContain('Pregnancy before policy');
+    expect(maternityConditions()).toContain('Member ratio');
+
+    // One benefit, asked differently — not a second maternity benefit.
+    expect(store.options).toHaveLength(1);
   });
 });
