@@ -134,8 +134,13 @@ export const PlanOptionValueInline = memo(function PlanOptionValueInline({
 
   return (
     <span className="flex items-center gap-2">
-      {/* A ranked answer is a name, not a figure, so it needs room to read. */}
-      <span className={dataType === 'RANK' ? 'w-52' : 'w-32'}>
+      {/**
+       * A ranked answer is a name, not a figure, so it needs room to read. A
+       * figure box needs room too: it says "Not specified" while it is empty,
+       * and a box that cuts that to "Not spe" fails at the one job the words
+       * were added to do.
+       */}
+      <span className={dataType === 'RANK' ? 'w-52' : 'w-44'}>
         <ValueInput
           dataType={dataType}
           unit={unit}
