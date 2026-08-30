@@ -65,3 +65,12 @@ export const WIDEST_AGE_BAND = { from: MIN_INSURABLE_AGE, to: MAX_INSURABLE_AGE 
  * from this constant.
  */
 export const NOT_SPECIFIED_LABEL = 'Not specified in plan';
+
+/**
+ * The same fact, worded for a control the employee is filling in.
+ *
+ * EMPTY IS AN ANSWER: it says the document does not state this. So the blank
+ * choice names itself rather than reading as an unfilled box, and nothing
+ * anywhere turns it into 0.
+ */
+export const UNSPECIFIED_OPTION_LABEL = 'Not specified';

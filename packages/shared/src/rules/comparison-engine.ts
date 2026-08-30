@@ -137,14 +137,20 @@ function displayBenefit(benefit: CandidateBenefit): string {
    * the plan actually says.
    */
   if (benefit.dataType === 'RANK') {
-    return benefit.textValue?.trim() || (benefit.carried ? COVERED_LABEL : NOT_COVERED_LABEL);
+    return benefit.textValue?.trim() || (benefit.carried ? NOT_SPECIFIED_LABEL : NOT_COVERED_LABEL);
   }
 
   if (benefit.value === null) {
     if (!benefit.carried) return NOT_COVERED_LABEL;
-    // Carried but not quoted as a number: show the wording, or say plainly
-    // that it is provided. Never "Not covered", which would be false.
-    return benefit.textValue?.trim() || COVERED_LABEL;
+    /**
+     * Carried, but the document put no figure on it.
+     *
+     * That is not "Not covered", which would be false, and not "Covered",
+     * which claims more than the document said — a plan covering dental at an
+     * unstated percentage has not promised to cover all of it. It is exactly
+     * what it is: the plan does not specify.
+     */
+    return benefit.textValue?.trim() || NOT_SPECIFIED_LABEL;
   }
   const unit = benefit.unit ?? (benefit.dataType === 'PERCENTAGE' ? '%' : '');
   return unit ? `${formatNumber(benefit.value)}${unit}` : formatNumber(benefit.value);
@@ -152,9 +158,6 @@ function displayBenefit(benefit: CandidateBenefit): string {
 
 /** Shown wherever a plan does not carry a selected benefit. Never "0" or "100%". */
 export const NOT_COVERED_LABEL = 'Not covered';
-
-/** Shown for a benefit a plan provides but does not put a figure on. */
-export const COVERED_LABEL = 'Covered';
 
 /** Plain number formatting, grouped, without inventing decimals. */
 export const formatNumber = formatNumberValue;

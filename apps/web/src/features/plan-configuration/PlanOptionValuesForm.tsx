@@ -1,5 +1,6 @@
 import {
   NO_BENEFIT_CHOICES_LABEL,
+  UNSPECIFIED_OPTION_LABEL,
   parseOptionValue,
   type OptionChoiceDto,
   type OptionFieldDataType,
@@ -317,7 +318,8 @@ function ValueInput({
         <span className="text-content-subtle text-xs">{NO_BENEFIT_CHOICES_LABEL}</span>
       ) : (
         <Select {...props} value={value} onChange={(event) => onChange(event.target.value)}>
-          <option value="">Not set</option>
+          {/* Empty is an answer: the document does not state this. */}
+          <option value="">{UNSPECIFIED_OPTION_LABEL}</option>
           {(choices ?? []).map((choice) => (
             <option key={choice.id} value={choice.id}>
               {choice.label}
@@ -329,7 +331,7 @@ function ValueInput({
     case 'BOOLEAN':
       return (
         <Select {...props} value={value} onChange={(event) => onChange(event.target.value)}>
-          <option value="">Not set</option>
+          <option value="">{UNSPECIFIED_OPTION_LABEL}</option>
           <option value="true">Yes</option>
           <option value="false">No</option>
         </Select>
@@ -362,7 +364,15 @@ function ValueInput({
       );
 
     case 'PERCENTAGE':
-      return <NumberInput {...props} suffix={unit ?? '%'} value={value} onChange={onChange} />;
+      return (
+        <NumberInput
+          {...props}
+          suffix={unit ?? '%'}
+          placeholder={UNSPECIFIED_OPTION_LABEL}
+          value={value}
+          onChange={onChange}
+        />
+      );
 
     /**
      * A limit is the figure most likely to have five digits in it, so it is
@@ -376,6 +386,7 @@ function ValueInput({
         <NumberInput
           {...props}
           {...(unit ? { suffix: unit } : {})}
+          placeholder={UNSPECIFIED_OPTION_LABEL}
           value={value}
           onChange={onChange}
         />

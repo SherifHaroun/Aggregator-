@@ -2696,7 +2696,7 @@ describe('pre-existing and chronic conditions', () => {
       within(period)
         .getAllByRole('option')
         .map((option) => option.textContent),
-    ).toEqual(['Not set', 'Per year', 'Per policy year', 'Lifetime', 'Within annual limit']);
+    ).toEqual(['Not specified', 'Per year', 'Per policy year', 'Lifetime', 'Within annual limit']);
     expect(screen.getByText('Period').textContent).toContain('*');
   });
 
@@ -2839,7 +2839,7 @@ describe('pre-existing and chronic conditions', () => {
         .getAllByRole('option')
         .map((option) => option.textContent),
     ).toEqual([
-      'Not set',
+      'Not specified',
       'Per member',
       'Per family',
       'Per condition',
@@ -3348,7 +3348,7 @@ describe('maternity: pregnancy before the policy started', () => {
     );
     expect(screen.queryByLabelText(`${MATERNITY} Pregnancy before policy value`)).toBeNull();
     // Nothing to pick and nothing to type — the checkbox said it all.
-    expect(screen.queryByRole('option', { name: 'Not set' })).toBeNull();
+    expect(screen.queryByRole('option', { name: 'Not specified' })).toBeNull();
 
     // Switching it off says the document never mentioned it — nothing remains.
     await user.click(toggle);
@@ -3527,7 +3527,7 @@ describe('optical', () => {
         within(control)
           .getAllByRole('option')
           .map((option) => option.textContent),
-      ).toEqual(['Not set', ...FREQUENCY]);
+      ).toEqual(['Not specified', ...FREQUENCY]);
       // No frequency is assumed — the document decides.
       expect(control).toHaveValue('');
     },
@@ -3939,7 +3939,7 @@ describe('dental', () => {
       within(control)
         .getAllByRole('option')
         .map((option) => option.textContent),
-    ).toEqual(['Not set', ...answers]);
+    ).toEqual(['Not specified', ...answers]);
     expect(control).toHaveValue('');
 
     await user.selectOptions(control, firstId);
@@ -4021,5 +4021,60 @@ describe('dental', () => {
     await waitFor(() =>
       expect(store.values.find((v) => v.optionFieldId === 'den_limit')?.value).toBe(0),
     );
+  });
+});
+
+describe('empty means not specified, and zero means zero', () => {
+  it('says so in the box itself rather than looking unfilled', async () => {
+    const configurationId = givenDentalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    // An empty figure names what empty means, so nobody reads it as a gap.
+    const coverage = await screen.findByLabelText(`${DENTAL} Coverage value`);
+    expect(coverage).toHaveValue('');
+    expect(coverage).toHaveAttribute('placeholder', 'Not specified');
+    expect(await screen.findByLabelText(`${DENTAL} Dental Limit value`)).toHaveAttribute(
+      'placeholder',
+      'Not specified',
+    );
+
+    // Nothing was stored just because the card was opened.
+    expect(store.values).toHaveLength(0);
+  });
+
+  it('never turns an untouched coverage into 0, and never loses a typed 0', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    const coverage = await screen.findByLabelText(`${DENTAL} Coverage value`);
+
+    // Focusing and leaving without typing must not invent a figure.
+    await user.click(coverage);
+    await user.tab();
+    expect(store.values.find((v) => v.optionFieldId === 'den_alternative')).toBeUndefined();
+
+    // A document that says 0% said something, and it is not blank.
+    await user.type(coverage, '0');
+    await user.tab();
+    await waitFor(() =>
+      expect(store.values.find((v) => v.optionFieldId === 'den_alternative')?.value).toBe(0),
+    );
+    expect(coverage).toHaveValue('0');
+  });
+
+  it('names the blank choice on a dropdown instead of leaving it wordless', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+
+    await user.click(screen.getByRole('checkbox', { name: `Dental Network for ${DENTAL}` }));
+    const network = await screen.findByLabelText(`${DENTAL} Dental Network value`);
+
+    expect(within(network).getAllByRole('option')[0]?.textContent).toBe('Not specified');
+    expect(network).toHaveValue('');
   });
 });

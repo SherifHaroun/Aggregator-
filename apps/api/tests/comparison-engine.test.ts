@@ -12,6 +12,7 @@ import {
   rankLabel,
   rankValue,
   scoreCandidates,
+  NOT_SPECIFIED_LABEL,
   type AppliedLimitation,
   type CandidateBenefit,
   type ComparisonCandidate,
@@ -586,5 +587,81 @@ describe('ranked answers', () => {
     // A deleted answer, or one recorded before the benefit became ranked.
     expect(rankValue('gone', NETWORKS)).toBeNull();
     expect(rankLabel('gone', NETWORKS)).toBeNull();
+  });
+});
+
+/**
+ * EMPTY IS AN ANSWER, AND IT IS NOT ZERO.
+ *
+ * A figure the document never stated is not 0%, not missing data and not a
+ * fault. It reads as the business's own wording — and a figure that IS zero
+ * still reads as zero, because a document stating 0% said something real that
+ * has to survive to the screen.
+ */
+describe('a figure the plan never stated', () => {
+  /** On the plan, with no percentage written against it. */
+  const unquoted = (optionId: string, optionName: string): CandidateBenefit => ({
+    optionId,
+    optionName,
+    value: null,
+    dataType: 'PERCENTAGE',
+    unit: '%',
+    carried: true,
+    textValue: null,
+    limitations: [],
+  });
+
+  it('reads as not specified — never as 0%, and never as covered in full', () => {
+    const results = scoreCandidates([
+      plan('a', 'Company A', 1000, [unquoted('den', 'Dental')]),
+      plan('b', 'Company B', 1100, [pct('den', 'Dental', 80)]),
+    ]);
+
+    const cell = results.find((r) => r.configurationId === 'a')!.benefits[0]!;
+    expect(cell.value).toBeNull();
+    expect(cell.display).toBe(NOT_SPECIFIED_LABEL);
+    expect(cell.display).not.toContain('0');
+    // "Covered" would promise cover in full that no document offered.
+    expect(cell.display).not.toBe('Covered');
+  });
+
+  it('keeps a stated zero as zero', () => {
+    const results = scoreCandidates([
+      plan('a', 'Company A', 1000, [pct('cop', 'Co-payment', 0)]),
+      plan('b', 'Company B', 1100, [pct('cop', 'Co-payment', 20)]),
+    ]);
+
+    const cell = results.find((r) => r.configurationId === 'a')!.benefits[0]!;
+    // A document that says "no co-payment" said something, and it is not blank.
+    expect(cell.value).toBe(0);
+    expect(cell.display).toBe('0%');
+    expect(cell.display).not.toBe(NOT_SPECIFIED_LABEL);
+  });
+
+  it('still tells an unquoted benefit apart from one the plan lacks', () => {
+    const results = scoreCandidates([
+      plan('has', 'Company A', 1000, [unquoted('den', 'Dental')]),
+      plan('lacks', 'Company B', 1100, [pct('den', 'Dental', null)]),
+    ]);
+
+    const has = results.find((r) => r.configurationId === 'has')!.benefits[0]!;
+    const lacks = results.find((r) => r.configurationId === 'lacks')!.benefits[0]!;
+
+    // Two different facts, and neither is allowed to read as the other.
+    expect(has.display).toBe(NOT_SPECIFIED_LABEL);
+    expect(lacks.display).toBe('Not covered');
+    expect(has.display).not.toBe(lacks.display);
+  });
+
+  it('says not specified for a ranked answer nobody chose', () => {
+    const choices = [{ id: 'gold', label: 'Golden Care Network', sortOrder: 0 }];
+    const results = scoreCandidates([
+      plan('a', 'Company A', 1000, [{ ...ranked('net', 'Network', null, choices), carried: true }]),
+      plan('b', 'Company B', 1100, [ranked('net', 'Network', 'gold', choices)]),
+    ]);
+
+    expect(results.find((r) => r.configurationId === 'a')!.benefits[0]!.display).toBe(
+      NOT_SPECIFIED_LABEL,
+    );
   });
 });
