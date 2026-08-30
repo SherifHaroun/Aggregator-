@@ -3451,7 +3451,8 @@ function givenOpticalOnAPlan(customerType: CustomerTypeId = 'INDIVIDUAL') {
       field('glasses', 'Glasses', 'RANK', { isOptional: true, sortOrder: 4 }),
       field('contact_lenses', 'Contact lenses', 'RANK', { isOptional: true, sortOrder: 5 }),
       field('network', 'Network', 'RANK', { isOptional: true, sortOrder: 6 }),
-      field('provider_restriction', 'Provider restriction', 'BOOLEAN', {
+      // A list the employee writes, ticks and ranks — nothing predefined.
+      field('provider_restriction', 'Provider restriction', 'MULTI', {
         isOptional: true,
         sortOrder: 7,
       }),
@@ -3548,24 +3549,6 @@ describe('optical', () => {
     );
   });
 
-  it('treats ticking Provider restriction as the answer itself', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenOpticalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-
-    await user.click(screen.getByRole('checkbox', { name: `Provider restriction for ${OPTICAL}` }));
-
-    // The tick says a restriction applies. Nothing is asked underneath.
-    await waitFor(() =>
-      expect(
-        store.values.find((v) => v.optionFieldId === 'opt_provider_restriction'),
-      ).toBeDefined(),
-    );
-    expect(screen.queryByLabelText(`${OPTICAL} Provider restriction value`)).toBeNull();
-  });
-
   it('offers no figure as a pickable answer, and keeps empty empty', async () => {
     const user = userEvent.setup();
     const configurationId = givenOpticalOnAPlan();
@@ -3589,5 +3572,196 @@ describe('optical', () => {
     await waitFor(() =>
       expect(store.values.find((v) => v.optionFieldId === 'opt_limit')?.value).toBe(0),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Optical — provider restrictions the employee writes, ticks and ranks
+// ---------------------------------------------------------------------------
+
+/** Open the restriction editor: tick the condition, then open its list. */
+async function openProviderRestrictions(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole('checkbox', { name: `Provider restriction for ${OPTICAL}` }));
+  await user.click(
+    await screen.findByRole('button', { name: `Provider restriction for ${OPTICAL}` }),
+  );
+}
+
+/** Write a restriction of the employee's own wording. */
+async function addRestriction(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.type(await screen.findByLabelText('New answer'), name);
+  await user.click(screen.getByRole('button', { name: 'Add' }));
+  await waitFor(() => expect(store.choices.some((choice) => choice.label === name)).toBe(true));
+}
+
+const restrictionsOnThePlan = () =>
+  store.planOptions.find((item) => item.id === 'planOption_opt')?.tickedChoiceIds ?? [];
+
+const restrictionsDefined = () =>
+  store.choices
+    .filter((choice) => choice.optionFieldId === 'opt_provider_restriction')
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((choice) => choice.label);
+
+describe('optical: provider restrictions', () => {
+  it('shows nothing until the condition is ticked', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenOpticalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+
+    const toggle = screen.getByRole('checkbox', { name: `Provider restriction for ${OPTICAL}` });
+    expect(toggle).not.toBeChecked();
+    expect(
+      screen.queryByRole('button', { name: `Provider restriction for ${OPTICAL}` }),
+    ).toBeNull();
+
+    await user.click(toggle);
+
+    // Ticked: the editor appears, offering nothing until the employee writes it.
+    expect(
+      await screen.findByRole('button', { name: `Provider restriction for ${OPTICAL}` }),
+    ).toBeInTheDocument();
+    expect(restrictionsDefined()).toEqual([]);
+  });
+
+  it('lets the employee write as many restrictions as the document needs', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenOpticalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+    await openProviderRestrictions(user);
+
+    // Wording the employee chose, not a list anybody shipped.
+    await addRestriction(user, 'Approved optical providers');
+    await addRestriction(user, 'Network optical providers');
+    await addRestriction(user, 'Named optical providers');
+
+    expect(restrictionsDefined()).toEqual([
+      'Approved optical providers',
+      'Network optical providers',
+      'Named optical providers',
+    ]);
+  });
+
+  it('ticks one, then several, and leaves the rest available but unticked', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenOpticalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+    await openProviderRestrictions(user);
+
+    await addRestriction(user, 'Approved optical providers');
+    await addRestriction(user, 'Network optical providers');
+    await addRestriction(user, 'Named optical providers');
+
+    /**
+     * Writing one down ticks it: an employee who typed it plainly meant it to
+     * apply. So the second is untied here to prove ticking is separate from
+     * existing — it stays on the list, simply not claimed by this plan.
+     */
+    await user.click(screen.getByRole('checkbox', { name: 'Network optical providers' }));
+
+    await waitFor(() => expect(restrictionsOnThePlan()).toHaveLength(2));
+    const ticked = new Set(restrictionsOnThePlan());
+    const byLabel = Object.fromEntries(store.choices.map((choice) => [choice.label, choice.id]));
+    expect(ticked.has(byLabel['Approved optical providers']!)).toBe(true);
+    expect(ticked.has(byLabel['Named optical providers']!)).toBe(true);
+    // Available to any plan, claimed by this one: no.
+    expect(ticked.has(byLabel['Network optical providers']!)).toBe(false);
+    expect(restrictionsDefined()).toHaveLength(3);
+
+    // And an unticked one can be claimed later without being re-typed.
+    await user.click(screen.getByRole('checkbox', { name: 'Network optical providers' }));
+    await waitFor(() => expect(restrictionsOnThePlan()).toHaveLength(3));
+  });
+
+  it('ranks the restrictions by drag, without changing what is ticked', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenOpticalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+    await openProviderRestrictions(user);
+
+    await addRestriction(user, 'Approved optical providers');
+    await addRestriction(user, 'Named optical providers');
+    await waitFor(() => expect(restrictionsOnThePlan()).toHaveLength(2));
+    const tickedBefore = [...restrictionsOnThePlan()];
+
+    // Ranking is a separate job from ticking, so it has its own mode.
+    await user.click(screen.getByRole('button', { name: 'Rank & edit' }));
+    expect(
+      await screen.findByRole('button', { name: 'Reorder Approved optical providers' }),
+    ).toBeInTheDocument();
+
+    // jsdom reports zero-sized rects, so dnd-kit cannot resolve a pointer drop
+    // target. The endpoint the list calls on drop is exercised directly.
+    const ids = store.choices
+      .filter((c) => c.optionFieldId === 'opt_provider_restriction')
+      .map((c) => c.id);
+    await fetch(`/api/v1/option-fields/opt_provider_restriction/choices/reorder`, {
+      method: 'POST',
+      body: JSON.stringify({ orderedIds: [ids[1], ids[0]] }),
+    });
+
+    expect(restrictionsDefined()).toEqual([
+      'Named optical providers',
+      'Approved optical providers',
+    ]);
+    // Re-ranking says what each is worth. It says nothing about this plan.
+    expect(restrictionsOnThePlan().sort()).toEqual(tickedBefore.sort());
+  });
+
+  it('removes a restriction that was written by mistake', async () => {
+    const user = userEvent.setup();
+    // Deleting an answer a plan records changes what that plan says, so the
+    // API refuses and the employee is asked first.
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const configurationId = givenOpticalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+    await openProviderRestrictions(user);
+
+    await addRestriction(user, 'Approved optical providers');
+    await addRestriction(user, 'Naemd optical providers');
+
+    await user.click(screen.getByRole('button', { name: 'Rank & edit' }));
+
+    // Renaming corrects a typo everywhere at once.
+    await user.click(await screen.findByRole('button', { name: 'Edit Naemd optical providers' }));
+    const input = await screen.findByLabelText('Rename Naemd optical providers');
+    await user.clear(input);
+    await user.type(input, 'Named optical providers{Enter}');
+    await waitFor(() => expect(restrictionsDefined()).toContain('Named optical providers'));
+
+    await user.click(await screen.findByRole('button', { name: 'Delete Named optical providers' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    await waitFor(() => expect(restrictionsDefined()).toEqual(['Approved optical providers']));
+    // Gone from the list, and gone from the plan that claimed it.
+    expect(restrictionsOnThePlan()).toHaveLength(1);
+    confirm.mockRestore();
+  });
+
+  it('switching the condition off clears the plan’s claims but keeps the list', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenOpticalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+    await openProviderRestrictions(user);
+    await addRestriction(user, 'Approved optical providers');
+    await waitFor(() => expect(restrictionsOnThePlan()).toHaveLength(1));
+
+    await user.click(screen.getByRole('checkbox', { name: `Provider restriction for ${OPTICAL}` }));
+
+    // The document never mentioned it, so this plan claims nothing — but the
+    // wording stays on the list for every other plan that does.
+    await waitFor(() => expect(restrictionsOnThePlan()).toHaveLength(0));
+    expect(restrictionsDefined()).toEqual(['Approved optical providers']);
   });
 });
