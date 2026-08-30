@@ -36,12 +36,29 @@ export const coverageLabel = (id: GeographicalCoverageId): string =>
  * benefit with no fields at all is an umbrella: it groups others and holds
  * nothing itself.
  */
-export function benefitTypeLabel(fields?: readonly { dataType: OptionFieldDataType }[]): string {
+export function benefitTypeLabel(
+  fields?: readonly { dataType: OptionFieldDataType; isOptional?: boolean }[],
+): string {
   if (fields && fields.length === 0) return UMBRELLA_BENEFIT_LABEL;
-  const dataType = fields?.[0]?.dataType ?? BENEFIT_VALUE_FIELD.dataType;
+
+  /**
+   * A benefit whose every setting is optional carries no figure of its own:
+   * its NAME is the whole benefit. "Covers Hepatitis" is a complete statement,
+   * and calling it a percentage because the first thing it may optionally
+   * record is one would describe it by something it need never hold.
+   */
+  if (fields && fields.length > 0 && fields.every((field) => field.isOptional)) {
+    return STATEMENT_BENEFIT_LABEL;
+  }
+
+  const core = fields?.find((field) => !field.isOptional) ?? fields?.[0];
+  const dataType = core?.dataType ?? BENEFIT_VALUE_FIELD.dataType;
   const kind = benefitKindForDataType(dataType);
   return kind ? BENEFIT_VALUE_KINDS[kind].label : optionLabel(OPTION_FIELD_DATA_TYPES, dataType);
 }
+
+/** A benefit the document states in words, with no figure attached. */
+export const STATEMENT_BENEFIT_LABEL = 'Statement of cover';
 
 /** How a benefit that only groups other benefits describes itself. */
 export const UMBRELLA_BENEFIT_LABEL = 'Group of benefits';

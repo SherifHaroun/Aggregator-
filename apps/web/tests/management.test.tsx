@@ -4256,3 +4256,207 @@ describe('dental: covered procedures', () => {
     expect(store.values.find((v) => v.optionFieldId === 'den_coverage')).toBeUndefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Other Key Benefits — a name can be the whole benefit
+// ---------------------------------------------------------------------------
+
+/** The five settings every Other Key Benefit may optionally record. */
+const OPTIONAL_SETTINGS = ['Coverage', 'Limit', 'Co-payment', 'Waiting period', 'Frequency'];
+
+/**
+ * A benefit whose name IS the statement — "Covers Hepatitis" — with the five
+ * settings available but none required.
+ */
+function givenStatementBenefit(name = 'Covers Hepatitis', id = 'option_stmt') {
+  const field = (
+    key: string,
+    label: string,
+    dataType: OptionFieldDto['dataType'],
+    unit: string | null,
+    sortOrder: number,
+  ): OptionFieldDto => ({
+    id: `${id}_${key}`,
+    optionId: id,
+    label,
+    key,
+    dataType,
+    unit,
+    helpText: null,
+    isRequired: false,
+    sortOrder,
+    isActive: true,
+    // Every one a toggle: the document decides which, if any, apply.
+    isOptional: true,
+    parentFieldId: null,
+    showWhenChoiceId: null,
+    customerTypes: [],
+    ...timestamps,
+  });
+
+  store.options.push({
+    id,
+    name,
+    description: null,
+    sortOrder: 0,
+    isUmbrella: false,
+    parentId: null,
+    isActive: true,
+    ...timestamps,
+    fields: [
+      field('coverage', 'Coverage', 'PERCENTAGE', '%', 0),
+      field('limit', 'Limit', 'CURRENCY', null, 1),
+      field('co_payment', 'Co-payment', 'PERCENTAGE', '%', 2),
+      field('waiting_period', 'Waiting period', 'NUMBER', 'months', 3),
+      field('frequency', 'Frequency', 'RANK', null, 4),
+    ],
+  });
+  ['Once per year', 'Once every 2 years', 'Once every 3 years', 'Once per policy period'].forEach(
+    (label, index) => givenAnswer(`${id}_freq_${index}`, `${id}_frequency`, label, index),
+  );
+  return id;
+}
+
+function givenStatementOnAPlan(name = 'Covers Hepatitis') {
+  givenCompany();
+  givenInsuranceType();
+  givenPlan();
+  const configurationId = givenConfiguration('cfg_1', 'plan_1');
+  givenStatementBenefit(name);
+  store.planOptions.push({
+    id: 'planOption_stmt',
+    planConfigurationId: configurationId,
+    optionId: 'option_stmt',
+    sortOrder: 0,
+  });
+  return configurationId;
+}
+
+const valueFor = (key: string) =>
+  store.values.find((v) => v.optionFieldId === `option_stmt_${key}`);
+
+describe('other key benefits: a statement is a complete benefit', () => {
+  it('records "Covers Hepatitis" with nothing but its name', async () => {
+    const configurationId = givenStatementOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    // The name shows on the plan card and again in the panel it was dragged from.
+    expect((await screen.findAllByText('Covers Hepatitis')).length).toBeGreaterThan(0);
+
+    /**
+     * No figure is demanded anywhere: not beside the name, not below it. A
+     * document that says only "Covers Hepatitis" has been recorded in full.
+     */
+    expect(screen.queryByLabelText(/Covers Hepatitis .* value/)).toBeNull();
+    expect(store.values).toHaveLength(0);
+
+    // The five settings are offered, all switched off.
+    for (const setting of OPTIONAL_SETTINGS) {
+      expect(
+        screen.getByRole('checkbox', { name: `${setting} for Covers Hepatitis` }),
+      ).not.toBeChecked();
+    }
+  });
+
+  it('describes itself as a statement, not as a percentage', async () => {
+    const configurationId = givenStatementOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findAllByText('Covers Hepatitis');
+
+    // Calling it "Percentage" would name it after a figure it need never hold.
+    expect(screen.getAllByText('Statement of cover').length).toBeGreaterThan(0);
+  });
+
+  it('adds Coverage without Limit', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenStatementOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findAllByText('Covers Hepatitis');
+
+    await user.click(screen.getByRole('checkbox', { name: 'Coverage for Covers Hepatitis' }));
+    await user.type(await screen.findByLabelText('Covers Hepatitis Coverage value'), '80');
+    await user.tab();
+
+    await waitFor(() => expect(valueFor('coverage')?.value).toBe(80));
+    // Limit was never mentioned, so it is not there — and it is not zero.
+    expect(screen.queryByLabelText('Covers Hepatitis Limit value')).toBeNull();
+    expect(valueFor('limit')).toBeUndefined();
+  });
+
+  it('adds Limit without Coverage', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenStatementOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findAllByText('Covers Hepatitis');
+
+    await user.click(screen.getByRole('checkbox', { name: 'Limit for Covers Hepatitis' }));
+    await user.type(await screen.findByLabelText('Covers Hepatitis Limit value'), '10000');
+    await user.tab();
+
+    await waitFor(() => expect(valueFor('limit')?.value).toBe(10000));
+    expect(screen.queryByLabelText('Covers Hepatitis Coverage value')).toBeNull();
+    expect(valueFor('coverage')).toBeUndefined();
+  });
+
+  it('lets several settings coexist, and grows one at a time', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenStatementOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findAllByText('Covers Hepatitis');
+
+    await user.click(screen.getByRole('checkbox', { name: 'Coverage for Covers Hepatitis' }));
+    await user.type(await screen.findByLabelText('Covers Hepatitis Coverage value'), '80');
+    await user.tab();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Limit for Covers Hepatitis' }));
+    await user.type(await screen.findByLabelText('Covers Hepatitis Limit value'), '10000');
+    await user.tab();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Frequency for Covers Hepatitis' }));
+    const frequency = await screen.findByLabelText('Covers Hepatitis Frequency value');
+    await user.selectOptions(frequency, 'option_stmt_freq_0');
+
+    await waitFor(() => expect(valueFor('frequency')?.value).toBe('option_stmt_freq_0'));
+    expect(valueFor('coverage')?.value).toBe(80);
+    expect(valueFor('limit')?.value).toBe(10000);
+    // The two nobody mentioned are still absent.
+    expect(valueFor('co_payment')).toBeUndefined();
+    expect(valueFor('waiting_period')).toBeUndefined();
+  });
+
+  it('never turns a setting the document skipped into zero', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenStatementOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findAllByText('Covers Hepatitis');
+
+    // Switched on, but the document gave no figure: it applies, unquantified.
+    await user.click(screen.getByRole('checkbox', { name: 'Co-payment for Covers Hepatitis' }));
+    await waitFor(() => expect(valueFor('co_payment')).toBeDefined());
+    expect(valueFor('co_payment')?.value).toBeNull();
+    expect(await screen.findByLabelText('Covers Hepatitis Co-payment value')).toHaveValue('');
+
+    // Switched off again: the plan says nothing about it at all.
+    await user.click(screen.getByRole('checkbox', { name: 'Co-payment for Covers Hepatitis' }));
+    await waitFor(() => expect(valueFor('co_payment')).toBeUndefined());
+  });
+
+  it.each([
+    ['Covers 25 Congenital Defects'],
+    ['Covers Hepatitis'],
+    ['COVID-19 inpatient coverage included'],
+  ])('supports the document statement %s on its own', async (name) => {
+    const configurationId = givenStatementOnAPlan(name);
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    expect((await screen.findAllByText(name)).length).toBeGreaterThan(0);
+    expect(store.values).toHaveLength(0);
+    expect(screen.getByRole('checkbox', { name: `Coverage for ${name}` })).not.toBeChecked();
+  });
+});
