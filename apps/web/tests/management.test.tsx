@@ -3765,3 +3765,261 @@ describe('optical: provider restrictions', () => {
     expect(restrictionsDefined()).toEqual(['Approved optical providers']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Dental — two figures the documents always state, five conditions they may
+// ---------------------------------------------------------------------------
+
+const DENTAL = 'Dental Details';
+
+/** Mirrors the definition held in Railway production, field for field. */
+function givenDentalOnAPlan(customerType: CustomerTypeId = 'INDIVIDUAL') {
+  givenCompany();
+  givenInsuranceType();
+  givenPlan();
+  const configurationId = givenConfiguration('cfg_1', 'plan_1', customerType);
+
+  const field = (
+    key: string,
+    label: string,
+    dataType: OptionFieldDto['dataType'],
+    extras: Partial<OptionFieldDto> = {},
+  ): OptionFieldDto => ({
+    id: `den_${key}`,
+    optionId: 'option_den',
+    label,
+    key,
+    dataType,
+    unit: null,
+    helpText: null,
+    isRequired: false,
+    sortOrder: 0,
+    isActive: true,
+    isOptional: false,
+    parentFieldId: null,
+    showWhenChoiceId: null,
+    customerTypes: [],
+    ...timestamps,
+    ...extras,
+  });
+
+  store.options.push({
+    id: 'option_den',
+    name: DENTAL,
+    description: null,
+    sortOrder: 0,
+    isUmbrella: false,
+    parentId: null,
+    isActive: true,
+    ...timestamps,
+    fields: [
+      field('limit', 'Dental Limit', 'CURRENCY', { sortOrder: 0 }),
+      /**
+       * Coverage still carries the legacy key `alternative`, because a field's
+       * key cannot be changed once plans answer it and 29 of them answer this
+       * one. It is a core field in its own right now, not an "or".
+       */
+      field('alternative', 'Coverage', 'PERCENTAGE', { unit: '%', sortOrder: 1 }),
+      // The old restriction list, still carrying its ticks on 29 plans.
+      field('limitations', 'Limitations', 'MULTI', { sortOrder: 7 }),
+      field('co_payment', 'Co-payment', 'PERCENTAGE', {
+        unit: '%',
+        isOptional: true,
+        sortOrder: 2,
+      }),
+      field('dental_network', 'Dental Network', 'RANK', { isOptional: true, sortOrder: 3 }),
+      field('included_services', 'Included Dental Services', 'MULTI', {
+        isOptional: true,
+        sortOrder: 4,
+      }),
+      field('waiting_period', 'Waiting period', 'NUMBER', {
+        unit: 'months',
+        isOptional: true,
+        sortOrder: 5,
+      }),
+      field('frequency', 'Frequency', 'RANK', { isOptional: true, sortOrder: 6 }),
+    ],
+  });
+
+  ['In-network only', 'In-network and out-of-network', 'Out-of-network only'].forEach(
+    (label, index) => givenAnswer(`den_net_${index}`, 'den_dental_network', label, index),
+  );
+  ['Once per year', 'Once every 2 years', 'Once every 3 years', 'Once per policy period'].forEach(
+    (label, index) => givenAnswer(`den_freq_${index}`, 'den_frequency', label, index),
+  );
+
+  store.planOptions.push({
+    id: 'planOption_den',
+    planConfigurationId: configurationId,
+    optionId: 'option_den',
+    sortOrder: 0,
+  });
+  return configurationId;
+}
+
+const dentalConditions = () =>
+  screen
+    .queryAllByRole('checkbox')
+    .map((box) => box.getAttribute('aria-label') ?? '')
+    .filter((label) => label.endsWith(`for ${DENTAL}`))
+    .map((label) => label.replace(` for ${DENTAL}`, ''));
+
+describe('dental', () => {
+  it.each([
+    ['INDIVIDUAL' as CustomerTypeId],
+    ['FAMILY' as CustomerTypeId],
+    ['SME' as CustomerTypeId],
+  ])('asks a %s plan the same five conditions, and never a member ratio', async (customerType) => {
+    const configurationId = givenDentalOnAPlan(customerType);
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+    expect(screen.getByLabelText(`${DENTAL} Coverage value`)).toBeInTheDocument();
+
+    // Dental states a limit and a share of the cost; nothing about a group.
+    expect(dentalConditions()).toEqual([
+      'Co-payment',
+      'Dental Network',
+      'Included Dental Services',
+      'Waiting period',
+      'Frequency',
+    ]);
+    expect(screen.queryByRole('checkbox', { name: /Member ratio/i })).toBeNull();
+  });
+
+  it('takes the limit and the coverage as figures the employee types', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const limit = await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+    await user.type(limit, '600');
+    await user.tab();
+    await user.type(screen.getByLabelText(`${DENTAL} Coverage value`), '80');
+    await user.tab();
+
+    await waitFor(() =>
+      expect(store.values.find((v) => v.optionFieldId === 'den_limit')?.value).toBe(600),
+    );
+    expect(store.values.find((v) => v.optionFieldId === 'den_alternative')?.value).toBe(80);
+
+    // Neither is picked from a list — no figure is an answer anywhere here.
+    for (const f of (store.options[0]?.fields ?? []).filter((field) =>
+      ['CURRENCY', 'PERCENTAGE', 'NUMBER'].includes(field.dataType),
+    )) {
+      expect(store.choices.filter((c) => c.optionFieldId === f.id)).toEqual([]);
+    }
+  });
+
+  it.each([
+    [
+      'Dental Network',
+      'den_net_0',
+      ['In-network only', 'In-network and out-of-network', 'Out-of-network only'],
+    ],
+    [
+      'Frequency',
+      'den_freq_0',
+      ['Once per year', 'Once every 2 years', 'Once every 3 years', 'Once per policy period'],
+    ],
+  ])('reveals %s only when ticked, as a dropdown', async (condition, firstId, answers) => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+
+    expect(screen.queryByLabelText(`${DENTAL} ${condition} value`)).toBeNull();
+    await user.click(screen.getByRole('checkbox', { name: `${condition} for ${DENTAL}` }));
+
+    const control = await screen.findByLabelText(`${DENTAL} ${condition} value`);
+    expect(control.tagName).toBe('SELECT');
+    expect(
+      within(control)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['Not set', ...answers]);
+    expect(control).toHaveValue('');
+
+    await user.selectOptions(control, firstId);
+    await waitFor(() => expect(store.values.find((v) => v.value === firstId)).toBeDefined());
+  });
+
+  it('takes the waiting period in months, and only when ticked', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+
+    expect(screen.queryByLabelText(`${DENTAL} Waiting period value`)).toBeNull();
+    await user.click(screen.getByRole('checkbox', { name: `Waiting period for ${DENTAL}` }));
+
+    await user.type(await screen.findByLabelText(`${DENTAL} Waiting period value`), '6');
+    await user.tab();
+    await waitFor(() =>
+      expect(store.values.find((v) => v.optionFieldId === 'den_waiting_period')?.value).toBe(6),
+    );
+    expect(screen.getByText('months')).toBeInTheDocument();
+  });
+
+  it('lets the employee write the dental services and tick several', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+
+    await user.click(
+      screen.getByRole('checkbox', { name: `Included Dental Services for ${DENTAL}` }),
+    );
+    await user.click(
+      await screen.findByRole('button', { name: `Included Dental Services for ${DENTAL}` }),
+    );
+
+    // Nothing is shipped: the services come from the document in hand.
+    expect(store.choices.filter((c) => c.optionFieldId === 'den_included_services')).toEqual([]);
+
+    for (const service of ['Fillings', 'Extractions', 'Root canal']) {
+      await user.type(await screen.findByLabelText('New answer'), service);
+      await user.click(screen.getByRole('button', { name: 'Add' }));
+      await waitFor(() => expect(store.choices.some((c) => c.label === service)).toBe(true));
+    }
+
+    // Written means ticked — an employee who typed it meant it to apply.
+    await waitFor(() =>
+      expect(
+        store.planOptions.find((item) => item.id === 'planOption_den')?.tickedChoiceIds,
+      ).toHaveLength(3),
+    );
+
+    // And one can be released without being un-written.
+    await user.click(screen.getByRole('checkbox', { name: 'Extractions' }));
+    await waitFor(() =>
+      expect(
+        store.planOptions.find((item) => item.id === 'planOption_den')?.tickedChoiceIds,
+      ).toHaveLength(2),
+    );
+    expect(store.choices.filter((c) => c.optionFieldId === 'den_included_services')).toHaveLength(
+      3,
+    );
+  });
+
+  it('keeps an untouched dental field empty, and a stated zero as zero', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const limit = await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+    expect(limit).toHaveValue('');
+    expect(store.values).toHaveLength(0);
+
+    await user.type(limit, '0');
+    await user.tab();
+    await waitFor(() =>
+      expect(store.values.find((v) => v.optionFieldId === 'den_limit')?.value).toBe(0),
+    );
+  });
+});
