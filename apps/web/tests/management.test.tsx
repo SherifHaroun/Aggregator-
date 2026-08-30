@@ -3815,13 +3815,11 @@ function givenDentalOnAPlan(customerType: CustomerTypeId = 'INDIVIDUAL') {
     fields: [
       field('limit', 'Dental Limit', 'CURRENCY', { sortOrder: 0 }),
       /**
-       * Coverage still carries the legacy key `alternative`, because a field's
-       * key cannot be changed once plans answer it and 29 of them answer this
-       * one. It is a core field in its own right now, not an "or".
+       * A core field in its own right, not an "or". It was once keyed
+       * `alternative` — the legacy way of quoting a benefit two ways — and
+       * while it was, the card read the two figures as "1,500 or 80%".
        */
-      field('alternative', 'Coverage', 'PERCENTAGE', { unit: '%', sortOrder: 1 }),
-      // The old restriction list, still carrying its ticks on 29 plans.
-      field('limitations', 'Limitations', 'MULTI', { sortOrder: 7 }),
+      field('coverage', 'Coverage', 'PERCENTAGE', { unit: '%', sortOrder: 1 }),
       field('co_payment', 'Co-payment', 'PERCENTAGE', {
         unit: '%',
         isOptional: true,
@@ -3902,7 +3900,7 @@ describe('dental', () => {
     await waitFor(() =>
       expect(store.values.find((v) => v.optionFieldId === 'den_limit')?.value).toBe(600),
     );
-    expect(store.values.find((v) => v.optionFieldId === 'den_alternative')?.value).toBe(80);
+    expect(store.values.find((v) => v.optionFieldId === 'den_coverage')?.value).toBe(80);
 
     // Neither is picked from a list — no figure is an answer anywhere here.
     for (const f of (store.options[0]?.fields ?? []).filter((field) =>
@@ -4053,13 +4051,13 @@ describe('empty means not specified, and zero means zero', () => {
     // Focusing and leaving without typing must not invent a figure.
     await user.click(coverage);
     await user.tab();
-    expect(store.values.find((v) => v.optionFieldId === 'den_alternative')).toBeUndefined();
+    expect(store.values.find((v) => v.optionFieldId === 'den_coverage')).toBeUndefined();
 
     // A document that says 0% said something, and it is not blank.
     await user.type(coverage, '0');
     await user.tab();
     await waitFor(() =>
-      expect(store.values.find((v) => v.optionFieldId === 'den_alternative')?.value).toBe(0),
+      expect(store.values.find((v) => v.optionFieldId === 'den_coverage')?.value).toBe(0),
     );
     expect(coverage).toHaveValue('0');
   });
@@ -4076,5 +4074,185 @@ describe('empty means not specified, and zero means zero', () => {
 
     expect(within(network).getAllByRole('option')[0]?.textContent).toBe('Not specified');
     expect(network).toHaveValue('');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dental — the procedures a document actually mentions
+// ---------------------------------------------------------------------------
+
+const PROCEDURES = ['Fillings', 'Simple extraction', 'Surgical extraction', 'Root canal', 'X-rays'];
+
+/** The Covered Procedures condition, as production holds it. */
+function givenCoveredProcedures() {
+  const option = store.options.find((item) => item.id === 'option_den')!;
+  option.fields = [
+    ...(option.fields ?? []),
+    {
+      id: 'den_covered_procedures',
+      optionId: 'option_den',
+      label: 'Covered Procedures',
+      key: 'covered_procedures',
+      dataType: 'MULTI',
+      unit: null,
+      helpText: null,
+      isRequired: false,
+      sortOrder: 3,
+      isActive: true,
+      isOptional: true,
+      parentFieldId: null,
+      showWhenChoiceId: null,
+      customerTypes: [],
+      ...timestamps,
+    },
+  ];
+  PROCEDURES.forEach((label, index) =>
+    givenAnswer(`proc_${index}`, 'den_covered_procedures', label, index),
+  );
+}
+
+const procedureTicks = () =>
+  store.planOptions.find((item) => item.id === 'planOption_den')?.tickedChoiceIds ?? [];
+
+describe('dental: covered procedures', () => {
+  it('offers exactly the procedures the documents name, and no Other', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+    givenCoveredProcedures();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+
+    // Hidden until the employee says the document mentions procedures at all.
+    expect(screen.queryByRole('button', { name: `Covered Procedures for ${DENTAL}` })).toBeNull();
+
+    await user.click(screen.getByRole('checkbox', { name: `Covered Procedures for ${DENTAL}` }));
+    await user.click(
+      await screen.findByRole('button', { name: `Covered Procedures for ${DENTAL}` }),
+    );
+
+    const offered = PROCEDURES.map(
+      (name) => screen.getByRole('checkbox', { name }).getAttribute('aria-label') ?? name,
+    );
+    expect(offered).toEqual(PROCEDURES);
+    // Nothing common-but-unmentioned, and no free-text escape hatch.
+    expect(screen.queryByRole('checkbox', { name: /^Other$/i })).toBeNull();
+    expect(
+      screen.queryByRole('checkbox', { name: /crown|whitening|implant|orthodont/i }),
+    ).toBeNull();
+  });
+
+  it('nothing is ticked by default — the employee reads the document', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+    givenCoveredProcedures();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+
+    await user.click(screen.getByRole('checkbox', { name: `Covered Procedures for ${DENTAL}` }));
+    await user.click(
+      await screen.findByRole('button', { name: `Covered Procedures for ${DENTAL}` }),
+    );
+
+    for (const name of PROCEDURES) {
+      expect(screen.getByRole('checkbox', { name })).not.toBeChecked();
+    }
+    expect(procedureTicks()).toEqual([]);
+  });
+
+  it('ticks one, then several, from the document in hand', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+    givenCoveredProcedures();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+    await user.click(screen.getByRole('checkbox', { name: `Covered Procedures for ${DENTAL}` }));
+    await user.click(
+      await screen.findByRole('button', { name: `Covered Procedures for ${DENTAL}` }),
+    );
+
+    await user.click(screen.getByRole('checkbox', { name: 'Fillings' }));
+    await waitFor(() => expect(procedureTicks()).toEqual(['proc_0']));
+
+    // "…fillings, simple/surgical extraction, root canal, X-rays" — all five.
+    for (const name of ['Simple extraction', 'Surgical extraction', 'Root canal', 'X-rays']) {
+      await user.click(screen.getByRole('checkbox', { name }));
+    }
+    await waitFor(() => expect(procedureTicks()).toHaveLength(5));
+
+    // And a selection can be taken back when the document is re-read.
+    await user.click(screen.getByRole('checkbox', { name: 'X-rays' }));
+    await waitFor(() => expect(procedureTicks()).toHaveLength(4));
+    expect(procedureTicks()).not.toContain('proc_4');
+  });
+
+  /**
+   * THE DISTINCTION THAT MATTERS.
+   *
+   * An unticked procedure says the document did not mention it. It does NOT say
+   * the procedure is excluded, and the two must never collapse into each other:
+   * one is silence, the other is a refusal, and only one of them is a promise
+   * anybody made.
+   */
+  it('records silence as silence — an unticked procedure is not an exclusion', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+    givenCoveredProcedures();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
+
+    // A document naming a limit and a co-payment but no procedures at all.
+    await user.type(screen.getByLabelText(`${DENTAL} Dental Limit value`), '1000');
+    await user.tab();
+    await user.click(screen.getByRole('checkbox', { name: `Covered Procedures for ${DENTAL}` }));
+    await waitFor(() =>
+      expect(store.values.find((v) => v.optionFieldId === 'den_covered_procedures')).toBeDefined(),
+    );
+
+    /**
+     * The condition is ON and nothing is ticked: "no procedures mentioned".
+     * Not zero, not excluded, not absent — a row exists saying the question was
+     * considered, and no answer claims anything either way.
+     */
+    expect(procedureTicks()).toEqual([]);
+    expect(
+      store.values.find((v) => v.optionFieldId === 'den_covered_procedures')?.value,
+    ).toBeNull();
+
+    // Switching the condition off is the different statement: the document
+    // never raised procedures, so the plan records nothing about them.
+    await user.click(screen.getByRole('checkbox', { name: `Covered Procedures for ${DENTAL}` }));
+    await waitFor(() =>
+      expect(
+        store.values.find((v) => v.optionFieldId === 'den_covered_procedures'),
+      ).toBeUndefined(),
+    );
+    expect(procedureTicks()).toEqual([]);
+  });
+
+  it('keeps the limit and co-payment as figures beside the procedures', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenDentalOnAPlan();
+    givenCoveredProcedures();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    // The worked example: 1,500 EGP, 10% co-payment, five procedures named.
+    await user.type(await screen.findByLabelText(`${DENTAL} Dental Limit value`), '1500');
+    await user.tab();
+    await user.click(screen.getByRole('checkbox', { name: `Co-payment for ${DENTAL}` }));
+    await user.type(await screen.findByLabelText(`${DENTAL} Co-payment value`), '10');
+    await user.tab();
+
+    await waitFor(() =>
+      expect(store.values.find((v) => v.optionFieldId === 'den_limit')?.value).toBe(1500),
+    );
+    expect(store.values.find((v) => v.optionFieldId === 'den_co_payment')?.value).toBe(10);
+    // Coverage was not stated by that document, so it stays empty.
+    expect(screen.getByLabelText(`${DENTAL} Coverage value`)).toHaveValue('');
+    expect(store.values.find((v) => v.optionFieldId === 'den_coverage')).toBeUndefined();
   });
 });
