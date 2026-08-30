@@ -295,8 +295,7 @@ async function changeValueKind(
             where: { optionFieldId: field.id },
             select: { id: true, label: true },
           })
-        )
-          .map((choice) => [choice.id, choice.label] as const),
+        ).map((choice) => [choice.id, choice.label] as const),
       )
     : new Map<string, string>();
 
@@ -530,9 +529,7 @@ function buildFieldCreateData(fields: OptionFieldInput[], taken: Set<string>, of
       ...(field.isOptional !== undefined ? { isOptional: field.isOptional } : {}),
       ...(field.parentFieldId !== undefined ? { parentFieldId: field.parentFieldId } : {}),
       // Revealed by one answer, and scoped to the buyers it can apply to.
-      ...(field.showWhenChoiceId !== undefined
-        ? { showWhenChoiceId: field.showWhenChoiceId }
-        : {}),
+      ...(field.showWhenChoiceId !== undefined ? { showWhenChoiceId: field.showWhenChoiceId } : {}),
       ...(field.customerTypes !== undefined ? { customerTypes: field.customerTypes } : {}),
       ...(field.isActive !== undefined ? { isActive: field.isActive } : {}),
       sortOrder: offset + index,
@@ -601,6 +598,29 @@ export async function updateOptionField(
       throw conflict(
         'The data type cannot be changed once plans have supplied values for this field. Deactivate it and add a new field instead.',
       );
+    }
+  }
+
+  /**
+   * A key is unique within its benefit, so a correction has to be checked
+   * against the others rather than left to a database error.
+   */
+  if (input.key !== undefined) {
+    const current = await prisma.optionField.findUnique({
+      where: { id: fieldId },
+      select: { optionId: true, key: true },
+    });
+    if (!current) throw notFound('Option field');
+    if (input.key !== current.key) {
+      const clash = await prisma.optionField.findFirst({
+        where: { optionId: current.optionId, key: input.key, id: { not: fieldId } },
+        select: { label: true },
+      });
+      if (clash) {
+        throw conflict(`"${clash.label}" already uses the key "${input.key}".`, {
+          key: ['This key is taken by another setting on this benefit.'],
+        });
+      }
     }
   }
 

@@ -17,8 +17,10 @@ import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   createInsuranceOption,
+  createOptionField,
   deleteInsuranceOption,
   updateInsuranceOption,
+  updateOptionField,
 } from '../src/modules/insurance-options/insurance-options.service.js';
 import { duplicatePlan } from '../src/modules/plans/plans.service.js';
 import {
@@ -421,5 +423,51 @@ describe.skipIf(!url)('managing the benefit catalogue', () => {
 
     expect(await db().insuranceOption.count({ where: { id: part.id } })).toBe(0);
     expect(await db().insuranceOption.count({ where: { id: group.id } })).toBe(1);
+  });
+});
+
+/**
+ * A key is a field's stable machine name. Correcting one moves no data — plan
+ * values reference the field by id — but it changes how every screen reads the
+ * field, which is the whole point when a field's meaning has changed.
+ */
+describe.skipIf(!url)('correcting a setting’s key', () => {
+  it('keeps the values recorded against it', async () => {
+    const option = await db().insuranceOption.create({
+      data: { name: `${PREFIX}_keyed_benefit` },
+    });
+    const field = await createOptionField(option.id, {
+      label: 'Or percentage',
+      key: 'alternative',
+      dataType: 'PERCENTAGE',
+      unit: '%',
+    });
+
+    const renamed = await updateOptionField(field.id, { key: 'coverage', label: 'Coverage' });
+
+    expect(renamed.key).toBe('coverage');
+    expect(renamed.label).toBe('Coverage');
+    // Same row: nothing a plan answered has moved.
+    expect(renamed.id).toBe(field.id);
+  });
+
+  it('refuses a key another setting on the same benefit already uses', async () => {
+    const option = await db().insuranceOption.create({
+      data: { name: `${PREFIX}_clashing_benefit` },
+    });
+    await createOptionField(option.id, {
+      label: 'Coverage',
+      key: 'coverage',
+      dataType: 'PERCENTAGE',
+    });
+    const second = await createOptionField(option.id, {
+      label: 'Or percentage',
+      key: 'alternative',
+      dataType: 'PERCENTAGE',
+    });
+
+    await expect(updateOptionField(second.id, { key: 'coverage' })).rejects.toMatchObject({
+      status: 409,
+    });
   });
 });

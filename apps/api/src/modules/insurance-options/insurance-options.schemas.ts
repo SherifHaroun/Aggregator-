@@ -41,7 +41,16 @@ export const optionFieldInputSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-export const updateOptionFieldSchema = optionFieldInputSchema.omit({ key: true }).partial();
+/**
+ * The key may be corrected, unlike the data type.
+ *
+ * A key is a field's stable machine name, and plan values reference the field
+ * by id rather than by key — so renaming one moves no data. It matters when a
+ * field's meaning changes: a percentage once recorded as the ALTERNATIVE way of
+ * quoting a benefit becomes a coverage figure in its own right, and leaving it
+ * keyed `alternative` makes every screen keep reading it as an "or".
+ */
+export const updateOptionFieldSchema = optionFieldInputSchema.partial();
 
 export const createInsuranceOptionSchema = z.object({
   /** Unique across the whole catalogue — a benefit is global. */
