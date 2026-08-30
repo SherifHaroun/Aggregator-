@@ -3386,3 +3386,208 @@ describe('maternity: pregnancy before the policy started', () => {
     expect(store.options).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Optical — every customer type, no member ratio
+// ---------------------------------------------------------------------------
+
+const OPTICAL = 'Optical Details';
+const FREQUENCY = [
+  'Once per year',
+  'Once every 2 years',
+  'Once every 3 years',
+  'Once per policy period',
+];
+
+/** Mirrors the definition held in Railway production, field for field. */
+function givenOpticalOnAPlan(customerType: CustomerTypeId = 'INDIVIDUAL') {
+  givenCompany();
+  givenInsuranceType();
+  givenPlan();
+  const configurationId = givenConfiguration('cfg_1', 'plan_1', customerType);
+
+  const field = (
+    key: string,
+    label: string,
+    dataType: OptionFieldDto['dataType'],
+    extras: Partial<OptionFieldDto> = {},
+  ): OptionFieldDto => ({
+    id: `opt_${key}`,
+    optionId: 'option_opt',
+    label,
+    key,
+    dataType,
+    unit: null,
+    helpText: null,
+    isRequired: false,
+    sortOrder: 0,
+    isActive: true,
+    isOptional: false,
+    parentFieldId: null,
+    showWhenChoiceId: null,
+    customerTypes: [],
+    ...timestamps,
+    ...extras,
+  });
+
+  store.options.push({
+    id: 'option_opt',
+    name: OPTICAL,
+    description: null,
+    sortOrder: 0,
+    isUmbrella: false,
+    parentId: null,
+    isActive: true,
+    ...timestamps,
+    fields: [
+      field('limit', 'Optical Limit', 'CURRENCY', { sortOrder: 0 }),
+      field('coverage', 'Coverage', 'PERCENTAGE', { unit: '%', sortOrder: 1 }),
+      field('co_payment', 'Co-payment', 'PERCENTAGE', {
+        unit: '%',
+        isOptional: true,
+        sortOrder: 2,
+      }),
+      field('eye_test', 'Eye test', 'RANK', { isOptional: true, sortOrder: 3 }),
+      field('glasses', 'Glasses', 'RANK', { isOptional: true, sortOrder: 4 }),
+      field('contact_lenses', 'Contact lenses', 'RANK', { isOptional: true, sortOrder: 5 }),
+      field('network', 'Network', 'RANK', { isOptional: true, sortOrder: 6 }),
+      field('provider_restriction', 'Provider restriction', 'BOOLEAN', {
+        isOptional: true,
+        sortOrder: 7,
+      }),
+    ],
+  });
+
+  // Each setting owns its own list: how often glasses are replaced is not an
+  // answer about eye tests.
+  for (const key of ['eye_test', 'glasses', 'contact_lenses']) {
+    FREQUENCY.forEach((label, index) => givenAnswer(`${key}_${index}`, `opt_${key}`, label, index));
+  }
+  ['In-network only', 'In-network and out-of-network', 'Out-of-network only'].forEach(
+    (label, index) => givenAnswer(`opt_net_${index}`, 'opt_network', label, index),
+  );
+
+  store.planOptions.push({
+    id: 'planOption_opt',
+    planConfigurationId: configurationId,
+    optionId: 'option_opt',
+    sortOrder: 0,
+  });
+  return configurationId;
+}
+
+const opticalConditions = () =>
+  screen
+    .queryAllByRole('checkbox')
+    .map((box) => box.getAttribute('aria-label') ?? '')
+    .filter((label) => label.endsWith(`for ${OPTICAL}`))
+    .map((label) => label.replace(` for ${OPTICAL}`, ''));
+
+describe('optical', () => {
+  it.each([
+    ['INDIVIDUAL' as CustomerTypeId],
+    ['FAMILY' as CustomerTypeId],
+    ['SME' as CustomerTypeId],
+  ])('asks a %s plan the same six conditions, and never a member ratio', async (customerType) => {
+    const configurationId = givenOpticalOnAPlan(customerType);
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+    expect(screen.getByLabelText(`${OPTICAL} Coverage value`)).toBeInTheDocument();
+
+    // Optical is a rule about a person, not about a group — every buyer is
+    // asked the same thing, and no ratio question exists here at all.
+    expect(opticalConditions()).toEqual([
+      'Co-payment',
+      'Eye test',
+      'Glasses',
+      'Contact lenses',
+      'Network',
+      'Provider restriction',
+    ]);
+    expect(screen.queryByRole('checkbox', { name: /Member ratio/i })).toBeNull();
+  });
+
+  it.each([['Eye test'], ['Glasses'], ['Contact lenses']])(
+    'reveals a frequency dropdown for %s, defaulting to nothing',
+    async (condition) => {
+      const user = userEvent.setup();
+      const configurationId = givenOpticalOnAPlan();
+
+      renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+      await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+
+      expect(screen.queryByLabelText(`${OPTICAL} ${condition} value`)).toBeNull();
+      await user.click(screen.getByRole('checkbox', { name: `${condition} for ${OPTICAL}` }));
+
+      const control = await screen.findByLabelText(`${OPTICAL} ${condition} value`);
+      expect(control.tagName).toBe('SELECT');
+      expect(
+        within(control)
+          .getAllByRole('option')
+          .map((option) => option.textContent),
+      ).toEqual(['Not set', ...FREQUENCY]);
+      // No frequency is assumed — the document decides.
+      expect(control).toHaveValue('');
+    },
+  );
+
+  it('records the network scope as a chosen answer, never as typed words', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenOpticalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+
+    await user.click(screen.getByRole('checkbox', { name: `Network for ${OPTICAL}` }));
+    const network = await screen.findByLabelText(`${OPTICAL} Network value`);
+    await user.selectOptions(network, 'opt_net_0');
+
+    await waitFor(() =>
+      expect(store.values.find((v) => v.optionFieldId === 'opt_network')?.value).toBe('opt_net_0'),
+    );
+  });
+
+  it('treats ticking Provider restriction as the answer itself', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenOpticalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+
+    await user.click(screen.getByRole('checkbox', { name: `Provider restriction for ${OPTICAL}` }));
+
+    // The tick says a restriction applies. Nothing is asked underneath.
+    await waitFor(() =>
+      expect(
+        store.values.find((v) => v.optionFieldId === 'opt_provider_restriction'),
+      ).toBeDefined(),
+    );
+    expect(screen.queryByLabelText(`${OPTICAL} Provider restriction value`)).toBeNull();
+  });
+
+  it('offers no figure as a pickable answer, and keeps empty empty', async () => {
+    const user = userEvent.setup();
+    const configurationId = givenOpticalOnAPlan();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const limit = await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
+    expect(limit).toHaveValue('');
+    expect(store.values).toHaveLength(0);
+
+    // Not one amount or percentage is offered as an answer to pick.
+    for (const f of (store.options[0]?.fields ?? []).filter((field) =>
+      ['CURRENCY', 'PERCENTAGE', 'NUMBER'].includes(field.dataType),
+    )) {
+      expect(store.choices.filter((c) => c.optionFieldId === f.id)).toEqual([]);
+    }
+
+    // A stated zero is still a real answer.
+    await user.type(limit, '0');
+    await user.tab();
+    await waitFor(() =>
+      expect(store.values.find((v) => v.optionFieldId === 'opt_limit')?.value).toBe(0),
+    );
+  });
+});
