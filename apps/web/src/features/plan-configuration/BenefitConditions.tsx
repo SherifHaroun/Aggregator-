@@ -106,16 +106,19 @@ function Condition({
    */
   const inputs = revealedInputs(condition, customerType);
   /**
-   * Whether the condition itself takes an answer.
+   * Whether the condition itself takes an answer below its checkbox.
    *
-   * A BOOLEAN condition that owns inputs is a pure container — the checkbox is
-   * already its yes/no, and asking again below it would ask the same question
-   * twice. Every other condition carries a real value of its own, and may ALSO
-   * reveal boxes under the answer chosen: "Limit applies to" is a dropdown, and
-   * picking Other reveals the box that says what it was. Both are drawn.
+   * A BOOLEAN one never does. TICKING IT IS THE ANSWER: "Pregnancy before
+   * policy" ticked means it is covered, and offering a Yes/No underneath asks
+   * the same question a second time — leaving a ticked box reading "Not set",
+   * which says nothing. Whether it owns further inputs makes no difference:
+   * "Member ratio" is ticked to say the rule applies, and its two numbers say
+   * what the rule is.
+   *
+   * Every other kind carries a real value of its own, and may ALSO reveal boxes
+   * belonging to the answer chosen. Both get drawn.
    */
-  const asksForItself =
-    (condition.subValues ?? []).length === 0 || condition.dataType !== 'BOOLEAN';
+  const asksForItself = condition.dataType !== 'BOOLEAN';
 
   /**
    * Whether the row has finished opening.

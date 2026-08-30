@@ -3319,7 +3319,7 @@ describe('maternity', () => {
 });
 
 describe('maternity: pregnancy before the policy started', () => {
-  it('is off by default and reveals a yes/no, never a text box', async () => {
+  it('is off by default, and ticking it IS the yes', async () => {
     const user = userEvent.setup();
     const configurationId = givenMaternityOnAPlan('INDIVIDUAL');
 
@@ -3335,25 +3335,20 @@ describe('maternity: pregnancy before the policy started', () => {
     await user.click(toggle);
 
     /**
-     * A yes/no the employee picks, not a sentence they write. Three states,
-     * all meaningful: off says the document never mentions it, "Not set" says
-     * it mentions it without saying which, and Yes/No is what it says.
+     * TICKING IT IS THE ANSWER — the row exists, so the cover applies.
+     *
+     * A Yes/No underneath would ask the same question twice, and leave a
+     * ticked box reading "Not set", which says nothing at all.
      */
-    const control = await screen.findByLabelText(`${MATERNITY} Pregnancy before policy value`);
-    expect(control.tagName).toBe('SELECT');
-    expect(
-      within(control)
-        .getAllByRole('option')
-        .map((o) => o.textContent),
-    ).toEqual(['Not set', 'Yes', 'No']);
-    expect(control).toHaveValue('');
-
-    await user.selectOptions(control, 'true');
+    await waitFor(() => expect(toggle).toBeChecked());
     await waitFor(() =>
       expect(
-        store.values.find((v) => v.optionFieldId === 'mat_pregnancy_before_policy')?.value,
-      ).toBe(true),
+        store.values.find((v) => v.optionFieldId === 'mat_pregnancy_before_policy'),
+      ).toBeDefined(),
     );
+    expect(screen.queryByLabelText(`${MATERNITY} Pregnancy before policy value`)).toBeNull();
+    // Nothing to pick and nothing to type — the checkbox said it all.
+    expect(screen.queryByRole('option', { name: 'Not set' })).toBeNull();
 
     // Switching it off says the document never mentioned it — nothing remains.
     await user.click(toggle);
