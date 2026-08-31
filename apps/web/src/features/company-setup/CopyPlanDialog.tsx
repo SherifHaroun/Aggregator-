@@ -1,7 +1,5 @@
 import {
-  configurationLabel,
   derivePlanCode,
-  formatMoney,
   type PlanConfigurationDto,
   type PlanDto,
 } from '@aggregator/shared';
@@ -10,7 +8,13 @@ import { useNavigate } from 'react-router-dom';
 import { Button, Callout, Dialog, Field, Input, Textarea, useToast } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
 import { useDuplicatePlan } from '@/features/insurance-data/insurance-data.api';
-import { benefitCountLabel } from '@/features/insurance-data/labels';
+import {
+  bandCountLabel,
+  benefitCountLabel,
+  coverageLabel,
+  formatMoney,
+  priceRangeLabel,
+} from '@/features/insurance-data/labels';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
 
 /**
@@ -227,14 +231,14 @@ function ConfigurationChoice({
       />
       <span className="min-w-0 flex-1">
         <span className="text-content block truncate text-sm font-medium">
-          {configurationLabel(configuration.customerType, configuration.geographicalCoverage)}
+          {configuration.displayName ?? coverageLabel(configuration.geographicalCoverage)}
           <span className="text-content-muted font-normal">
             {' '}
-            · ages {configuration.ageFrom}–{configuration.ageTo}
+            · {configuration.medicalNetworkName ?? 'no network'}
           </span>
         </span>
         <span className="text-content-subtle block text-xs">
-          {formatMoney(configuration.annualPrice, configuration.currency)} ·{' '}
+          {priceRangeLabel(configuration)} · {bandCountLabel(configuration.priceBands.length)} ·{' '}
           {benefitCountLabel(configuration.options?.length ?? 0)}
         </span>
       </span>

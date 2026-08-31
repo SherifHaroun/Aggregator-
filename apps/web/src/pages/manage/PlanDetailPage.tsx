@@ -59,8 +59,6 @@ export function PlanDetailPage() {
   const [editingConfiguration, setEditingConfiguration] = useState<
     PlanConfigurationDto | null | undefined
   >(undefined);
-  /** The configuration being copied to another age band, if any. */
-  const [duplicating, setDuplicating] = useState<PlanConfigurationDto | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PlanConfigurationDto | null>(null);
 
   /**
@@ -173,7 +171,6 @@ export function PlanDetailPage() {
                         companyId={companyId!}
                         planId={planId!}
                         onEdit={() => setEditingConfiguration(configuration)}
-                        onDuplicate={() => setDuplicating(configuration)}
                         onDelete={() => setPendingDelete(configuration)}
                       />
                     ))}
@@ -203,17 +200,6 @@ export function PlanDetailPage() {
           companyId={companyId!}
           configuration={editingConfiguration}
           onClose={() => setEditingConfiguration(undefined)}
-        />
-      ) : null}
-
-      {/* The same cover at another age: benefits and values travel with it. */}
-      {duplicating && planId ? (
-        <ConfigurationDialog
-          planId={planId}
-          companyId={companyId!}
-          configuration={null}
-          duplicateOf={duplicating}
-          onClose={() => setDuplicating(null)}
         />
       ) : null}
 
@@ -255,14 +241,12 @@ function ConfigurationCard({
   companyId,
   planId,
   onEdit,
-  onDuplicate,
   onDelete,
 }: {
   configuration: PlanConfigurationDto;
   companyId: string;
   planId: string;
   onEdit: () => void;
-  onDuplicate: () => void;
   onDelete: () => void;
 }) {
   const benefits = configuration.options?.length ?? 0;
@@ -303,17 +287,6 @@ function ConfigurationCard({
           className="text-content-muted hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-2"
         >
           <IconEdit className="size-4" />
-        </button>
-        {/* The whole point of the card for an age-priced plan: repeat it for
-            the next band without re-entering a single benefit. */}
-        <button
-          type="button"
-          onClick={onDuplicate}
-          aria-label="Add different age"
-          title="Add different age"
-          className="text-content-muted hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-2"
-        >
-          <IconCopy className="size-4" />
         </button>
         <button
           type="button"
