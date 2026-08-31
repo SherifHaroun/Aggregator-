@@ -433,6 +433,15 @@ model Plan {
   insuranceTypeId String
   insuranceType   InsuranceType @relation(fields: [insuranceTypeId], references: [id], onDelete: Restrict)
 
+  /// WHO THIS PLAN IS SOLD TO.
+  ///
+  /// On the plan, not below it: a company sells its Individual, Family and SME
+  /// products as separate things that merely share a name, and an employee
+  /// managing "Arope Individual" should never see the SME book. Two plans in
+  /// one company may therefore both be called "Gold+" as long as they are for
+  /// different buyers — which is why the code, not the name, is unique.
+  customerType CustomerType
+
   name        String
   /// Company-facing plan code. Unique per company.
   code        String
@@ -448,61 +457,45 @@ model Plan {
   @@unique([companyId, code])
   @@index([companyId, isActive])
   @@index([insuranceTypeId, isActive])
+  /// The comparison's first cut: "every plan sold to this kind of buyer".
+  @@index([companyId, customerType, isActive])
   @@map("plans")
 }
 
-/// One plan priced and configured for a specific customer type and coverage
-/// area — e.g. the same plan sold to an individual locally versus to an SME
-/// internationally.
+/// ONE VARIANT OF A PLAN — the sellable thing.
 ///
-/// This is the row the comparison searches. An employee entering
-/// "Individual + Local" matches configurations directly, and each result still
-/// knows its plan and company through the relation.
+/// A variant is the plan sold one way: one coverage scope, on one network, at
+/// one ceiling. "Gold+ Local" and "Gold+ International" are two variants of one
+/// Gold+ plan, never two plans with the scope written into their names.
 ///
-/// The configuration also declares WHO IT IS FOR by age: `ageFrom`..`ageTo`,
-/// inclusive. A plan sold differently to 18-40 year olds and to 41-60 year olds
-/// is two configurations, which is why the age band is part of this row's
-/// identity. A comparison matches when `ageFrom <= age <= ageTo`.
+/// It owns its benefits ONCE. Age does not divide it: the same cover sold at
+/// ten premiums is ten `PlanPriceBand` rows underneath, not ten copies of
+/// thirty benefits. That duplication is precisely what the legacy data showed
+/// was unnecessary — across 32 products, all 69 age rows of each carried an
+/// identical benefit set and only the premium moved.
 ///
-/// The customer's own age is a single number they type; the band is the admin's
-/// side of that match. The SME default age remains a business rule in
-/// `@aggregator/shared` and is never stored here.
+/// Who the plan is for now lives on `Plan`, so a variant says only where it
+/// covers and on what terms.
 model PlanConfiguration {
   id     String @id @default(cuid())
   planId String
   plan   Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
 
-  customerType         CustomerType
   geographicalCoverage GeographicalCoverage
 
   /// The company network THIS variant is sold on, chosen from the plan's own
   /// company list. `null` where the document does not say.
-  ///
-  /// On the variant rather than the plan, because the same plan is sold on two
-  /// networks at two prices — that is the whole reason a plan has variants. On
-  /// the plan it forced "Gold (Full Network)" and "Gold (limited Network)" to
-  /// be two products.
   medicalNetworkId String?
   medicalNetwork   CompanyMedicalNetwork? @relation(fields: [medicalNetworkId], references: [id], onDelete: SetNull)
 
-  /// The hospital accommodation this variant buys — "Private Room",
-  /// "Semi-private Room". Free text, because insurers name it differently and
-  /// no list here could be right for all of them.
-  ///
-  /// It changes the premium, so it belongs to the variant. It is NOT compared:
-  /// nothing ranks a room type, and a comparison that did would be inventing a
-  /// judgement nobody made.
+  /// The hospital accommodation this variant buys — "Private Room". Free text,
+  /// because insurers name it differently. NOT compared: nothing ranks a room
+  /// type, and a comparison that did would invent a judgement nobody made.
   roomType String?
 
-  /// Inclusive age band this configuration applies to. Both are required: a
-  /// configuration that applies to nobody in particular cannot be matched.
-  ageFrom Int
-  ageTo   Int
-
-  /// ISO 4217 code, e.g. "EGP". Set per configuration because a local and an
-  /// international configuration may well be priced in different currencies.
+  /// ISO 4217 code, e.g. "EGP". Per variant, because a local and an
+  /// international variant may well be priced in different currencies.
   currency    String?  @db.VarChar(3)
-  annualPrice Decimal? @db.Decimal(14, 2)
   annualLimit Decimal? @db.Decimal(14, 2)
   deductible  Decimal? @db.Decimal(14, 2)
   coPayment   Decimal? @db.Decimal(5, 2)
@@ -512,11 +505,15 @@ model PlanConfiguration {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// The benefits this variant carries, valued once for the whole variant.
   options PlanOption[]
 
-  /// What makes one variant different from another:
-  /// plan, who it is for, where it covers, the network, the room, the ceiling —
-  /// and then the age band.
+  /// What it costs, age band by age band.
+  priceBands PlanPriceBand[]
+
+  /// What makes one variant different from another: the plan, where it covers,
+  /// the network, the room and the ceiling. Age is no longer part of it —
+  /// that is what the price bands are for.
   ///
   /// PostgreSQL treats NULLs as distinct in a unique index, so two variants
   /// that both leave the network, room and ceiling unstated do not collide
@@ -525,15 +522,44 @@ model PlanConfiguration {
   ///
   /// Named explicitly: the generated name exceeds Postgres's 63-character
   /// identifier limit and would be silently truncated.
-  @@unique([planId, customerType, geographicalCoverage, medicalNetworkId, roomType, annualLimit, ageFrom, ageTo], map: "plan_configurations_identity_key")
-  /// The comparison's primary lookup: "every active configuration for this
-  /// customer type and coverage area".
-  @@index([customerType, geographicalCoverage, isActive])
-  /// Supports the comparison's age-band lookup.
-  @@index([ageFrom, ageTo])
+  @@unique([planId, geographicalCoverage, medicalNetworkId, roomType, annualLimit], map: "plan_configurations_identity_key")
+  /// The comparison's lookup: "every active variant covering this area".
+  @@index([geographicalCoverage, isActive])
   @@index([planId, isActive])
   @@index([medicalNetworkId])
   @@map("plan_configurations")
+}
+
+/// WHAT A VARIANT COSTS AT ONE AGE BAND.
+///
+/// Health insurance is priced age band by age band, and that is the ONLY thing
+/// that varies between these rows — the cover above is identical for all of
+/// them. Keeping them as child rows is what lets thirty benefits be entered
+/// once instead of once per band.
+///
+/// A band with no premium is not stored at all: the legacy data said "not sold
+/// at this age" with an empty cell in one table and the words "Not Covered" in
+/// another, and the absence of a row says it once and unambiguously.
+model PlanPriceBand {
+  id        String            @id @default(cuid())
+  variantId String
+  variant   PlanConfiguration @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  /// Inclusive. A comparison matches when `ageFrom <= age <= ageTo`.
+  ageFrom Int
+  ageTo   Int
+
+  annualPrice Decimal? @db.Decimal(14, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One price per band per variant.
+  @@unique([variantId, ageFrom, ageTo])
+  /// Supports the comparison's age lookup.
+  @@index([ageFrom, ageTo])
+  @@index([variantId])
+  @@map("plan_price_bands")
 }
 
 // ============================================================================

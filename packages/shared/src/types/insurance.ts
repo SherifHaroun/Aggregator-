@@ -177,26 +177,35 @@ export interface NetworkProviderDto {
 export interface PlanDto extends RecordMeta {
   companyId: string;
   insuranceTypeId: string;
+  /**
+   * WHO THIS PLAN IS SOLD TO.
+   *
+   * On the plan, not below it: a company's Individual, Family and SME books are
+   * separate products that merely share a name, and somebody managing one
+   * should never see the others.
+   */
+  customerType: CustomerTypeId;
   name: string;
   code: string;
   description: string | null;
-  /** Present when the plan was fetched with its configurations. */
+  /** Present when the plan was fetched with its variants. */
   configurations?: PlanConfigurationDto[];
 }
 
 /**
- * ONE PRICED VARIANT of a plan — the sellable thing.
+ * ONE VARIANT of a plan — the sellable thing.
  *
- * A variant is the plan plus everything that changes its price: who it is for,
- * where it covers, the network, the room and the ceiling. Then an age band and
- * a premium. Two variants of one plan are still one product, which is why they
- * are configurations of a plan rather than plans of their own.
+ * The plan sold one way: one coverage scope, on one network, at one ceiling,
+ * with its own benefits. What it COSTS lives in `priceBands`, because age is
+ * the only thing that varies between them — the cover is identical, and
+ * repeating thirty benefits per band is exactly the duplication the legacy data
+ * showed was unnecessary.
  *
- * This is what the comparison searches and what a result card renders.
+ * Who the plan is for is on the PLAN. This says only where it covers and on
+ * what terms.
  */
 export interface PlanConfigurationDto extends RecordMeta {
   planId: string;
-  customerType: CustomerTypeId;
   geographicalCoverage: GeographicalCoverageId;
   /**
    * The company network THIS variant is sold on. `null` where the document does
@@ -223,11 +232,15 @@ export interface PlanConfigurationDto extends RecordMeta {
    * the premium, so it belongs here; it is never compared.
    */
   roomType: string | null;
-  /** Inclusive age band this configuration applies to. Both always present. */
-  ageFrom: number;
-  ageTo: number;
+  /**
+   * What this variant costs, band by band, youngest first.
+   *
+   * A band nobody priced is simply absent: the legacy data said "not sold at
+   * this age" with an empty cell in one table and the words "Not Covered" in
+   * another, and no row says it once.
+   */
+  priceBands: PlanPriceBandDto[];
   currency: string | null;
-  annualPrice: number | null;
   annualLimit: number | null;
   deductible: number | null;
   coPayment: number | null;
@@ -238,6 +251,14 @@ export interface PlanConfigurationDto extends RecordMeta {
   averageAge: ResolvedAverageAge;
   /** Present when the configuration was fetched with its options. */
   options?: PlanOptionDto[];
+}
+
+/** What a variant costs across one inclusive age band. */
+export interface PlanPriceBandDto {
+  id: string;
+  ageFrom: number;
+  ageTo: number;
+  annualPrice: number | null;
 }
 
 /** The value an option field takes inside one specific plan. */
