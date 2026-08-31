@@ -1,4 +1,10 @@
-import type { CompanyDto, PlanDto } from '@aggregator/shared';
+import {
+  CUSTOMER_TYPES,
+  optionLabel,
+  type CompanyDto,
+  type CustomerTypeId,
+  type PlanDto,
+} from '@aggregator/shared';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
@@ -30,6 +36,7 @@ import {
 import { ROUTES } from '@/config/routes';
 import { CompanyMedicalNetworks } from '@/features/companies/CompanyMedicalNetworks';
 import { PlanSetupForm } from '@/features/company-setup/PlanSetupForm';
+import { CustomerTypeTabs } from '@/features/companies/CustomerTypeTabs';
 import {
   useCompany,
   useDeleteCompany,
@@ -53,10 +60,26 @@ export function CompanyDetailPage() {
   const deleteCompany = useDeleteCompany();
   const deletePlan = useDeletePlan();
 
+  /**
+   * Which of the company's three books is open. Individual first because it is
+   * the one most companies have most of, and because a section always has to be
+   * chosen — there is no "all plans" view, since the three do not belong in one
+   * list.
+   */
+  const [customerType, setCustomerType] = useState<CustomerTypeId>('INDIVIDUAL');
+
   const [editingCompany, setEditingCompany] = useState(false);
   const [addingPlan, setAddingPlan] = useState(false);
   const [pendingPlanDelete, setPendingPlanDelete] = useState<PlanDto | null>(null);
   const [confirmCompanyDelete, setConfirmCompanyDelete] = useState(false);
+
+  const allPlans = plans.data ?? [];
+  /** The section's own plans — never the company's whole list. */
+  const visiblePlans = allPlans.filter((plan) => plan.customerType === customerType);
+  const counts = allPlans.reduce<Partial<Record<CustomerTypeId, number>>>((tally, plan) => {
+    tally[plan.customerType] = (tally[plan.customerType] ?? 0) + 1;
+    return tally;
+  }, {});
 
   return (
     <>
@@ -123,9 +146,9 @@ export function CompanyDetailPage() {
 
             <Card>
               <CardHeader
-                title="Plans"
+                title={`${optionLabel(CUSTOMER_TYPES, customerType)} plans`}
                 icon={<IconLayers className="size-5" />}
-                description="Open a plan to manage its configurations and benefits."
+                description="Open a plan to manage its variants and benefits."
                 action={
                   <Button size="sm" onClick={() => setAddingPlan(true)}>
                     <IconAdd className="size-4" />
@@ -133,7 +156,13 @@ export function CompanyDetailPage() {
                   </Button>
                 }
               />
-              <CardBody>
+              <CardBody className="space-y-4">
+                <CustomerTypeTabs
+                  value={customerType}
+                  onChange={setCustomerType}
+                  counts={counts}
+                />
+
                 {plans.isLoading ? (
                   <div className="space-y-3">
                     {[0, 1].map((row) => (
@@ -143,12 +172,12 @@ export function CompanyDetailPage() {
                       />
                     ))}
                   </div>
-                ) : (plans.data?.length ?? 0) === 0 ? (
+                ) : visiblePlans.length === 0 ? (
                   <EmptyState
                     variant="plain"
                     icon={<IconLayers className="size-6" />}
-                    title="No plans yet"
-                    description="Add the first plan this company sells."
+                    title={`No ${optionLabel(CUSTOMER_TYPES, customerType).toLowerCase()} plans yet`}
+                    description={`Add the first plan this company sells to ${optionLabel(CUSTOMER_TYPES, customerType).toLowerCase()} customers.`}
                     action={
                       <Button onClick={() => setAddingPlan(true)}>
                         <IconAdd className="size-4" />
@@ -158,7 +187,7 @@ export function CompanyDetailPage() {
                   />
                 ) : (
                   <ul className="space-y-2">
-                    {(plans.data ?? []).map((plan) => (
+                    {visiblePlans.map((plan) => (
                       <li key={plan.id}>
                         <PlanRow
                           plan={plan}
@@ -190,6 +219,10 @@ export function CompanyDetailPage() {
           <PlanSetupForm
             companyId={companyId}
             companyName={company.data?.name}
+            /* The plan is created under the section the employee is looking
+               at — asking again would be asking a question they have already
+               answered by being here. */
+            customerType={customerType}
             onCreated={() => setAddingPlan(false)}
           />
         </Dialog>

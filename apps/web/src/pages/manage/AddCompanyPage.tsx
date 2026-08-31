@@ -19,8 +19,14 @@ import { useRecordForm } from '@/features/insurance-data/useRecordForm';
  * Step one of the company workflow: the name, and nothing else.
  *
  * Everything else about a company is added later from its own screen, so the
- * employee reaches the part that matters — the plans — in one field. On success
- * the flow continues straight into plan setup rather than returning to a list.
+ * employee reaches the part that matters in one field.
+ *
+ * Creating a company creates a COMPANY. It used to march straight on into
+ * adding a plan, which assumed the reason for the company was the plan — but a
+ * company is worth recording before its products are known, and its networks
+ * are usually entered first. On success the employee lands on the company's own
+ * page, where Individual, Family and SME are waiting and a plan is one of
+ * several things they might do next.
  *
  * Laid out like the comparison: one panel across the page, a navy header, and
  * the step it belongs to shown against its progress.
@@ -38,7 +44,7 @@ export function AddCompanyPage() {
       {
         onSuccess: (company) => {
           notify(`${company.name} was created.`);
-          navigate(ROUTES.companies.setup(company.id));
+          navigate(ROUTES.companies.detail(company.id));
         },
         onError: (error) => applyError(error, 'the company'),
       },

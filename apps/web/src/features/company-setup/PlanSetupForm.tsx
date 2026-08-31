@@ -8,8 +8,10 @@ import {
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
   derivePlanCode,
+  medicalBenefitLookupNames,
   medicalBenefitSpec,
   variantDisplayName,
+  type CustomerTypeId,
   type InsuranceOptionDto,
   type MedicalBenefitSpec,
   type OptionFieldDto,
@@ -83,10 +85,13 @@ function coerce(typed: string, dataType: string): string | number | undefined {
 export function PlanSetupForm({
   companyId,
   companyName,
+  customerType,
   onCreated,
 }: {
   companyId: string;
   companyName?: string;
+  /** The company section this plan is being added to. */
+  customerType: CustomerTypeId;
   onCreated: (planName: string) => void;
 }) {
   const { notify } = useToast();
@@ -195,7 +200,21 @@ export function PlanSetupForm({
     spec: MedicalBenefitSpec,
     catalogue: Map<string, InsuranceOptionDto>,
   ): Promise<ResolvedBenefit> {
-    const existing = catalogue.get(fold(spec.name));
+    /**
+     * REUSE BEFORE CREATE.
+     *
+     * The catalogue is the source of truth and it was not written by this
+     * form. A company's in-patient cover may already be filed as "Inpatient and
+     * daycare Details"; creating "In-patient" beside it would split the same
+     * benefit across two records, and nothing could compare them afterwards.
+     *
+     * So every name this benefit is known by is tried — its own first, then
+     * the aliases — and only a benefit the catalogue genuinely does not have is
+     * created.
+     */
+    const existing = medicalBenefitLookupNames(spec)
+      .map((name) => catalogue.get(fold(name)))
+      .find((match) => match !== undefined);
 
     if (existing?.isUmbrella) {
       const target = (existing.children ?? []).find((child) =>
@@ -340,27 +359,33 @@ export function PlanSetupForm({
       const plan = await api.post<PlanDto>('/plans', {
         companyId,
         insuranceTypeId: medical.id,
+        customerType,
         name: name.trim(),
         code: derivePlanCode(name),
         isActive: true,
       });
 
-      // --- each variant, with its own benefits and its own age bands --------
+      // --- each variant: its benefits once, its whole rate table with it ----
       for (const variant of variants) {
         const label = variantDisplayName(name, variant.geographicalCoverage);
-        const [first, ...rest] = priced(variant);
 
-        setProgress(`Saving ${label} — ages ${first!.from}–${first!.to}…`);
+        setProgress(`Saving ${label}…`);
         const configuration = await api.post<PlanConfigurationDto>('/plan-configurations', {
           planId: plan.id,
-          customerType: 'INDIVIDUAL',
           geographicalCoverage: variant.geographicalCoverage,
-          ageFrom: Number(first!.from),
-          ageTo: Number(first!.to),
           medicalNetworkId: variant.medicalNetworkId === '' ? null : variant.medicalNetworkId,
           currency: DEFAULT_CURRENCY,
-          annualPrice: Number(first!.premium),
           annualLimit: Number(variant.annualLimit),
+          /**
+           * The whole rate table in the same request. It used to be one variant
+           * per band, each a copy of the last carrying its own duplicate of
+           * every benefit; a band is now a row, so the cover is entered once.
+           */
+          priceBands: priced(variant).map((band) => ({
+            ageFrom: Number(band.from),
+            ageTo: Number(band.to),
+            annualPrice: Number(band.premium),
+          })),
           isActive: true,
         });
 
@@ -411,17 +436,6 @@ export function PlanSetupForm({
               note: details.join(BENEFIT_DETAIL_SEPARATOR),
             });
           }
-        }
-
-        // The remaining bands of THIS variant: benefits and values copied with
-        // them, so each band differs only in its premium.
-        for (const band of rest) {
-          setProgress(`Saving ${label} — ages ${band.from}–${band.to}…`);
-          await api.post(`/plan-configurations/${configuration.id}/duplicate`, {
-            ageFrom: Number(band.from),
-            ageTo: Number(band.to),
-            annualPrice: Number(band.premium),
-          });
         }
       }
 

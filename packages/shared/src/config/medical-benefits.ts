@@ -48,6 +48,20 @@ export interface MedicalBenefitSpec {
    */
   coPayment: boolean;
   order: number;
+  /**
+   * OTHER NAMES THE SAME BENEFIT IS ALREADY FILED UNDER.
+   *
+   * The catalogue is the source of truth, and it was not written by this form.
+   * A company's in-patient cover may already exist as "Inpatient and daycare
+   * Details" — the same benefit, named the way the document named it — and
+   * creating "In-patient" beside it would leave one plan's cover in one record
+   * and the next plan's in another, with nothing able to compare them.
+   *
+   * So an alias is not a display name. It is a claim that the catalogue record
+   * bearing it IS this benefit, and the entry form must attach to it rather
+   * than create anything.
+   */
+  aliases?: readonly string[];
 }
 
 /** The label of the co-payment field created beside a coverage field. */
@@ -88,17 +102,58 @@ export const BENEFIT_INCLUDED_LABEL = 'Covered';
  * answers to one question.
  */
 export const CORE_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
-  { name: 'In-patient', emoji: '🏥', valueKind: 'TEXT', coPayment: true, order: 1 },
-  { name: 'Out-patient', emoji: '🩺', valueKind: 'TEXT', coPayment: true, order: 2 },
-  { name: 'Maternity', emoji: '🤰', valueKind: 'LIMIT', coPayment: true, order: 3 },
-  { name: 'Dental', emoji: '🦷', valueKind: 'LIMIT', coPayment: true, order: 4 },
-  { name: 'Optical', emoji: '👓', valueKind: 'LIMIT', coPayment: true, order: 5 },
+  {
+    name: 'In-patient',
+    emoji: '🏥',
+    valueKind: 'TEXT',
+    coPayment: true,
+    order: 1,
+    aliases: ['Inpatient and daycare Details', 'Inpatient Details', 'In-patient Details'],
+  },
+  {
+    name: 'Out-patient',
+    emoji: '🩺',
+    valueKind: 'TEXT',
+    coPayment: true,
+    order: 2,
+    aliases: ['Outpatient Details', 'Out-patient Details'],
+  },
+  {
+    name: 'Maternity',
+    emoji: '🤰',
+    valueKind: 'LIMIT',
+    coPayment: true,
+    order: 3,
+    aliases: ['Maternity Details'],
+  },
+  {
+    name: 'Dental',
+    emoji: '🦷',
+    valueKind: 'LIMIT',
+    coPayment: true,
+    order: 4,
+    aliases: ['Dental Details'],
+  },
+  {
+    name: 'Optical',
+    emoji: '👓',
+    valueKind: 'LIMIT',
+    coPayment: true,
+    order: 5,
+    aliases: ['Optical Details'],
+  },
   {
     name: 'Chronic / Pre-existing Conditions',
     emoji: '🧬',
     valueKind: 'TEXT',
     coPayment: true,
     order: 6,
+    aliases: [
+      'Pre-existing & Chronic Conditions',
+      'Chronic and Pre-existing Conditions',
+      'Pre-existing Conditions',
+      'Chronic Conditions',
+    ],
   },
 ];
 
@@ -185,11 +240,33 @@ function fold(name: string): string {
   return name.trim().toLowerCase();
 }
 
-const BY_NAME = new Map(MEDICAL_BENEFITS.map((benefit) => [fold(benefit.name), benefit]));
+const BY_NAME = new Map(
+  MEDICAL_BENEFITS.flatMap((benefit) =>
+    [benefit.name, ...(benefit.aliases ?? [])].map(
+      (name) => [fold(name), benefit] as [string, MedicalBenefitSpec],
+    ),
+  ),
+);
 
-/** The spec for a benefit name, or `null` for one an employee invented. */
+/**
+ * The spec for a benefit name, or `null` for one an employee invented.
+ *
+ * Aliases resolve here too, so a catalogue record named the way a document
+ * named it is recognised as the benefit it actually is.
+ */
 export function medicalBenefitSpec(name: string): MedicalBenefitSpec | null {
   return BY_NAME.get(fold(name)) ?? null;
+}
+
+/**
+ * Every name a benefit might already be filed under, its own first.
+ *
+ * The entry form walks this against the live catalogue and attaches to the
+ * first record it finds, so an existing benefit is reused rather than
+ * duplicated under a tidier name.
+ */
+export function medicalBenefitLookupNames(spec: MedicalBenefitSpec): readonly string[] {
+  return [spec.name, ...(spec.aliases ?? [])];
 }
 
 /** The emoji for a benefit name. Falls back to a neutral mark. */
@@ -198,7 +275,9 @@ export function benefitEmoji(name: string): string {
 }
 
 export function isCoreMedicalBenefit(name: string): boolean {
-  return CORE_MEDICAL_BENEFITS.some((benefit) => fold(benefit.name) === fold(name));
+  return CORE_MEDICAL_BENEFITS.some((benefit) =>
+    medicalBenefitLookupNames(benefit).some((alias) => fold(alias) === fold(name)),
+  );
 }
 
 // ---------------------------------------------------------------------------

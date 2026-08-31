@@ -2,7 +2,10 @@
  * Every application path in one place. Never hardcode a URL in a component.
  *
  * The management experience is a single drill-down:
- *   Companies -> Company -> Plan -> Configuration
+ *   Companies -> Company -> Plan -> Variant
+ *
+ * A company is chosen, then one of its three customer-type sections, then a
+ * plan in that section, then one of that plan's variants.
  * Options and option fields are managed inside that flow rather than from their
  * own top-level screens.
  *
@@ -17,8 +20,6 @@ export const ROUTES = {
     list: '/companies',
     new: '/companies/new',
     detail: (companyId: string) => `/companies/${companyId}`,
-    /** Step 2 of the create flow: add this company's plans. */
-    setup: (companyId: string) => `/companies/${companyId}/setup`,
   },
   plans: {
     /** Read-only list of every plan across all companies. */
@@ -42,7 +43,6 @@ export const ROUTES = {
 /** Route patterns, for registering routes in the router. */
 export const ROUTE_PATTERNS = {
   companyDetail: '/companies/:companyId',
-  companySetup: '/companies/:companyId/setup',
   planDetail: '/companies/:companyId/plans/:planId',
   configurationDetail: '/companies/:companyId/plans/:planId/configurations/:configurationId',
 } as const;

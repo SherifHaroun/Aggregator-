@@ -32,8 +32,11 @@ import {
   usePlan,
 } from '@/features/insurance-data/insurance-data.api';
 import {
+  bandCountLabel,
   benefitCountLabel,
+  priceRangeLabel,
   configurationLabel,
+  coverageLabel,
   formatMoney,
 } from '@/features/insurance-data/labels';
 
@@ -61,19 +64,20 @@ export function PlanDetailPage() {
   const [pendingDelete, setPendingDelete] = useState<PlanConfigurationDto | null>(null);
 
   /**
-   * Youngest band first. Age is what separates most configurations of a plan,
-   * so reading them in age order is how the price table in a plan document
-   * reads.
+   * By coverage, which is what now separates one variant of a plan from
+   * another — age separates the price bands INSIDE a variant, not the variants
+   * themselves.
    */
   const configurations = [...(plan.data?.configurations ?? [])].sort(
-    (a, b) => a.ageFrom - b.ageFrom || a.ageTo - b.ageTo,
+    (a, b) =>
+      a.geographicalCoverage.localeCompare(b.geographicalCoverage) || a.id.localeCompare(b.id),
   );
 
   return (
     <>
       <PageHeader
         title={plan.data?.name ?? 'Plan'}
-        description="Each configuration below carries its own price and its own benefits."
+        description="Open a variant to edit its cover, its networks and its prices."
         breadcrumbs={[
           { label: 'Companies', to: ROUTES.companies.list },
           {
@@ -266,32 +270,30 @@ function ConfigurationCard({
   return (
     <Card className="hover:border-brand-border flex flex-col p-5 transition-colors">
       <div className="flex items-start justify-between gap-2">
+        {/* "Gold+ Local" — the plan's name and its scope read together, never
+            typed and never stored. */}
         <p className="text-content font-semibold">
-          {configurationLabel(configuration.customerType, configuration.geographicalCoverage)}
+          {configuration.displayName ?? coverageLabel(configuration.geographicalCoverage)}
         </p>
         <Badge tone={configuration.isActive ? 'success' : 'neutral'}>
           {configuration.isActive ? 'Active' : 'Inactive'}
         </Badge>
       </div>
 
-      {/* The band this price applies to — what distinguishes one card from the
-          next when a plan is priced age by age. */}
+      {/* The network this variant is sold on: the same plan on two networks is
+          two variants at two prices, and the name is what tells them apart. */}
       <p className="text-content-muted mt-1 text-sm font-medium">
-        Ages {configuration.ageFrom}–{configuration.ageTo}
+        {configuration.medicalNetworkName ?? 'No network stated'}
       </p>
 
+      {/* What it costs across its whole rate table — one figure when a single
+          band is priced, a range when the price climbs with age. */}
       <p className="text-content mt-3 text-2xl font-bold">
-        {formatMoney(configuration.annualPrice, configuration.currency)}
+        {priceRangeLabel(configuration)}
       </p>
-      <p className="text-content-muted text-sm">{benefitCountLabel(benefits)}</p>
-
-      {/* Resolved from the centralized business rule, never stored. */}
-      {configuration.averageAge.label ? (
-        <p className="text-brand-strong bg-brand-soft mt-3 inline-flex w-fit items-center gap-1.5 rounded-(--radius-pill) px-2.5 py-1 text-xs font-semibold">
-          <IconUsers className="size-3.5" />
-          {configuration.averageAge.label}
-        </p>
-      ) : null}
+      <p className="text-content-muted text-sm">
+        {benefitCountLabel(benefits)} · {bandCountLabel(configuration.priceBands.length)}
+      </p>
 
       <div className="mt-auto flex items-center justify-end gap-1 pt-4">
         <button
