@@ -37,6 +37,7 @@ import {
   useSaveMedicalNetwork,
 } from '@/features/insurance-data/insurance-data.api';
 import { cn } from '@/lib/cn';
+import { NetworkProviders } from './NetworkProviders';
 
 /**
  * The provider networks THIS company sells, in the order it ranks them.
@@ -150,6 +151,8 @@ function NetworkRow({
   const save = useSaveMedicalNetwork(companyId);
   const remove = useDeleteMedicalNetwork(companyId);
   const [editing, setEditing] = useState(false);
+  const [showingProviders, setShowingProviders] = useState(false);
+  const providerCount = network.providers?.length ?? 0;
   const [name, setName] = useState(network.name);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -203,10 +206,11 @@ function NetworkRow({
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       className={cn(
-        'border-border-subtle bg-surface flex items-center gap-2.5 rounded-(--radius-control) border px-2.5 py-2',
+        'border-border-subtle bg-surface rounded-(--radius-control) border px-2.5 py-2',
         isDragging && 'shadow-(--shadow-raised) opacity-80',
       )}
     >
+      <div className="flex items-center gap-2.5">
       <button
         type="button"
         {...listeners}
@@ -251,6 +255,16 @@ function NetworkRow({
 
       <button
         type="button"
+        onClick={() => setShowingProviders((open) => !open)}
+        aria-expanded={showingProviders}
+        aria-label={`Provider information for ${network.name}`}
+        className="text-content-subtle hover:text-brand-strong shrink-0 rounded-(--radius-control) px-2 py-1 text-xs font-medium"
+      >
+        {providerCount > 0 ? `${providerCount} provider types` : 'Add providers'}
+      </button>
+
+      <button
+        type="button"
         onClick={() => setEditing(true)}
         aria-label={`Edit ${network.name}`}
         className="text-content-subtle hover:text-brand-strong shrink-0 rounded-(--radius-control) p-1.5"
@@ -267,6 +281,17 @@ function NetworkRow({
       >
         <IconTrash className="size-4" />
       </button>
+      </div>
+
+      {/* The estate this network gives access to, entered once and read by
+          every plan sold on it. */}
+      {showingProviders ? (
+        <NetworkProviders
+          companyId={companyId}
+          network={network}
+          onClose={() => setShowingProviders(false)}
+        />
+      ) : null}
     </li>
   );
 }

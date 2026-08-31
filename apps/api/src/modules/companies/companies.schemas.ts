@@ -1,3 +1,8 @@
+import {
+  NETWORK_PROVIDER_CATEGORY_MAX_LENGTH,
+  NETWORK_PROVIDER_DETAIL_MAX_LENGTH,
+  NETWORK_PROVIDER_MAX,
+} from '@aggregator/shared';
 import { z } from 'zod';
 
 /** Optional free-text field: trims, and treats an empty string as "cleared". */
@@ -68,3 +73,23 @@ export type UpdateMedicalNetworkInput = z.infer<typeof updateMedicalNetworkSchem
 
 export type CreateCompanyInput = z.infer<typeof createCompanySchema>;
 export type UpdateCompanyInput = z.infer<typeof updateCompanySchema>;
+
+/**
+ * What a network gives access to, as the screen sends it.
+ *
+ * Both the figure and the wording are optional, because documents state one,
+ * the other, or both. A row with neither is dropped by the service.
+ */
+export const setNetworkProvidersSchema = z.object({
+  providers: z
+    .array(
+      z.object({
+        category: z.string().trim().min(1).max(NETWORK_PROVIDER_CATEGORY_MAX_LENGTH),
+        count: z.number().int().min(0).max(1_000_000).nullable().optional(),
+        detail: z.string().trim().max(NETWORK_PROVIDER_DETAIL_MAX_LENGTH).nullable().optional(),
+      }),
+    )
+    .max(NETWORK_PROVIDER_MAX),
+});
+
+export type SetNetworkProvidersInput = z.infer<typeof setNetworkProvidersSchema>;

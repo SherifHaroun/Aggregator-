@@ -208,6 +208,30 @@ export function useDeleteMedicalNetwork(companyId: string) {
 }
 
 /** The company's own ranking of its networks, best first. */
+/**
+ * Record what a network gives access to — hospitals, pharmacies, laboratories.
+ *
+ * Replaces the whole estate, because the screen edits a short list and saves
+ * it: a partial update would leave no way to remove a category. Entered once
+ * here, every variant sold on the network reads it.
+ */
+export function useSetNetworkProviders(companyId: string) {
+  return useInvalidatingMutation(
+    keys.companies,
+    ({
+      networkId,
+      providers,
+    }: {
+      networkId: string;
+      providers: { category: string; count: number | null; detail: string | null }[];
+    }) =>
+      api.put<CompanyMedicalNetworkDto>(
+        `/companies/${companyId}/medical-networks/${networkId}/providers`,
+        { providers },
+      ),
+  );
+}
+
 export function useReorderMedicalNetworks(companyId: string) {
   return useNetworkMutation<void, { orderedIds: string[] }>(companyId, (input) =>
     api.post<void>(`/companies/${companyId}/medical-networks/reorder`, input),

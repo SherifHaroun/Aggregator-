@@ -8,6 +8,7 @@ import {
   createMedicalNetworkSchema,
   deleteMedicalNetworkQuerySchema,
   reorderMedicalNetworksSchema,
+  setNetworkProvidersSchema,
   updateCompanySchema,
   updateMedicalNetworkSchema,
 } from './companies.schemas.js';
@@ -17,6 +18,7 @@ import {
   listMedicalNetworks,
   reorderMedicalNetworks,
   updateMedicalNetwork,
+  setNetworkProviders,
 } from './medical-networks.service.js';
 import {
   createCompany,
@@ -74,6 +76,15 @@ companiesRouter.patch(
         ),
       ),
     );
+  }),
+);
+
+/** What the network gives access to. Replaces the whole estate. */
+companiesRouter.put(
+  '/:id/medical-networks/:networkId/providers',
+  asyncHandler(async (req, res) => {
+    const { providers } = setNetworkProvidersSchema.parse(req.body);
+    res.json(success(await setNetworkProviders(param(req, 'networkId'), providers)));
   }),
 );
 

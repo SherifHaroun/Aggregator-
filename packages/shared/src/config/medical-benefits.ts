@@ -229,3 +229,52 @@ export const DEFAULT_AGE_BANDS: readonly { from: number; to: number }[] = [
  * age. A band left blank here is simply not created.
  */
 export const AGE_BAND_NOT_SOLD_LABEL = 'Not covered';
+
+// ---------------------------------------------------------------------------
+//  WHAT A NETWORK GIVES ACCESS TO
+// ---------------------------------------------------------------------------
+
+/**
+ * The provider categories a network's estate is described in.
+ *
+ * Every one of these was a column in the legacy
+ * `hb_group_medical_network_summary` table, filled in once per provider and
+ * shown against every plan sold on it. That was the one thing the old schema
+ * genuinely normalised, and it is worth keeping.
+ *
+ * A STARTING LIST, not a closed one: the categories are stored as rows, so an
+ * employee may record one nobody anticipated. Nothing here is required.
+ */
+export const NETWORK_PROVIDER_CATEGORIES: readonly { name: string; emoji: string }[] = [
+  { name: 'Hospitals', emoji: '🏥' },
+  { name: 'Polyclinics', emoji: '🏬' },
+  { name: 'Physicians', emoji: '👩‍⚕️' },
+  { name: 'Pharmacies', emoji: '💊' },
+  { name: 'Laboratories', emoji: '🧪' },
+  { name: 'Radiology Centers', emoji: '🩻' },
+  { name: 'Dental Centers', emoji: '🦷' },
+  { name: 'Optical Centers', emoji: '👓' },
+  { name: 'Physiotherapy Centers', emoji: '🤸' },
+  { name: 'Specialized Medical Centers', emoji: '⚕️' },
+];
+
+/** Longest a category name may be. */
+export const NETWORK_PROVIDER_CATEGORY_MAX_LENGTH = 120;
+
+/** Longest the wording beside a figure may be. */
+export const NETWORK_PROVIDER_DETAIL_MAX_LENGTH = 500;
+
+/** Most categories one network may describe. */
+export const NETWORK_PROVIDER_MAX = 40;
+
+/** Shown on a network whose estate nobody has recorded yet. */
+export const NO_NETWORK_PROVIDERS_LABEL =
+  'No provider information yet — add it once here and every plan on this network shows it.';
+
+/** The emoji for a provider category, or a neutral mark for an invented one. */
+export function networkProviderEmoji(category: string): string {
+  const match = NETWORK_PROVIDER_CATEGORIES.find(
+    (item) => item.name.trim().toLowerCase() === category.trim().toLowerCase(),
+  );
+  return match?.emoji ?? '📍';
+}

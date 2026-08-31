@@ -187,7 +187,11 @@ export function CompanyDetailPage() {
           title="Add a plan"
           description="The plan and its first price. More combinations can be added from the plan itself."
         >
-          <PlanSetupForm companyId={companyId} onCreated={() => setAddingPlan(false)} />
+          <PlanSetupForm
+            companyId={companyId}
+            companyName={company.data?.name}
+            onCreated={() => setAddingPlan(false)}
+          />
         </Dialog>
       ) : null}
 

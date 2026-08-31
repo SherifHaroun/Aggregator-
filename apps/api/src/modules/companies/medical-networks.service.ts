@@ -243,3 +243,58 @@ export async function assertNetworkBelongsToCompany(
     });
   }
 }
+
+/**
+ * Record what a network gives access to.
+ *
+ * Replaces the whole estate in one call: the screen edits a short list and
+ * saves it, and a partial update would leave no way to remove a category.
+ * Entered ONCE here, it is then read by every variant sold on this network —
+ * which is the point, and what the legacy system got right about networks and
+ * wrong about everything else.
+ *
+ * A category with neither a figure nor wording is dropped rather than stored:
+ * an empty row says nothing that the absence of a row does not already say.
+ */
+export async function setNetworkProviders(
+  networkId: string,
+  providers: { category: string; count?: number | null; detail?: string | null }[],
+): Promise<CompanyMedicalNetworkDto> {
+  const prisma = getPrisma();
+
+  const network = await prisma.companyMedicalNetwork.findUnique({
+    where: { id: networkId },
+    select: { id: true },
+  });
+  if (!network) throw notFound('Medical network');
+
+  const stated = providers.filter(
+    (provider) =>
+      typeof provider.count === 'number' || (provider.detail ?? '').trim() !== '',
+  );
+
+  // One category cannot be described twice: the last mention wins, so the
+  // screen never has to police what it sends.
+  const byCategory = new Map(stated.map((provider) => [provider.category.trim(), provider]));
+
+  await prisma.$transaction(async (tx) => {
+    await tx.networkProvider.deleteMany({ where: { networkId } });
+    if (byCategory.size === 0) return;
+    await tx.networkProvider.createMany({
+      data: [...byCategory.values()].map((provider, index) => ({
+        networkId,
+        category: provider.category.trim(),
+        count: typeof provider.count === 'number' ? provider.count : null,
+        detail: (provider.detail ?? '').trim() === '' ? null : provider.detail!.trim(),
+        sortOrder: index,
+      })),
+    });
+  });
+
+  return toMedicalNetworkDto(
+    await prisma.companyMedicalNetwork.findUniqueOrThrow({
+      where: { id: networkId },
+      include: withUsage,
+    }),
+  );
+}
