@@ -84,12 +84,13 @@ export function CompanySetupPage() {
               <CardHeader
                 title={existing.length === 0 ? 'Add the first plan' : 'Add another plan'}
                 icon={<IconPlan className="size-5" />}
-                description="Each plan gets a price for one customer type and coverage area. You can add more combinations later."
+                description="Its benefits are entered once and carried across every age band you price."
               />
               <CardBody>
                 {companyId ? (
                   <PlanSetupForm
                     companyId={companyId}
+                    companyName={company.data?.name}
                     onCreated={(name) => setJustAdded((current) => [...current, name])}
                   />
                 ) : null}

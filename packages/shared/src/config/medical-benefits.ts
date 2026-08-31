@@ -1,0 +1,231 @@
+/**
+ * ============================================================================
+ *  THE MEDICAL BENEFIT CATALOGUE THE ENTRY FORM OFFERS
+ * ============================================================================
+ *
+ * Every name below is a column that existed in the legacy system — either in
+ * `hb_medical_insurance_v` (individual medical, 44 benefit columns) or in
+ * `hb_medical_public_private` (the SME group form). Nothing here is invented.
+ *
+ * Two groups, and the split is the one the legacy system itself made:
+ *
+ *  - CORE benefits are the ones the old aggregator actually COMPARED. Its
+ *    pricing table carried exactly six comparable columns — the ceiling plus
+ *    optical, dental, maternity and chronic as yes/no — and nothing else could
+ *    reach a comparison, because the 44-column detail sheet had no key joining
+ *    it to the prices. Core benefits are therefore always present on a plan.
+ *
+ *  - OPTIONAL benefits are the rest of that detail sheet. They are worth
+ *    recording and worth showing on a plan, and a plan that never mentions
+ *    them should not carry an empty box for each.
+ *
+ * `valueKind` is chosen from what the legacy data actually held: `750` for
+ * dental is a LIMIT, `Fully Covered` for in-patient is TEXT, and a room type is
+ * one entry from a ranked list. It is only the DEFAULT the benefit is created
+ * with — an employee may change what a benefit carries afterwards, and a
+ * benefit invented later is unaffected by anything here.
+ *
+ * This file names benefits; it does not own them. Once created, each is an
+ * ordinary global `InsuranceOption` like any other.
+ */
+
+import type { BenefitValueKind } from './benefits.js';
+
+export interface MedicalBenefitSpec {
+  /** The benefit's catalogue name. Matching is case-insensitive. */
+  name: string;
+  /** Shown beside the name so a long list stays scannable. */
+  emoji: string;
+  /** What the benefit is created carrying, from what the legacy data held. */
+  valueKind: BenefitValueKind;
+  /**
+   * Whether a co-payment box is offered beside the coverage box.
+   *
+   * The legacy form paired a `deductible_*` column with consultations,
+   * ambulatory services, physiotherapy, medicines, dental and optical — and
+   * those columns held PERCENTAGES (`0%`, `10%`, `15%`, `20%`, `25%`), which is
+   * a co-payment, not a deductible, whatever the column was called.
+   */
+  coPayment: boolean;
+  order: number;
+}
+
+/** The label of the co-payment field created beside a coverage field. */
+export const CO_PAYMENT_FIELD = {
+  label: 'Co-payment',
+  key: 'co_payment',
+  dataType: 'PERCENTAGE',
+  unit: '%',
+} as const;
+
+/**
+ * Detail lines a plan states about a benefit — "10 sessions per year",
+ * "80% reimbursement", "covered at authorized centers".
+ *
+ * They are DISPLAY ONLY: shown wherever the plan is read, never scored. The
+ * legacy system had no room for them and crammed them into the coverage value
+ * ("12 Sessions", "Covered up to 3,000"), which is why a comparison could never
+ * read those plans properly.
+ *
+ * Stored as the attachment's note, one line per entry, because a note is not
+ * information the benefit requires — any attachment may carry one.
+ */
+export const BENEFIT_DETAIL_SEPARATOR = '\n';
+
+/** Placeholder on an optional benefit's detail box. */
+export const BENEFIT_DETAIL_PLACEHOLDER = 'Write any detail about this benefit…';
+
+/** What an optional benefit records when it is ticked but nothing is typed. */
+export const BENEFIT_INCLUDED_LABEL = 'Covered';
+
+/**
+ * Always on a medical plan, because these are what a comparison reads.
+ *
+ * Chronic and pre-existing are ONE benefit here. The legacy system kept them as
+ * two columns, but its most common chronic value was
+ * "Covered up to the limit if not pre-existing" — a single sentence about both
+ * — and its pricing table carried only `chronic`. Splitting them invited two
+ * answers to one question.
+ */
+export const CORE_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
+  { name: 'In-patient', emoji: '🏥', valueKind: 'TEXT', coPayment: true, order: 1 },
+  { name: 'Out-patient', emoji: '🩺', valueKind: 'TEXT', coPayment: true, order: 2 },
+  { name: 'Maternity', emoji: '🤰', valueKind: 'LIMIT', coPayment: true, order: 3 },
+  { name: 'Dental', emoji: '🦷', valueKind: 'LIMIT', coPayment: true, order: 4 },
+  { name: 'Optical', emoji: '👓', valueKind: 'LIMIT', coPayment: true, order: 5 },
+  {
+    name: 'Chronic / Pre-existing Conditions',
+    emoji: '🧬',
+    valueKind: 'TEXT',
+    coPayment: true,
+    order: 6,
+  },
+];
+
+/** Added only when a plan actually states them. */
+export const OPTIONAL_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
+  /**
+   * Text rather than a ranked list, for now.
+   *
+   * A room type IS ranked cover — a private room beats a shared one — and the
+   * catalogue supports saying so. But a RANK benefit is only meaningful once
+   * its answers have been put in order, and that is done on the benefits
+   * screen. Created as text, it records what the plan says from day one and
+   * can be promoted to a ranked benefit later without losing a value.
+   */
+  { name: 'Room Type', emoji: '🛏️', valueKind: 'TEXT', coPayment: false, order: 10 },
+  { name: 'Consultations', emoji: '👩‍⚕️', valueKind: 'TEXT', coPayment: false, order: 11 },
+  { name: 'Medicines', emoji: '💊', valueKind: 'TEXT', coPayment: false, order: 12 },
+  { name: 'Physiotherapy', emoji: '🤸', valueKind: 'TEXT', coPayment: false, order: 13 },
+  { name: 'New Born Baby', emoji: '👶', valueKind: 'TEXT', coPayment: false, order: 14 },
+  {
+    name: 'Accompanying Family Member',
+    emoji: '👨‍👩‍👧',
+    valueKind: 'TEXT',
+    coPayment: false,
+    order: 15,
+  },
+  { name: 'Organ Transplantation', emoji: '🫁', valueKind: 'TEXT', coPayment: false, order: 16 },
+  {
+    name: 'Organ Transplantation Surgery',
+    emoji: '⚕️',
+    valueKind: 'TEXT',
+    coPayment: false,
+    order: 17,
+  },
+  { name: 'Road Ambulance', emoji: '🚑', valueKind: 'TEXT', coPayment: false, order: 18 },
+  { name: 'Morgue / Last Expenses', emoji: '⚰️', valueKind: 'LIMIT', coPayment: false, order: 19 },
+  { name: 'Personal Accident', emoji: '⚠️', valueKind: 'TEXT', coPayment: false, order: 20 },
+  { name: 'Home Care', emoji: '🏠', valueKind: 'TEXT', coPayment: false, order: 21 },
+  { name: 'Heart Procedures', emoji: '🫀', valueKind: 'TEXT', coPayment: false, order: 22 },
+  { name: 'Cancer Treatment', emoji: '🎗️', valueKind: 'TEXT', coPayment: false, order: 23 },
+  { name: 'Hepatitis B & C', emoji: '🧫', valueKind: 'TEXT', coPayment: false, order: 24 },
+  { name: 'Prosthesis & Stents', emoji: '🦾', valueKind: 'TEXT', coPayment: false, order: 25 },
+  {
+    name: 'Emergency Cases Outside Region',
+    emoji: '🚨',
+    valueKind: 'TEXT',
+    coPayment: false,
+    order: 26,
+  },
+  {
+    name: 'Emergency Medical Treatment Outside Egypt',
+    emoji: '✈️',
+    valueKind: 'TEXT',
+    coPayment: false,
+    order: 27,
+  },
+  { name: 'Work Related Accidents', emoji: '👷', valueKind: 'TEXT', coPayment: false, order: 28 },
+  {
+    name: 'Expert Second Medical Opinion',
+    emoji: '💬',
+    valueKind: 'TEXT',
+    coPayment: false,
+    order: 29,
+  },
+  { name: 'Area Coverage', emoji: '🌍', valueKind: 'TEXT', coPayment: false, order: 30 },
+];
+
+/** Every benefit this form knows how to offer, core first. */
+export const MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
+  ...CORE_MEDICAL_BENEFITS,
+  ...OPTIONAL_MEDICAL_BENEFITS,
+];
+
+/** Names compare case-insensitively, exactly as the catalogue's own rule does. */
+function fold(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+const BY_NAME = new Map(MEDICAL_BENEFITS.map((benefit) => [fold(benefit.name), benefit]));
+
+/** The spec for a benefit name, or `null` for one an employee invented. */
+export function medicalBenefitSpec(name: string): MedicalBenefitSpec | null {
+  return BY_NAME.get(fold(name)) ?? null;
+}
+
+/** The emoji for a benefit name. Falls back to a neutral mark. */
+export function benefitEmoji(name: string): string {
+  return medicalBenefitSpec(name)?.emoji ?? '📄';
+}
+
+export function isCoreMedicalBenefit(name: string): boolean {
+  return CORE_MEDICAL_BENEFITS.some((benefit) => fold(benefit.name) === fold(name));
+}
+
+// ---------------------------------------------------------------------------
+//  AGE BANDS
+// ---------------------------------------------------------------------------
+
+/**
+ * The age bands the form starts from.
+ *
+ * Read off the legacy pricing table: across all 32 products every price change
+ * fell on one of these ages. Two conventions were in use — one insurer broke at
+ * 30/35/40, another at 31/36/41 — so these are a STARTING POINT the employee
+ * edits, never a rule. Rows are added and removed freely.
+ *
+ * The open-ended last band is deliberate: a plan states a price up to some age
+ * and simply is not sold beyond it.
+ */
+export const DEFAULT_AGE_BANDS: readonly { from: number; to: number }[] = [
+  { from: 1, to: 17 },
+  { from: 18, to: 24 },
+  { from: 25, to: 29 },
+  { from: 30, to: 34 },
+  { from: 35, to: 39 },
+  { from: 40, to: 44 },
+  { from: 45, to: 49 },
+  { from: 50, to: 54 },
+  { from: 55, to: 59 },
+  { from: 60, to: 64 },
+];
+
+/**
+ * What a band with no premium means.
+ *
+ * The legacy data said this two ways — an empty cell in one table, the literal
+ * text "Not Covered" in the other — for one fact: the plan is not sold at that
+ * age. A band left blank here is simply not created.
+ */
+export const AGE_BAND_NOT_SOLD_LABEL = 'Not covered';

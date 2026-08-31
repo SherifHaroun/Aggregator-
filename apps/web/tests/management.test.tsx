@@ -10,6 +10,7 @@
  * the application code never mentions them.
  */
 
+import { UNSPECIFIED_OPTION_LABEL } from '@aggregator/shared';
 import type { CustomerTypeId, OptionFieldDto } from '@aggregator/shared';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -990,14 +991,13 @@ describe('company medical networks', () => {
     const offered = within(network)
       .getAllByRole('option')
       .map((o) => o.textContent);
-    expect(offered).toEqual(['Not stated', 'Golden Care Network']);
+    expect(offered).toEqual([UNSPECIFIED_OPTION_LABEL, 'Golden Care Network']);
 
     await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
-    await user.selectOptions(dialog.getByLabelText(/Insurance type/i), 'type_1');
+    await user.type(dialog.getByLabelText(/Annual limit/i), '600000');
     await user.selectOptions(network, 'net_a1');
-    await user.type(dialog.getByLabelText(/Age from/i), '18');
-    await user.type(dialog.getByLabelText(/Age to/i), '60');
-    await user.click(dialog.getByRole('button', { name: /Add plan/i }));
+    await user.type(dialog.getByLabelText('Premium, ages 1 to 17'), '3681');
+    await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
     await waitFor(() => expect(store.plans).toHaveLength(1));
     // Recorded on the plan itself — no plan-specific network record is created.
@@ -1053,7 +1053,7 @@ describe('company medical networks', () => {
 // ---------------------------------------------------------------------------
 
 describe('plans', () => {
-  it('creates a plan and a brand-new insurance type inline', async () => {
+  it('files a medical plan under a Medical type it creates itself', async () => {
     const user = userEvent.setup();
     givenCompany();
 
@@ -1064,17 +1064,15 @@ describe('plans', () => {
     // jsdom keeps the trigger button queryable.
     const dialog = within(await screen.findByRole('dialog'));
     await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
-    // No sidebar page for insurance types — one is created from this form.
-    await user.selectOptions(dialog.getByLabelText(/Insurance type/i), '__new__');
-    await user.type(await dialog.findByLabelText(/New insurance type name/i), 'Household Cover');
-    // The plan's first configuration needs the age band it applies to.
-    await user.type(dialog.getByLabelText(/Age from/i), '18');
-    await user.type(dialog.getByLabelText(/Age to/i), '60');
-    await user.click(dialog.getByRole('button', { name: /Add plan/i }));
+    await user.type(dialog.getByLabelText(/Annual limit/i), '600000');
+    await user.type(dialog.getByLabelText('Premium, ages 1 to 17'), '3681');
+    await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
     await waitFor(() => expect(store.plans).toHaveLength(1));
+    // The form is medical-specific, so the employee is never asked the
+    // category. Refiling a plan elsewhere remains possible when editing it.
     expect(store.insuranceTypes).toHaveLength(1);
-    expect(store.insuranceTypes[0]?.name).toBe('Household Cover');
+    expect(store.insuranceTypes[0]?.name).toBe('Medical');
     // The code is derived so the employee never has to invent one.
     expect(store.plans[0]).toMatchObject({
       name: 'Tier One',
@@ -1086,19 +1084,15 @@ describe('plans', () => {
   it('stores the price on the configuration, never on the plan', async () => {
     const user = userEvent.setup();
     givenCompany();
-    givenInsuranceType();
 
     renderApp(ROUTES.companies.detail('company_1'));
     await user.click((await screen.findAllByRole('button', { name: /Add plan/i }))[0]!);
 
     const dialog = within(await screen.findByRole('dialog'));
     await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
-    await user.selectOptions(dialog.getByLabelText(/Insurance type/i), 'type_1');
-    await user.type(dialog.getByLabelText(/Age from/i), '18');
-    await user.type(dialog.getByLabelText(/Age to/i), '60');
-    await user.type(dialog.getByLabelText(/Currency/i), 'EGP');
-    await user.type(dialog.getByLabelText(/Annual price/i), '7500');
-    await user.click(dialog.getByRole('button', { name: /Add plan/i }));
+    await user.type(dialog.getByLabelText(/Annual limit/i), '600000');
+    await user.type(dialog.getByLabelText('Premium, ages 1 to 17'), '7500');
+    await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
     await waitFor(() => expect(store.configurations).toHaveLength(1));
 
@@ -1109,7 +1103,47 @@ describe('plans', () => {
       customerType: 'INDIVIDUAL',
       geographicalCoverage: 'LOCAL',
       annualPrice: 7500,
+      annualLimit: 600000,
     });
+  });
+
+  /**
+   * The point of the form: age is a pricing axis, not a benefit axis.
+   *
+   * The legacy data said so outright — across 32 products, all 69 age rows of
+   * each carried an identical benefit set, and only the premium moved. So the
+   * benefits are filled in once and every band priced carries them.
+   */
+  it('enters benefits once and carries them onto every age band priced', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+
+    renderApp(ROUTES.companies.detail('company_1'));
+    await user.click((await screen.findAllByRole('button', { name: /Add plan/i }))[0]!);
+
+    const dialog = within(await screen.findByRole('dialog'));
+    await user.type(dialog.getByLabelText(/Plan name/i), 'Elite');
+    await user.type(dialog.getByLabelText(/Annual limit/i), '600000');
+    await user.type(dialog.getByLabelText('In-patient coverage'), 'Fully Covered');
+
+    // Three bands, three premiums, one benefit entry.
+    await user.type(dialog.getByLabelText('Premium, ages 1 to 17'), '3681');
+    await user.type(dialog.getByLabelText('Premium, ages 18 to 24'), '5701');
+    await user.type(dialog.getByLabelText('Premium, ages 25 to 29'), '7132');
+    await user.click(dialog.getByRole('button', { name: /Save plan/i }));
+
+    await waitFor(() => expect(store.configurations).toHaveLength(3));
+
+    // A band with no premium is simply not sold, so no configuration is made.
+    expect(store.configurations.map((item) => item.annualPrice)).toEqual([3681, 5701, 7132]);
+
+    // The benefit is attached to each of them, valued the same.
+    for (const configuration of store.configurations) {
+      const attached = store.planOptions.filter(
+        (item) => item.planConfigurationId === configuration.id,
+      );
+      expect(attached).toHaveLength(1);
+    }
   });
 });
 
