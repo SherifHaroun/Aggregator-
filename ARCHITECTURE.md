@@ -388,6 +388,31 @@ cost, rather than discovering it from a 409.
 script and no seed data** — every record is entered by employees through the
 application.
 
+### Where it runs
+
+```
+Vercel                  Railway
+  web  ──────────────►  API  ──►  Postgres
+  aggregator-web-       aggregator-        postgres.railway.internal
+  nine.vercel.app       production-        (PRIVATE — no public endpoint)
+                        a48d.up.railway.app
+                              │
+                              └─ volume at /data, UPLOAD_DIR=/data/uploads
+```
+
+Railway injects `DATABASE_URL` into the API service from the Postgres service,
+so it is never set by hand there. `CORS_ORIGINS` on the API names the Vercel
+origin; `VITE_API_BASE_URL` on the web build names the API.
+
+**The production database has no public endpoint.** `postgres.railway.internal`
+resolves only inside Railway's network, which is why a development machine
+cannot reach it and should generally use its own PostgreSQL instead. Reaching
+it from outside means giving the Postgres service a TCP proxy, which puts the
+live data on the public internet — a deliberate decision, not a default.
+
+Migrations run on deploy: the root `start` script is `prisma migrate deploy`
+followed by the API, so a released build brings the schema with it.
+
 ### Tests
 
 `apps/api/tests/`, run with `npm run test`.
@@ -482,7 +507,7 @@ database**; only the interface differs.
 
 ```
 web-admin  ─┐                  ┌─ employees: create / edit / configure
-            ├─► API ─► Neon ───┤
+            ├─► API ─► Postgres ┤
 web-public ─┘                  └─ customers: read / compare / recommend
 ```
 

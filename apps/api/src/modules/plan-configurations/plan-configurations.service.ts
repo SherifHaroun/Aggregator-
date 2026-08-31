@@ -2,6 +2,7 @@ import type { Paginated, PlanConfigurationDto } from '@aggregator/shared';
 import { conflict, notFound } from '../../lib/errors.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
 import { getPrisma } from '../../lib/prisma.js';
+import { assertNetworkBelongsToCompany } from '../companies/medical-networks.service.js';
 import { planOptionInclude } from '../plan-options/plan-options.mapper.js';
 import { toPlanConfigurationDto } from './plan-configurations.mapper.js';
 import type {
@@ -14,6 +15,8 @@ import type {
 /** A configuration with its options, their field definitions and values. */
 const configurationDetailInclude = {
   options: { include: planOptionInclude, orderBy: { sortOrder: 'asc' as const } },
+  /** So a variant can name its network without a second request. */
+  medicalNetwork: true,
 };
 
 /**
@@ -80,14 +83,64 @@ export async function createPlanConfiguration(
 ): Promise<PlanConfigurationDto> {
   const prisma = getPrisma();
 
-  const plan = await prisma.plan.findUnique({ where: { id: input.planId }, select: { id: true } });
+  const plan = await prisma.plan.findUnique({
+    where: { id: input.planId },
+    select: { id: true, companyId: true },
+  });
   if (!plan) throw notFound('Plan');
+
+  // A variant is sold on one of ITS OWN company's networks, never another's.
+  await assertNetworkBelongsToCompany(plan.companyId, input.medicalNetworkId);
+  await assertVariantIsDistinct(input.planId, input);
 
   const configuration = await prisma.planConfiguration.create({
     data: input,
     include: configurationDetailInclude,
   });
   return toPlanConfigurationDto(configuration);
+}
+
+/**
+ * Refuse a variant that repeats one this plan already has.
+ *
+ * The unique index covers this, but only where the values are present:
+ * PostgreSQL treats NULLs as distinct, so two variants that both leave the
+ * network, room and ceiling unstated would slip past it. They are the same
+ * offering entered twice, and the employee should be told so rather than
+ * discovering two identical rows later.
+ */
+async function assertVariantIsDistinct(
+  planId: string,
+  variant: {
+    customerType?: string;
+    geographicalCoverage?: string;
+    medicalNetworkId?: string | null;
+    roomType?: string | null;
+    annualLimit?: number | null;
+    ageFrom?: number;
+    ageTo?: number;
+  },
+  { excludeId }: { excludeId?: string } = {},
+): Promise<void> {
+  const twin = await getPrisma().planConfiguration.findFirst({
+    where: {
+      planId,
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+      customerType: variant.customerType as never,
+      geographicalCoverage: variant.geographicalCoverage as never,
+      medicalNetworkId: variant.medicalNetworkId ?? null,
+      roomType: variant.roomType ?? null,
+      annualLimit: variant.annualLimit ?? null,
+      ageFrom: variant.ageFrom,
+      ageTo: variant.ageTo,
+    },
+    select: { id: true },
+  });
+  if (twin) {
+    throw conflict(
+      `This plan already has that variant for ages ${variant.ageFrom}-${variant.ageTo}. Edit it instead, or change the network, room or annual limit.`,
+    );
+  }
 }
 
 /**
@@ -121,21 +174,32 @@ export async function duplicatePlanConfiguration(
   });
   if (!source) throw notFound('Plan configuration');
 
-  const twin = await prisma.planConfiguration.findFirst({
-    where: {
-      planId: source.planId,
-      customerType: source.customerType,
-      geographicalCoverage: source.geographicalCoverage,
-      ageFrom: input.ageFrom,
-      ageTo: input.ageTo,
-    },
-    select: { id: true },
+  /** Inherited unless the caller states otherwise — including a deliberate `null`. */
+  const pick = <T>(given: T | undefined, fallback: T): T => (given === undefined ? fallback : given);
+
+  const network = pick(input.medicalNetworkId, source.medicalNetworkId);
+  const room = pick(input.roomType, source.roomType);
+  const limit = pick(
+    input.annualLimit,
+    source.annualLimit === null ? null : Number(source.annualLimit),
+  );
+
+  const plan = await prisma.plan.findUnique({
+    where: { id: source.planId },
+    select: { companyId: true },
   });
-  if (twin) {
-    throw conflict(
-      `This plan already has a configuration for ages ${input.ageFrom}-${input.ageTo} with the same customer type and coverage area. Edit that one instead.`,
-    );
-  }
+  if (!plan) throw notFound('Plan');
+  await assertNetworkBelongsToCompany(plan.companyId, network);
+
+  await assertVariantIsDistinct(source.planId, {
+    customerType: source.customerType,
+    geographicalCoverage: source.geographicalCoverage,
+    medicalNetworkId: network,
+    roomType: room,
+    annualLimit: limit,
+    ageFrom: input.ageFrom,
+    ageTo: input.ageTo,
+  });
 
   /** Inherited unless the caller states otherwise — including a deliberate `null`. */
   const inherit = <TKey extends keyof DuplicatePlanConfigurationInput>(key: TKey) =>
@@ -149,6 +213,8 @@ export async function duplicatePlanConfiguration(
         geographicalCoverage: source.geographicalCoverage,
         ageFrom: input.ageFrom,
         ageTo: input.ageTo,
+        medicalNetworkId: network,
+        roomType: room,
         currency: inherit('currency') as string | null,
         annualPrice: inherit('annualPrice') as number | null,
         annualLimit: inherit('annualLimit') as number | null,

@@ -144,8 +144,30 @@ export interface CompanyMedicalNetworkDto extends RecordMeta {
   name: string;
   description: string | null;
   sortOrder: number;
-  /** How many plans are sold on it. Returned by the company endpoints. */
-  planCount?: number;
+  /**
+   * How many PRICED VARIANTS are sold on it. Returned by the company endpoints.
+   *
+   * Variants rather than plans: one plan may be sold on two networks, so a plan
+   * count would understate what deleting this network costs.
+   */
+  variantCount?: number;
+  /** What the network gives access to, when it was read with its estate. */
+  providers?: NetworkProviderDto[];
+}
+
+/**
+ * One category of provider in a network's estate.
+ *
+ * A document may state a figure, wording, or both — "1,240 hospitals",
+ * "all major hospitals in Greater Cairo" — so neither is required. The figure
+ * is what can be compared; the wording is what a figure cannot say.
+ */
+export interface NetworkProviderDto {
+  id: string;
+  category: string;
+  count: number | null;
+  detail: string | null;
+  sortOrder: number;
 }
 
 /**
@@ -158,26 +180,40 @@ export interface PlanDto extends RecordMeta {
   name: string;
   code: string;
   description: string | null;
-  /**
-   * The company network this plan is sold on. `null` where the document does
-   * not say — never a network invented on the plan, and never re-typed per age
-   * band: the network is a property of the product.
-   */
-  medicalNetworkId: string | null;
-  /** Resolved from the company's list, so a row can render without a join. */
-  medicalNetworkName?: string | null;
   /** Present when the plan was fetched with its configurations. */
   configurations?: PlanConfigurationDto[];
 }
 
 /**
- * One plan priced and configured for a specific customer type and coverage
- * area. This is what the comparison searches and what a result card renders.
+ * ONE PRICED VARIANT of a plan — the sellable thing.
+ *
+ * A variant is the plan plus everything that changes its price: who it is for,
+ * where it covers, the network, the room and the ceiling. Then an age band and
+ * a premium. Two variants of one plan are still one product, which is why they
+ * are configurations of a plan rather than plans of their own.
+ *
+ * This is what the comparison searches and what a result card renders.
  */
 export interface PlanConfigurationDto extends RecordMeta {
   planId: string;
   customerType: CustomerTypeId;
   geographicalCoverage: GeographicalCoverageId;
+  /**
+   * The company network THIS variant is sold on. `null` where the document does
+   * not say.
+   *
+   * On the variant rather than the plan: one plan is routinely sold on two
+   * networks at two prices, and while this sat on the plan those had to be two
+   * plans with the network written into their names.
+   */
+  medicalNetworkId: string | null;
+  /** Resolved from the company's list, so a row renders without a join. */
+  medicalNetworkName?: string | null;
+  /**
+   * The hospital accommodation this variant buys — "Private Room". It changes
+   * the premium, so it belongs here; it is never compared.
+   */
+  roomType: string | null;
   /** Inclusive age band this configuration applies to. Both always present. */
   ageFrom: number;
   ageTo: number;

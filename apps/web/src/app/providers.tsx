@@ -13,7 +13,7 @@ const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       /**
        * `npm run dev` starts the API and the web server together, and the API
-       * needs several seconds longer (TypeScript boot plus the first Neon
+       * needs several seconds longer (TypeScript boot plus the first database
        * connection). Queries fired in that window are refused, so retry with
        * backoff long enough to cover it — otherwise the first page load fails
        * permanently and the app looks like it has no data.

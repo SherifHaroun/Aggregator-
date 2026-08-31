@@ -76,12 +76,46 @@ describe('Plan vs PlanConfiguration', () => {
     expect(relation?.type).toBe('PlanConfiguration');
   });
 
-  it('is unique on plan + customer type + coverage + age band', () => {
-    // The age band is part of the identity, so one plan can price 18-40 and
-    // 41-60 separately for the same customer type and coverage area.
+  it('is unique on everything that makes one variant different from another', () => {
+    // A variant is the plan plus what changes its price — who it is for, where
+    // it covers, the network, the room and the ceiling — then the age band. All
+    // of it, because the same plan really is sold on two networks at two prices.
     expect(uniqueSets('PlanConfiguration')).toContain(
-      ['planId', 'customerType', 'geographicalCoverage', 'ageFrom', 'ageTo'].sort().join('+'),
+      [
+        'planId',
+        'customerType',
+        'geographicalCoverage',
+        'medicalNetworkId',
+        'roomType',
+        'annualLimit',
+        'ageFrom',
+        'ageTo',
+      ]
+        .sort()
+        .join('+'),
     );
+  });
+
+  it('puts the medical network on the variant, never on the plan', () => {
+    // On the plan it forced "Gold (Full Network)" and "Gold (limited Network)"
+    // to be two products. They are one product sold two ways.
+    expect(fieldNames('Plan')).not.toContain('medicalNetworkId');
+    expect(fieldNames('PlanConfiguration')).toContain('medicalNetworkId');
+    expect(fieldNames('PlanConfiguration')).toContain('roomType');
+  });
+
+  it('keeps a provider estate on the network, as rows', () => {
+    // Entered once per network and read by every variant sold on it — never
+    // re-typed per plan, and never ten columns that cannot grow an eleventh.
+    const provider = fieldNames('NetworkProvider');
+    expect(provider).toContain('networkId');
+    expect(provider).toContain('category');
+    expect(uniqueSets('NetworkProvider')).toContain(['networkId', 'category'].sort().join('+'));
+    // Neither a figure nor wording is required: documents give one, the other,
+    // or both.
+    const model_ = model('NetworkProvider').fields;
+    expect(model_.find((f) => f.name === 'count')?.isRequired).toBe(false);
+    expect(model_.find((f) => f.name === 'detail')?.isRequired).toBe(false);
   });
 
   it('requires an age band on the configuration', () => {

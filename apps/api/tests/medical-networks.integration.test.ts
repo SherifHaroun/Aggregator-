@@ -27,7 +27,11 @@ import {
   reorderMedicalNetworks,
   updateMedicalNetwork,
 } from '../src/modules/companies/medical-networks.service.js';
-import { createPlan, updatePlan } from '../src/modules/plans/plans.service.js';
+import {
+  createPlanConfiguration,
+  updatePlanConfiguration,
+} from '../src/modules/plan-configurations/plan-configurations.service.js';
+import { createPlan } from '../src/modules/plans/plans.service.js';
 
 const url = process.env['TEST_DATABASE_URL'];
 const prisma = url ? new PrismaClient({ datasources: { db: { url } } }) : null;
@@ -119,22 +123,67 @@ describe.skipIf(!url)('a company’s medical networks', () => {
     expect((await listMedicalNetworks(a)).map((n) => n.name)).toEqual(['Golden Care Network']);
   });
 
-  it('refuses to sell a plan on another company’s network', async () => {
+
+/**
+ * A plan and one priced variant of it.
+ *
+ * The variant is where a network is chosen now, so every test below needs both.
+ */
+async function givenPlanOn(companyId: string, medicalNetworkId: string | null) {
+  const tag = `${PREFIX}_${unique()}`;
+  const insuranceType = await db().insuranceType.create({
+    data: { name: tag, code: tag },
+  });
+  const plan = await createPlan({
+    companyId,
+    insuranceTypeId: insuranceType.id,
+    name: tag,
+    code: tag,
+  });
+  const variant = await createPlanConfiguration({
+    planId: plan.id,
+    customerType: 'INDIVIDUAL',
+    geographicalCoverage: 'LOCAL',
+    ageFrom: 18,
+    ageTo: 60,
+    medicalNetworkId,
+  });
+  return { planId: plan.id, variantId: variant.id };
+}
+
+let counter = 0;
+function unique() {
+  counter += 1;
+  return String(counter);
+}
+
+  it('refuses to sell a variant on another company’s network', async () => {
     const { a, b } = await givenTwoCompanies();
     const ofB = await createMedicalNetwork(b, { name: 'Tier 4' });
-    const insuranceType = await db().insuranceType.create({
-      data: { name: `${PREFIX}_type`, code: `${PREFIX}_type` },
+
+    await expect(givenPlanOn(a, ofB.id)).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('sells one plan on two networks, as two variants', async () => {
+    // The whole reason the network sits on the variant: "Gold on the full
+    // network" and "Gold on the limited one" are one product sold two ways.
+    const { a } = await givenTwoCompanies();
+    const full = await createMedicalNetwork(a, { name: 'Full Network' });
+    const limited = await createMedicalNetwork(a, { name: 'Limited Network' });
+
+    const { planId } = await givenPlanOn(a, full.id);
+    const second = await createPlanConfiguration({
+      planId,
+      customerType: 'INDIVIDUAL',
+      geographicalCoverage: 'LOCAL',
+      ageFrom: 18,
+      ageTo: 60,
+      medicalNetworkId: limited.id,
+      annualPrice: 7150,
     });
 
-    await expect(
-      createPlan({
-        companyId: a,
-        insuranceTypeId: insuranceType.id,
-        name: `${PREFIX}_plan`,
-        code: `${PREFIX}_plan`,
-        medicalNetworkId: ofB.id,
-      }),
-    ).rejects.toMatchObject({ status: 400 });
+    expect(second.medicalNetworkId).toBe(limited.id);
+    expect(await db().planConfiguration.count({ where: { planId } })).toBe(2);
   });
 
   it('ranks the list, and re-ranking changes no plan’s answer', async () => {
@@ -154,13 +203,7 @@ describe.skipIf(!url)('a company’s medical networks', () => {
     const insuranceType = await db().insuranceType.create({
       data: { name: `${PREFIX}_type`, code: `${PREFIX}_type` },
     });
-    const plan = await createPlan({
-      companyId: a,
-      insuranceTypeId: insuranceType.id,
-      name: `${PREFIX}_plan`,
-      code: `${PREFIX}_plan`,
-      medicalNetworkId: silver.id,
-    });
+    const { variantId } = await givenPlanOn(a, silver.id);
 
     // The company decides Basic outranks Silver after all.
     await reorderMedicalNetworks(a, [golden.id, basic.id, silver.id]);
@@ -175,74 +218,46 @@ describe.skipIf(!url)('a company’s medical networks', () => {
     expect(ranked.map((n) => n.sortOrder)).toEqual([0, 1, 2]);
 
     /**
-     * The plan still names the SAME network. Re-ranking says how good a network
-     * is thought to be; it never rewrites what a plan is sold on.
+     * The variant still names the SAME network. Re-ranking says how good a
+     * network is thought to be; it never rewrites what a variant is sold on.
      */
-    const after = await db().plan.findUniqueOrThrow({ where: { id: plan.id } });
+    const after = await db().planConfiguration.findUniqueOrThrow({ where: { id: variantId } });
     expect(after.medicalNetworkId).toBe(silver.id);
   });
 
   it('renames in place, so every plan sold on it follows', async () => {
     const { a } = await givenTwoCompanies();
     const network = await createMedicalNetwork(a, { name: 'Golden Care Netwrok' });
-    const insuranceType = await db().insuranceType.create({
-      data: { name: `${PREFIX}_type`, code: `${PREFIX}_type` },
-    });
-    const plan = await createPlan({
-      companyId: a,
-      insuranceTypeId: insuranceType.id,
-      name: `${PREFIX}_plan`,
-      code: `${PREFIX}_plan`,
-      medicalNetworkId: network.id,
-    });
+    const { variantId } = await givenPlanOn(a, network.id);
 
     await updateMedicalNetwork(network.id, { name: 'Golden Care Network' });
 
-    // A plan points at the row, never at its wording.
-    const after = await db().plan.findUniqueOrThrow({ where: { id: plan.id } });
+    // A variant points at the row, never at its wording.
+    const after = await db().planConfiguration.findUniqueOrThrow({ where: { id: variantId } });
     expect(after.medicalNetworkId).toBe(network.id);
     expect((await listMedicalNetworks(a))[0]!.name).toBe('Golden Care Network');
   });
 
-  it('will not quietly delete a network plans are sold on', async () => {
+  it('will not quietly delete a network variants are sold on', async () => {
     const { a } = await givenTwoCompanies();
     const network = await createMedicalNetwork(a, { name: 'Golden Care Network' });
-    const insuranceType = await db().insuranceType.create({
-      data: { name: `${PREFIX}_type`, code: `${PREFIX}_type` },
-    });
-    const plan = await createPlan({
-      companyId: a,
-      insuranceTypeId: insuranceType.id,
-      name: `${PREFIX}_plan`,
-      code: `${PREFIX}_plan`,
-      medicalNetworkId: network.id,
-    });
+    const { variantId } = await givenPlanOn(a, network.id);
 
     await expect(deleteMedicalNetwork(network.id)).rejects.toMatchObject({ status: 409 });
 
-    // Forced, the plan survives and simply stops naming a network.
+    // Forced, the variant survives and simply stops naming a network.
     await deleteMedicalNetwork(network.id, { force: true });
-    const after = await db().plan.findUniqueOrThrow({ where: { id: plan.id } });
+    const after = await db().planConfiguration.findUniqueOrThrow({ where: { id: variantId } });
     expect(after.medicalNetworkId).toBeNull();
-    expect(after.name).toBe(`${PREFIX}_plan`);
   });
 
-  it('clears the reference when a plan is moved off a network', async () => {
+  it('clears the reference when a variant is moved off a network', async () => {
     const { a } = await givenTwoCompanies();
     const network = await createMedicalNetwork(a, { name: 'Golden Care Network' });
-    const insuranceType = await db().insuranceType.create({
-      data: { name: `${PREFIX}_type`, code: `${PREFIX}_type` },
-    });
-    const plan = await createPlan({
-      companyId: a,
-      insuranceTypeId: insuranceType.id,
-      name: `${PREFIX}_plan`,
-      code: `${PREFIX}_plan`,
-      medicalNetworkId: network.id,
-    });
+    const { variantId } = await givenPlanOn(a, network.id);
 
     // Null is a real answer: the document does not say which network.
-    const updated = await updatePlan(plan.id, { medicalNetworkId: null });
+    const updated = await updatePlanConfiguration(variantId, { medicalNetworkId: null });
     expect(updated.medicalNetworkId).toBeNull();
   });
 });

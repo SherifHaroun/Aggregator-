@@ -120,6 +120,12 @@ export interface ComparisonPlanResult {
   companyId: string;
   companyName: string;
   companyLogoUrl: string | null;
+  /**
+   * Which variant of the plan this is. Shown so two rows carrying the same plan
+   * name are distinguishable; neither takes part in scoring.
+   */
+  medicalNetworkName: string | null;
+  roomType: string | null;
 
   currency: string | null;
   annualPrice: number | null;

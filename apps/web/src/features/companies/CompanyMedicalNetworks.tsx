@@ -181,11 +181,13 @@ function NetworkRow({
    * to what those plans say, so the count is put to the employee first.
    */
   function handleDelete() {
-    const sold = network.planCount ?? 0;
+    // Variants, not plans: one plan may be sold on two networks, so a plan
+    // count would understate what deleting this actually costs.
+    const sold = network.variantCount ?? 0;
     if (sold > 0) {
-      const plans = `${sold} ${sold === 1 ? 'plan is' : 'plans are'}`;
+      const variants = `${sold} priced ${sold === 1 ? 'variant is' : 'variants are'}`;
       const ok = window.confirm(
-        `${plans} sold on "${network.name}". Deleting it leaves ${sold === 1 ? 'that plan' : 'those plans'} with no network stated. Delete it anyway?`,
+        `${variants} sold on "${network.name}". Deleting it leaves ${sold === 1 ? 'that variant' : 'those variants'} with no network stated. Delete it anyway?`,
       );
       if (!ok) return;
     }
@@ -239,9 +241,9 @@ function NetworkRow({
       ) : (
         <span className="text-content min-w-0 flex-1 truncate text-sm font-medium">
           {network.name}
-          {network.planCount ? (
+          {network.variantCount ? (
             <span className="text-content-subtle ml-2 text-xs font-normal">
-              {network.planCount} {network.planCount === 1 ? 'plan' : 'plans'}
+              {network.variantCount} {network.variantCount === 1 ? 'variant' : 'variants'}
             </span>
           ) : null}
         </span>

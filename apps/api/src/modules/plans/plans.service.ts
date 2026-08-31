@@ -13,7 +13,11 @@ import type { CreatePlanInput, DuplicatePlanInput, UpdatePlanInput } from './pla
  */
 const planDetailInclude = {
   configurations: {
-    include: { options: { include: planOptionInclude, orderBy: { sortOrder: 'asc' as const } } },
+    include: {
+      options: { include: planOptionInclude, orderBy: { sortOrder: 'asc' as const } },
+      /** So each variant names its network without a second request. */
+      medicalNetwork: true,
+    },
     /**
      * Youngest band first within each customer type and coverage area — the
      * order the premium table in a plan document reads, and the order every
@@ -26,8 +30,6 @@ const planDetailInclude = {
       { ageTo: 'asc' as const },
     ],
   },
-  /** So a plan can name its network without the client fetching the company. */
-  medicalNetwork: true,
 };
 
 export async function listPlans(
@@ -140,8 +142,6 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
         name: input.name,
         code,
         description: input.description === undefined ? source.description : input.description,
-        // A copy is sold on the same network as the plan it came from.
-        medicalNetworkId: source.medicalNetworkId,
         isActive: input.isActive ?? source.isActive,
       },
       select: { id: true },
@@ -268,8 +268,6 @@ export async function createPlan(input: CreatePlanInput): Promise<PlanDto> {
   if (!company) throw notFound('Company');
   if (!insuranceType) throw notFound('Insurance type');
 
-  await assertNetworkBelongsToCompany(input.companyId, input.medicalNetworkId);
-
   const plan = await prisma.plan.create({ data: input, include: planDetailInclude });
   return toPlanDto(plan);
 }
@@ -291,15 +289,6 @@ export async function updatePlan(id: string, input: UpdatePlanInput): Promise<Pl
       select: { id: true },
     });
     if (!insuranceType) throw notFound('Insurance type');
-  }
-
-  if (input.medicalNetworkId !== undefined) {
-    const existing = await prisma.plan.findUnique({
-      where: { id },
-      select: { companyId: true },
-    });
-    if (!existing) throw notFound('Plan');
-    await assertNetworkBelongsToCompany(existing.companyId, input.medicalNetworkId);
   }
 
   const plan = await prisma.plan.update({

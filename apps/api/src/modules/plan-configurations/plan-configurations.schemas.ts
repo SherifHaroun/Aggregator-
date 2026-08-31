@@ -46,6 +46,20 @@ const orderedAgeBand = <TSchema extends z.ZodTypeAny>(schema: TSchema) =>
     }
   });
 
+/**
+ * What makes one variant of a plan different from another, beyond its age band.
+ *
+ * All optional: a plan whose document states none of them is still one sellable
+ * variant. Stating them is what lets the same plan be sold on two networks, or
+ * at two ceilings, at two prices.
+ */
+const variantFields = {
+  /** Must belong to the plan's own company — the service checks. */
+  medicalNetworkId: z.string().min(1).nullable().optional(),
+  /** Free text: insurers name accommodation differently. Never compared. */
+  roomType: z.string().trim().min(1).max(120).nullable().optional(),
+};
+
 const pricingFields = {
   /** ISO 4217, e.g. "EGP". May differ between local and international. */
   currency: z
@@ -69,6 +83,7 @@ export const createPlanConfigurationSchema = orderedAgeBand(
     customerType: customerTypeSchema,
     geographicalCoverage: geographicalCoverageSchema,
     ...ageBandFields,
+    ...variantFields,
     ...pricingFields,
   }),
 );
@@ -79,7 +94,7 @@ export const createPlanConfigurationSchema = orderedAgeBand(
  * attached to it. Delete the configuration and create the right one instead.
  */
 export const updatePlanConfigurationSchema = orderedAgeBand(
-  z.object({ ...ageBandFields, ...pricingFields }).partial(),
+  z.object({ ...ageBandFields, ...variantFields, ...pricingFields }).partial(),
 );
 
 /**
@@ -92,7 +107,7 @@ export const updatePlanConfigurationSchema = orderedAgeBand(
  * accepted here; a copy that changed those would not be the same product.
  */
 export const duplicatePlanConfigurationSchema = orderedAgeBand(
-  z.object({ ...ageBandFields, ...pricingFields }),
+  z.object({ ...ageBandFields, ...variantFields, ...pricingFields }),
 );
 
 export const listPlanConfigurationsQueryExtension = z.object({
@@ -102,6 +117,7 @@ export const listPlanConfigurationsQueryExtension = z.object({
   /** The two criteria the comparison will search on. */
   customerType: customerTypeSchema.optional(),
   geographicalCoverage: geographicalCoverageSchema.optional(),
+  medicalNetworkId: z.string().min(1).optional(),
 });
 
 export type CreatePlanConfigurationInput = z.infer<typeof createPlanConfigurationSchema>;

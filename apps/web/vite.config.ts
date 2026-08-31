@@ -47,7 +47,13 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    /**
+     * 5173 by default, so `npm run dev` behaves as it always has. `PORT` wins
+     * when something else already holds that port — nothing here depends on a
+     * fixed origin, since the client calls `/api` on its own origin and Vite
+     * forwards it.
+     */
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       // The client calls /api/... on its own origin; Vite forwards to the API.
       '/api': {

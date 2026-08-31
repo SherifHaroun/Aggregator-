@@ -155,12 +155,16 @@ function foreignNetwork(
   return owned ? null : fail(400, 'BAD_REQUEST', 'That network belongs to a different company.');
 }
 
-/** Resolve the network's name, as the real API does when reading a plan. */
-function networkName(store: FakeStore, plan: PlanDto): PlanDto {
+/** Resolve the network's name, as the real API does when reading a variant. */
+function networkName(
+  store: FakeStore,
+  configuration: PlanConfigurationDto,
+): PlanConfigurationDto {
   return {
-    ...plan,
+    ...configuration,
     medicalNetworkName:
-      store.medicalNetworks.find((network) => network.id === plan.medicalNetworkId)?.name ?? null,
+      store.medicalNetworks.find((network) => network.id === configuration.medicalNetworkId)
+        ?.name ?? null,
   };
 }
 
@@ -192,11 +196,12 @@ function route({
         store.medicalNetworks
           .filter((network) => network.companyId === first)
           .sort((a, b) => a.sortOrder - b.sortOrder);
+      // Variants, not plans: one plan may be sold on two networks.
       const soldOn = (networkId: string) =>
-        store.plans.filter((plan) => plan.medicalNetworkId === networkId).length;
+        store.configurations.filter((item) => item.medicalNetworkId === networkId).length;
 
       if (method === 'GET' && !third) {
-        return ok(owned().map((network) => ({ ...network, planCount: soldOn(network.id) })));
+        return ok(owned().map((network) => ({ ...network, variantCount: soldOn(network.id) })));
       }
 
       if (method === 'POST' && !third) {
@@ -249,9 +254,9 @@ function route({
             `${usage} ${usage === 1 ? 'plan is' : 'plans are'} sold on "${network.name}".`,
           );
         }
-        // The plans survive; they simply stop naming a network.
-        store.plans.forEach((plan) => {
-          if (plan.medicalNetworkId === network.id) plan.medicalNetworkId = null;
+        // The variants survive; they simply stop naming a network.
+        store.configurations.forEach((item) => {
+          if (item.medicalNetworkId === network.id) item.medicalNetworkId = null;
         });
         store.medicalNetworks = store.medicalNetworks.filter((item) => item.id !== network.id);
         return noContent();
@@ -660,9 +665,6 @@ function route({
     }
     if (method === 'POST' && !first) {
       const companyId = String(body.companyId ?? '');
-      const networkId = (body.medicalNetworkId as string | null | undefined) ?? null;
-      const foreign = foreignNetwork(store, companyId, networkId);
-      if (foreign) return foreign;
 
       const plan: PlanDto = {
         id: id('plan'),
@@ -671,7 +673,6 @@ function route({
         name: String(body.name ?? ''),
         code: String(body.code ?? ''),
         description: (body.description as string | null) ?? null,
-        medicalNetworkId: networkId,
         ...meta(),
       };
       store.plans.push(plan);
@@ -748,14 +749,8 @@ function route({
       });
     }
     if (method === 'PATCH') {
-      const foreign = foreignNetwork(
-        store,
-        plan.companyId,
-        (body.medicalNetworkId as string | null | undefined) ?? null,
-      );
-      if (foreign) return foreign;
       Object.assign(plan, body);
-      return ok(networkName(store, plan));
+      return ok(plan);
     }
     if (method === 'DELETE') {
       store.plans = store.plans.filter((item) => item.id !== plan.id);
@@ -792,16 +787,30 @@ function route({
         });
       }
 
+      const networkId = (body.medicalNetworkId as string | null | undefined) ?? null;
+      const room = (body.roomType as string | null | undefined) ?? null;
+      const limit = (body.annualLimit as number | null | undefined) ?? null;
+
+      // A variant is sold on one of ITS OWN company's networks, never another's.
+      const owner = store.plans.find((item) => item.id === body.planId);
+      if (owner) {
+        const foreign = foreignNetwork(store, owner.companyId, networkId);
+        if (foreign) return foreign;
+      }
+
       const duplicate = store.configurations.some(
         (configuration) =>
           configuration.planId === body.planId &&
           configuration.customerType === body.customerType &&
           configuration.geographicalCoverage === body.geographicalCoverage &&
+          configuration.medicalNetworkId === networkId &&
+          configuration.roomType === room &&
+          configuration.annualLimit === limit &&
           configuration.ageFrom === ageFrom &&
           configuration.ageTo === ageTo,
       );
       if (duplicate) {
-        return fail(409, 'DUPLICATE', 'A record with this planId, customerType already exists.');
+        return fail(409, 'DUPLICATE', 'This plan already has that variant.');
       }
       const configuration: PlanConfigurationDto = {
         id: id('configuration'),
@@ -809,6 +818,8 @@ function route({
         customerType: body.customerType as PlanConfigurationDto['customerType'],
         geographicalCoverage:
           body.geographicalCoverage as PlanConfigurationDto['geographicalCoverage'],
+        medicalNetworkId: networkId,
+        roomType: room,
         ageFrom: body.ageFrom as number,
         ageTo: body.ageTo as number,
         currency: (body.currency as string | null) ?? null,
@@ -822,7 +833,7 @@ function route({
         ...meta(),
       };
       store.configurations.push(configuration);
-      return ok(configuration, 201);
+      return ok(networkName(store, configuration), 201);
     }
     const configuration = store.configurations.find((item) => item.id === first);
     if (!configuration) return fail(404, 'NOT_FOUND', 'The record was not found.');

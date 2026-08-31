@@ -183,6 +183,14 @@ const configurationForComparison = {
   },
   // Every benefit these plans carry — the customer chose none of them.
   options: { include: planOptionInclude, orderBy: { sortOrder: 'asc' as const } },
+  /**
+   * Named on the result so two variants of one plan can be told apart.
+   *
+   * Shown, never scored: which network is better is a judgement only the
+   * company's own ranking carries, and ranking across companies would compare
+   * two estates that have nothing to do with each other.
+   */
+  medicalNetwork: { select: { name: true } },
 } as const;
 
 type ConfigurationForComparison = Prisma.PlanConfigurationGetPayload<{
@@ -313,6 +321,8 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
       companyId: configuration.plan.company.id,
       companyName: configuration.plan.company.name,
       companyLogoUrl: configuration.plan.company.logoUrl,
+      medicalNetworkName: configuration.medicalNetwork?.name ?? null,
+      roomType: configuration.roomType,
       currency: configuration.currency,
       annualPrice: toNumber(configuration.annualPrice),
       annualLimit: toNumber(configuration.annualLimit),

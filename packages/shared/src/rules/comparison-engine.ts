@@ -75,6 +75,13 @@ export interface ComparisonCandidate {
   companyId: string;
   companyName: string;
   companyLogoUrl: string | null;
+  /**
+   * What tells two variants of one plan apart on screen. Shown, never scored —
+   * one company's "Full Network" and another's are unrelated estates, so no
+   * ranking across them could mean anything.
+   */
+  medicalNetworkName: string | null;
+  roomType: string | null;
   currency: string | null;
   annualPrice: number | null;
   annualLimit: number | null;
@@ -418,6 +425,8 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
       companyId: entry.candidate.companyId,
       companyName: entry.candidate.companyName,
       companyLogoUrl: entry.candidate.companyLogoUrl,
+      medicalNetworkName: entry.candidate.medicalNetworkName,
+      roomType: entry.candidate.roomType,
       currency: entry.candidate.currency,
       annualPrice: entry.candidate.annualPrice,
       customerTypeLabel: entry.candidate.customerTypeLabel,

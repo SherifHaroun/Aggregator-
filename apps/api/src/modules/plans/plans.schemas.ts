@@ -16,7 +16,6 @@ export const createPlanSchema = z.object({
    * The company network this plan is sold on, chosen from that company's own
    * list. `null` where the document does not say.
    */
-  medicalNetworkId: z.string().min(1).nullable().optional(),
   isActive: z.boolean().optional(),
 });
 

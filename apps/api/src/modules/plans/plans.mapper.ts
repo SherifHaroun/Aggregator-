@@ -6,12 +6,12 @@ import type { PlanOptionWithRelations } from '../plan-options/plan-options.mappe
 
 export type PlanConfigurationWithOptions = PlanConfiguration & {
   options?: PlanOptionWithRelations[];
+  medicalNetwork?: CompanyMedicalNetwork | null;
 };
 
 export function toPlanDto(
   plan: Plan & {
     configurations?: PlanConfigurationWithOptions[];
-    medicalNetwork?: CompanyMedicalNetwork | null;
   },
 ): PlanDto {
   return {
@@ -21,12 +21,6 @@ export function toPlanDto(
     name: plan.name,
     code: plan.code,
     description: plan.description,
-    medicalNetworkId: plan.medicalNetworkId,
-    // Resolved when the plan was read with its network, so a row renders
-    // without a second request.
-    ...(plan.medicalNetwork !== undefined
-      ? { medicalNetworkName: plan.medicalNetwork?.name ?? null }
-      : {}),
     isActive: plan.isActive,
     createdAt: toIso(plan.createdAt),
     updatedAt: toIso(plan.updatedAt),

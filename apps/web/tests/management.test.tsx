@@ -1000,50 +1000,54 @@ describe('company medical networks', () => {
     await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
     await waitFor(() => expect(store.plans).toHaveLength(1));
-    // Recorded on the plan itself — no plan-specific network record is created.
-    expect(store.plans[0]?.medicalNetworkId).toBe('net_a1');
+    // Recorded on the VARIANT: the same plan sold on another network is a
+    // second variant, not a second plan.
+    expect(store.configurations[0]?.medicalNetworkId).toBe('net_a1');
     expect(store.medicalNetworks).toHaveLength(2);
   });
 
-  it('refuses a plan sold on another company’s network', async () => {
+  it('refuses a variant sold on another company’s network', async () => {
     givenCompany('company_1');
     givenCompany('company_2', 'Southgate Mutual');
     givenInsuranceType();
+    givenPlan();
     givenNetwork('net_b1', 'company_2', 'Harbour Hospitals', 0);
 
-    const response = await fetch('/api/v1/plans', {
+    const response = await fetch('/api/v1/plan-configurations', {
       method: 'POST',
       body: JSON.stringify({
-        companyId: 'company_1',
-        insuranceTypeId: 'type_1',
-        name: 'Tier One',
-        code: 'TIER-ONE',
+        planId: 'plan_1',
+        customerType: 'INDIVIDUAL',
+        geographicalCoverage: 'LOCAL',
+        ageFrom: 18,
+        ageTo: 60,
         medicalNetworkId: 'net_b1',
       }),
     });
 
     expect(response.status).toBe(400);
-    expect(store.plans).toHaveLength(0);
+    expect(store.configurations).toHaveLength(0);
   });
 
-  it('warns before deleting a network plans are sold on, and leaves them standing', async () => {
+  it('warns before deleting a network variants are sold on, and leaves them standing', async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     givenCompany();
     givenInsuranceType();
     givenPlan();
+    givenConfiguration();
     givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
-    store.plans[0]!.medicalNetworkId = 'net_1';
+    store.configurations[0]!.medicalNetworkId = 'net_1';
 
     renderApp(ROUTES.companies.detail('company_1'));
     await user.click(await screen.findByRole('button', { name: /Delete Golden Care Network/i }));
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('1 plan is'));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('1 priced variant is'));
     await waitFor(() => expect(store.medicalNetworks).toHaveLength(0));
 
-    // The plan survives; it simply stops naming a network.
-    expect(store.plans).toHaveLength(1);
-    expect(store.plans[0]?.medicalNetworkId).toBeNull();
+    // The variant survives; it simply stops naming a network.
+    expect(store.configurations).toHaveLength(1);
+    expect(store.configurations[0]?.medicalNetworkId).toBeNull();
     confirm.mockRestore();
   });
 });

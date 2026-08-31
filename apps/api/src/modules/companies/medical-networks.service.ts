@@ -12,7 +12,7 @@
  */
 
 import type { CompanyMedicalNetworkDto } from '@aggregator/shared';
-import type { CompanyMedicalNetwork } from '@prisma/client';
+import type { CompanyMedicalNetwork, NetworkProvider } from '@prisma/client';
 import { toIso } from '../../lib/decimal.js';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { applyOrder, nextSortOrder } from '../../lib/ordering.js';
@@ -22,7 +22,10 @@ import type {
   UpdateMedicalNetworkInput,
 } from './companies.schemas.js';
 
-type NetworkWithUsage = CompanyMedicalNetwork & { _count?: { plans: number } };
+type NetworkWithUsage = CompanyMedicalNetwork & {
+  _count?: { configurations: number };
+  providers?: NetworkProvider[];
+};
 
 export function toMedicalNetworkDto(network: NetworkWithUsage): CompanyMedicalNetworkDto {
   return {
@@ -34,12 +37,31 @@ export function toMedicalNetworkDto(network: NetworkWithUsage): CompanyMedicalNe
     isActive: network.isActive,
     createdAt: toIso(network.createdAt),
     updatedAt: toIso(network.updatedAt),
-    ...(network._count ? { planCount: network._count.plans } : {}),
+    /**
+     * How many PRICED VARIANTS are sold on this network — not how many plans.
+     * The same plan may be sold on two networks, so a plan count could not say
+     * what deleting this network would actually cost.
+     */
+    ...(network._count ? { variantCount: network._count.configurations } : {}),
+    ...(network.providers
+      ? {
+          providers: network.providers.map((provider) => ({
+            id: provider.id,
+            category: provider.category,
+            count: provider.count,
+            detail: provider.detail,
+            sortOrder: provider.sortOrder,
+          })),
+        }
+      : {}),
   };
 }
 
-/** Read with the number of plans sold on each network. */
-const withUsage = { _count: { select: { plans: true } } } as const;
+/** Read with the number of variants sold on each network, and its estate. */
+const withUsage = {
+  _count: { select: { configurations: true } },
+  providers: { orderBy: { sortOrder: 'asc' as const } },
+} as const;
 
 /** Include clause for a company read with its networks, in its own order. */
 export const networksInclude = {
@@ -171,8 +193,8 @@ export async function reorderMedicalNetworks(
 /**
  * Remove a network.
  *
- * Refused by default while plans are sold on it. Deleting it does not delete
- * those plans — they simply stop naming a network, which then reads as "not
+ * Refused by default while variants are sold on it. Deleting it does not delete
+ * those variants — they simply stop naming a network, which then reads as "not
  * stated" — but that is a real change to what they say, so it is put to the
  * employee first rather than happening quietly.
  */
@@ -188,11 +210,11 @@ export async function deleteMedicalNetwork(
   });
   if (!network) throw notFound('Medical network');
 
-  const usage = network._count.plans;
+  const usage = network._count.configurations;
   if (usage > 0 && !force) {
     throw conflict(
-      `${usage} ${usage === 1 ? 'plan is' : 'plans are'} sold on "${network.name}". Deleting it leaves ${usage === 1 ? 'that plan' : 'those plans'} with no network stated. Rename it instead, or confirm to remove it anyway.`,
-      { planCount: [String(usage)] },
+      `${usage} priced ${usage === 1 ? 'variant is' : 'variants are'} sold on "${network.name}". Deleting it leaves ${usage === 1 ? 'that variant' : 'those variants'} with no network stated. Rename it instead, or confirm to remove it anyway.`,
+      { variantCount: [String(usage)] },
     );
   }
 

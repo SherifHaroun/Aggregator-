@@ -127,13 +127,10 @@ export function PlanDetailPage() {
               />
               <CardBody className="grid gap-4 sm:grid-cols-3">
                 <Detail label="Plan code" value={current!.code} />
-                {/* The company network this plan is sold on. Blank where the
-                    document does not say — never guessed. */}
-                <Detail
-                  label="Medical network"
-                  value={current!.medicalNetworkName ?? 'Not stated'}
-                />
-                <Detail label="Configurations" value={String(configurations.length)} />
+                {/* The network is a property of each VARIANT, not of the
+                    product: one plan is sold on two networks at two prices. It
+                    is shown on the variant rows below. */}
+                <Detail label="Variants" value={String(configurations.length)} />
               </CardBody>
             </Card>
 
@@ -199,6 +196,7 @@ export function PlanDetailPage() {
       {editingConfiguration !== undefined && planId ? (
         <ConfigurationDialog
           planId={planId}
+          companyId={companyId!}
           configuration={editingConfiguration}
           onClose={() => setEditingConfiguration(undefined)}
         />
@@ -208,6 +206,7 @@ export function PlanDetailPage() {
       {duplicating && planId ? (
         <ConfigurationDialog
           planId={planId}
+          companyId={companyId!}
           configuration={null}
           duplicateOf={duplicating}
           onClose={() => setDuplicating(null)}

@@ -116,13 +116,54 @@ model CompanyMedicalNetwork {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// The plans sold on this network.
-  plans Plan[]
+  /// The priced variants sold on this network.
+  ///
+  /// A VARIANT, not a plan: the same plan is routinely sold on two networks at
+  /// two prices, which is a fact about the priced row and not about the
+  /// product. Attaching the network to the plan made those two offerings two
+  /// plans with the network smuggled into their names.
+  configurations PlanConfiguration[]
+
+  /// What this network actually gives access to, entered once here and read by
+  /// every variant sold on it.
+  providers NetworkProvider[]
 
   /// One company cannot sell two networks of the same name.
   @@unique([companyId, name])
   @@index([companyId, sortOrder])
   @@map("company_medical_networks")
+}
+
+/// One category of provider in a network's estate — hospitals, pharmacies,
+/// laboratories and the rest.
+///
+/// ROWS RATHER THAN TEN COLUMNS, so a category nobody anticipated is data. The
+/// legacy system had exactly ten columns and no way to add an eleventh.
+///
+/// A document may give a NUMBER ("1,240 hospitals") or WORDING ("all major
+/// hospitals in Greater Cairo"), and different insurers give different ones for
+/// the same category. Both are therefore available and neither is required:
+/// `count` sorts and compares, `detail` says what a number cannot.
+model NetworkProvider {
+  id        String                @id @default(cuid())
+  networkId String
+  network   CompanyMedicalNetwork @relation(fields: [networkId], references: [id], onDelete: Cascade)
+
+  /// Employee-facing category name, e.g. "Hospitals".
+  category  String
+  /// How many, where the document states a figure.
+  count     Int?
+  /// The wording, where it states one instead of — or as well as — a figure.
+  detail    String?
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// A network states each category at most once.
+  @@unique([networkId, category])
+  @@index([networkId, sortOrder])
+  @@map("network_providers")
 }
 
 // ============================================================================
@@ -386,13 +427,6 @@ model Plan {
   code        String
   description String?
 
-  /// The company network this plan is sold on, chosen from that company's own
-  /// list. `null` where the document does not say — never a network invented
-  /// here, and never re-typed per configuration: the network is a property of
-  /// the product, not of an age band.
-  medicalNetworkId String?
-  medicalNetwork   CompanyMedicalNetwork? @relation(fields: [medicalNetworkId], references: [id], onDelete: SetNull)
-
   isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
@@ -402,7 +436,6 @@ model Plan {
 
   @@unique([companyId, code])
   @@index([companyId, isActive])
-  @@index([medicalNetworkId])
   @@index([insuranceTypeId, isActive])
   @@map("plans")
 }
@@ -431,6 +464,25 @@ model PlanConfiguration {
   customerType         CustomerType
   geographicalCoverage GeographicalCoverage
 
+  /// The company network THIS variant is sold on, chosen from the plan's own
+  /// company list. `null` where the document does not say.
+  ///
+  /// On the variant rather than the plan, because the same plan is sold on two
+  /// networks at two prices — that is the whole reason a plan has variants. On
+  /// the plan it forced "Gold (Full Network)" and "Gold (limited Network)" to
+  /// be two products.
+  medicalNetworkId String?
+  medicalNetwork   CompanyMedicalNetwork? @relation(fields: [medicalNetworkId], references: [id], onDelete: SetNull)
+
+  /// The hospital accommodation this variant buys — "Private Room",
+  /// "Semi-private Room". Free text, because insurers name it differently and
+  /// no list here could be right for all of them.
+  ///
+  /// It changes the premium, so it belongs to the variant. It is NOT compared:
+  /// nothing ranks a room type, and a comparison that did would be inventing a
+  /// judgement nobody made.
+  roomType String?
+
   /// Inclusive age band this configuration applies to. Both are required: a
   /// configuration that applies to nobody in particular cannot be matched.
   ageFrom Int
@@ -451,17 +503,25 @@ model PlanConfiguration {
 
   options PlanOption[]
 
-  /// A plan has at most one configuration per customer type, coverage area and
-  /// age band — the age band is what lets 18-40 and 41-60 coexist.
+  /// What makes one variant different from another:
+  /// plan, who it is for, where it covers, the network, the room, the ceiling —
+  /// and then the age band.
+  ///
+  /// PostgreSQL treats NULLs as distinct in a unique index, so two variants
+  /// that both leave the network, room and ceiling unstated do not collide
+  /// here. `plan-configurations.service.ts` refuses those, and is the authority
+  /// for the cases this index cannot see.
+  ///
   /// Named explicitly: the generated name exceeds Postgres's 63-character
   /// identifier limit and would be silently truncated.
-  @@unique([planId, customerType, geographicalCoverage, ageFrom, ageTo], map: "plan_configurations_identity_key")
+  @@unique([planId, customerType, geographicalCoverage, medicalNetworkId, roomType, annualLimit, ageFrom, ageTo], map: "plan_configurations_identity_key")
   /// The comparison's primary lookup: "every active configuration for this
   /// customer type and coverage area".
   @@index([customerType, geographicalCoverage, isActive])
   /// Supports the comparison's age-band lookup.
   @@index([ageFrom, ageTo])
   @@index([planId, isActive])
+  @@index([medicalNetworkId])
   @@map("plan_configurations")
 }
 

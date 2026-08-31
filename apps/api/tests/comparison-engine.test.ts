@@ -108,6 +108,8 @@ function plan(
     companyId: `${id}_company`,
     companyName,
     companyLogoUrl: null,
+    medicalNetworkName: null,
+    roomType: null,
     currency: 'EGP',
     annualPrice,
     annualLimit: null,

@@ -138,6 +138,7 @@ export function PlanSetupForm({
 
   const [name, setName] = useState('');
   const [medicalNetworkId, setMedicalNetworkId] = useState('');
+  const [roomType, setRoomType] = useState('');
   const [annualLimit, setAnnualLimit] = useState('');
 
   const [entries, setEntries] = useState<Record<string, BenefitEntry>>(() =>
@@ -362,7 +363,6 @@ export function PlanSetupForm({
         insuranceTypeId: medical.id,
         name: name.trim(),
         code: derivePlanCode(name),
-        medicalNetworkId: medicalNetworkId === '' ? null : medicalNetworkId,
         isActive: true,
       });
 
@@ -375,6 +375,8 @@ export function PlanSetupForm({
         geographicalCoverage: 'LOCAL',
         ageFrom: Number(first!.from),
         ageTo: Number(first!.to),
+        medicalNetworkId: medicalNetworkId === '' ? null : medicalNetworkId,
+        roomType: roomType.trim() === '' ? null : roomType.trim(),
         currency: DEFAULT_CURRENCY,
         annualPrice: Number(first!.premium),
         annualLimit: Number(annualLimit),
@@ -458,6 +460,7 @@ export function PlanSetupForm({
 
       setName('');
       setAnnualLimit('');
+      setRoomType('');
       setEntries(
         Object.fromEntries(CORE_MEDICAL_BENEFITS.map((benefit) => [benefit.name, emptyEntry()])),
       );
@@ -488,7 +491,11 @@ export function PlanSetupForm({
 
       {/* ---------------------------------------------------------------- */}
       <section className="space-y-4">
-        <SectionTitle>Plan / variant</SectionTitle>
+        <SectionTitle>Plan and its first variant</SectionTitle>
+        <p className="text-content-subtle -mt-2 text-sm">
+          A variant is the plan sold one way — on one network, at one ceiling. The same plan sold on
+          another network is a second variant, added from the plan afterwards.
+        </p>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Insurance company">
@@ -522,6 +529,18 @@ export function PlanSetupForm({
                   </option>
                 ))}
               </Select>
+            )}
+          </Field>
+
+          <Field label="Room type" hint="Leave blank if the plan does not say. Never compared.">
+            {(props) => (
+              <Input
+                {...props}
+                value={roomType}
+                list="room-types"
+                onChange={(event) => setRoomType(event.target.value)}
+                placeholder={UNSPECIFIED_OPTION_LABEL}
+              />
             )}
           </Field>
 

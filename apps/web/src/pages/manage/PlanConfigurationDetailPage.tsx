@@ -152,6 +152,7 @@ export function PlanConfigurationDetailPage() {
             {duplicating && planId ? (
               <ConfigurationDialog
                 planId={planId}
+                companyId={companyId!}
                 configuration={null}
                 duplicateOf={current!}
                 onClose={() => setDuplicating(false)}

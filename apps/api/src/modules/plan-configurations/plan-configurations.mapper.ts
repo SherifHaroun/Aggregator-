@@ -1,5 +1,5 @@
 import { resolveAverageAgeForCustomerType, type PlanConfigurationDto } from '@aggregator/shared';
-import type { PlanConfiguration } from '@prisma/client';
+import type { CompanyMedicalNetwork, PlanConfiguration } from '@prisma/client';
 import { toIso, toNumber } from '../../lib/decimal.js';
 import {
   toPlanOptionDto,
@@ -7,7 +7,10 @@ import {
 } from '../plan-options/plan-options.mapper.js';
 
 export function toPlanConfigurationDto(
-  configuration: PlanConfiguration & { options?: PlanOptionWithRelations[] },
+  configuration: PlanConfiguration & {
+    options?: PlanOptionWithRelations[];
+    medicalNetwork?: CompanyMedicalNetwork | null;
+  },
   /** Size of each limitation scope's list — see `readLimitationRankCounts`. */
   rankCounts: Record<string, number> = {},
 ): PlanConfigurationDto {
@@ -16,6 +19,13 @@ export function toPlanConfigurationDto(
     planId: configuration.planId,
     customerType: configuration.customerType,
     geographicalCoverage: configuration.geographicalCoverage,
+    medicalNetworkId: configuration.medicalNetworkId,
+    // Resolved when the variant was read with its network, so a row renders
+    // without a second request.
+    ...(configuration.medicalNetwork !== undefined
+      ? { medicalNetworkName: configuration.medicalNetwork?.name ?? null }
+      : {}),
+    roomType: configuration.roomType,
     ageFrom: configuration.ageFrom,
     ageTo: configuration.ageTo,
     currency: configuration.currency,

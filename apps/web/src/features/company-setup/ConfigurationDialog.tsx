@@ -3,6 +3,7 @@ import {
   GEOGRAPHICAL_COVERAGES,
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
+  UNSPECIFIED_OPTION_LABEL,
   listEnabledOptions,
   resolveAverageAgeForCustomerType,
   type CustomerTypeId,
@@ -20,11 +21,13 @@ import {
   IconUsers,
   Input,
   NumberInput,
+  Select,
   StatusToggle,
   useToast,
 } from '@/components/ui';
 import {
   useDuplicatePlanConfiguration,
+  useMedicalNetworks,
   useSavePlanConfiguration,
 } from '@/features/insurance-data/insurance-data.api';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
@@ -47,11 +50,14 @@ const toNumber = (value: string) => (value.trim() === '' ? null : Number(value))
  */
 export function ConfigurationDialog({
   planId,
+  companyId,
   configuration,
   duplicateOf,
   onClose,
 }: {
   planId: string;
+  /** Whose networks are on offer — never another insurer's. */
+  companyId: string;
   /** `null` creates a new configuration. */
   configuration: PlanConfigurationDto | null;
   /** Set to copy this configuration to another age band, benefits included. */
@@ -60,6 +66,8 @@ export function ConfigurationDialog({
 }) {
   const { notify } = useToast();
   const source = duplicateOf ?? configuration;
+  // Only THIS company's networks. Another insurer's list is not on offer here.
+  const networks = useMedicalNetworks(companyId);
 
   const save = useSavePlanConfiguration(duplicateOf ? undefined : configuration?.id);
   const duplicate = useDuplicatePlanConfiguration(duplicateOf?.id ?? '');
@@ -71,6 +79,8 @@ export function ConfigurationDialog({
     // A copy starts with an empty band: the age is the one thing that differs.
     ageFrom: duplicateOf ? '' : (configuration?.ageFrom?.toString() ?? ''),
     ageTo: duplicateOf ? '' : (configuration?.ageTo?.toString() ?? ''),
+    medicalNetworkId: source?.medicalNetworkId ?? '',
+    roomType: source?.roomType ?? '',
     currency: source?.currency ?? '',
     annualPrice: source?.annualPrice?.toString() ?? '',
     annualLimit: source?.annualLimit?.toString() ?? '',
@@ -132,6 +142,9 @@ export function ConfigurationDialog({
     const pricing = {
       ageFrom,
       ageTo,
+      // What makes this variant different from the plan's others.
+      medicalNetworkId: values.medicalNetworkId === '' ? null : values.medicalNetworkId,
+      roomType: values.roomType.trim() === '' ? null : values.roomType.trim(),
       currency: values.currency.trim() === '' ? null : values.currency.trim(),
       annualPrice: toNumber(values.annualPrice),
       annualLimit: toNumber(values.annualLimit),
@@ -265,6 +278,54 @@ export function ConfigurationDialog({
           </div>
         ) : null}
 
+        {/* What this variant is, beyond its age band. The same plan sold on
+            another network, or at another ceiling, is a second variant — which
+            is why these sit here and not on the plan. */}
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Medical network"
+            error={fieldErrors.medicalNetworkId}
+            hint={
+              (networks.data?.length ?? 0) === 0
+                ? 'This company has no networks yet. Add them on the company screen.'
+                : 'Chosen from this company’s own list, never typed.'
+            }
+          >
+            {(props) => (
+              <Select
+                {...props}
+                value={values.medicalNetworkId}
+                disabled={(networks.data?.length ?? 0) === 0}
+                onChange={(event) => setValue('medicalNetworkId', event.target.value)}
+              >
+                <option value="">{UNSPECIFIED_OPTION_LABEL}</option>
+                {(networks.data ?? []).map((network) => (
+                  <option key={network.id} value={network.id}>
+                    {network.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+
+          <Field label="Room type" error={fieldErrors.roomType} hint={NOT_STATED_HINT}>
+            {(props) => (
+              <Input
+                {...props}
+                value={values.roomType}
+                list="configuration-room-types"
+                onChange={(event) => setValue('roomType', event.target.value)}
+                placeholder={UNSPECIFIED_OPTION_LABEL}
+              />
+            )}
+          </Field>
+          <datalist id="configuration-room-types">
+            {ROOM_TYPES.map((room) => (
+              <option key={room} value={room} />
+            ))}
+          </datalist>
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-2">
           {/* Who this configuration is for, by age. Both bounds are required —
               a configuration nobody's age falls into can never be matched. */}
@@ -392,3 +453,6 @@ export function ConfigurationDialog({
 
 /** Says what a blank field means, so nobody types a 0 that isn't in the plan. */
 const NOT_STATED_HINT = 'Leave blank if the plan does not state one.';
+
+/** Room suggestions, from the legacy `hb_medical_room_type` lookup. */
+const ROOM_TYPES = ['Private Room', 'Suite Room', 'Semi private Room', 'Shared Room'];
