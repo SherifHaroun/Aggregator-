@@ -17,6 +17,8 @@ const configurationDetailInclude = {
   options: { include: planOptionInclude, orderBy: { sortOrder: 'asc' as const } },
   /** So a variant can name its network without a second request. */
   medicalNetwork: true,
+  /** So it can say what it is called: "Gold+ Local". */
+  plan: { select: { name: true } },
 };
 
 /**

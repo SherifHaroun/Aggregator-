@@ -1,4 +1,8 @@
-import { resolveAverageAgeForCustomerType, type PlanConfigurationDto } from '@aggregator/shared';
+import {
+  resolveAverageAgeForCustomerType,
+  variantDisplayName,
+  type PlanConfigurationDto,
+} from '@aggregator/shared';
 import type { CompanyMedicalNetwork, PlanConfiguration } from '@prisma/client';
 import { toIso, toNumber } from '../../lib/decimal.js';
 import {
@@ -10,6 +14,7 @@ export function toPlanConfigurationDto(
   configuration: PlanConfiguration & {
     options?: PlanOptionWithRelations[];
     medicalNetwork?: CompanyMedicalNetwork | null;
+    plan?: { name: string } | null;
   },
   /** Size of each limitation scope's list — see `readLimitationRankCounts`. */
   rankCounts: Record<string, number> = {},
@@ -26,6 +31,18 @@ export function toPlanConfigurationDto(
       ? { medicalNetworkName: configuration.medicalNetwork?.name ?? null }
       : {}),
     roomType: configuration.roomType,
+    /**
+     * "Gold+ Local" — computed from the plan's name and the scope, so renaming
+     * the plan renames every variant with it and nothing can go stale.
+     */
+    ...(configuration.plan
+      ? {
+          displayName: variantDisplayName(
+            configuration.plan.name,
+            configuration.geographicalCoverage,
+          ),
+        }
+      : {}),
     ageFrom: configuration.ageFrom,
     ageTo: configuration.ageTo,
     currency: configuration.currency,

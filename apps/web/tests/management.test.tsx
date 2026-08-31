@@ -10,7 +10,11 @@
  * the application code never mentions them.
  */
 
-import { UNSPECIFIED_OPTION_LABEL } from '@aggregator/shared';
+import {
+  GEOGRAPHICAL_COVERAGES,
+  UNSPECIFIED_OPTION_LABEL,
+  listEnabledOptions,
+} from '@aggregator/shared';
 import type { CustomerTypeId, OptionFieldDto } from '@aggregator/shared';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -994,9 +998,9 @@ describe('company medical networks', () => {
     expect(offered).toEqual([UNSPECIFIED_OPTION_LABEL, 'Golden Care Network']);
 
     await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
-    await user.type(dialog.getByLabelText(/Annual limit/i), '600000');
+    await user.type(dialog.getByLabelText(/Annual \/ in-patient limit/i), '600000');
     await user.selectOptions(network, 'net_a1');
-    await user.type(dialog.getByLabelText('Premium, ages 1 to 17'), '3681');
+    await user.type(dialog.getByLabelText('Variant 1 premium, ages 1 to 17'), '3681');
     await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
     await waitFor(() => expect(store.plans).toHaveLength(1));
@@ -1068,8 +1072,8 @@ describe('plans', () => {
     // jsdom keeps the trigger button queryable.
     const dialog = within(await screen.findByRole('dialog'));
     await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
-    await user.type(dialog.getByLabelText(/Annual limit/i), '600000');
-    await user.type(dialog.getByLabelText('Premium, ages 1 to 17'), '3681');
+    await user.type(dialog.getByLabelText(/Annual \/ in-patient limit/i), '600000');
+    await user.type(dialog.getByLabelText('Variant 1 premium, ages 1 to 17'), '3681');
     await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
     await waitFor(() => expect(store.plans).toHaveLength(1));
@@ -1094,8 +1098,8 @@ describe('plans', () => {
 
     const dialog = within(await screen.findByRole('dialog'));
     await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
-    await user.type(dialog.getByLabelText(/Annual limit/i), '600000');
-    await user.type(dialog.getByLabelText('Premium, ages 1 to 17'), '7500');
+    await user.type(dialog.getByLabelText(/Annual \/ in-patient limit/i), '600000');
+    await user.type(dialog.getByLabelText('Variant 1 premium, ages 1 to 17'), '7500');
     await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
     await waitFor(() => expect(store.configurations).toHaveLength(1));
@@ -1118,6 +1122,57 @@ describe('plans', () => {
    * each carried an identical benefit set, and only the premium moved. So the
    * benefits are filled in once and every band priced carries them.
    */
+  /**
+   * One product, sold two ways.
+   *
+   * "Gold+ Local" and "Gold+ International" are the SAME plan at two coverage
+   * scopes — the legacy habit of making them two plans with the scope in the
+   * name is exactly what the variant model exists to stop. The name is derived
+   * from the plan and the scope, so it can never disagree with them.
+   */
+  it('makes two variants of one plan, named from the plan and the coverage', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+
+    renderApp(ROUTES.companies.detail('company_1'));
+    await user.click((await screen.findAllByRole('button', { name: /Add plan/i }))[0]!);
+
+    const dialog = within(await screen.findByRole('dialog'));
+    await user.type(dialog.getByLabelText(/Plan name/i), 'Gold+');
+
+    // Variant 1 is named the moment the plan is, without anybody typing it.
+    expect(dialog.getByLabelText(/Variant name/i)).toHaveValue('Gold+ Local');
+
+    await user.type(dialog.getAllByLabelText(/Annual \/ in-patient limit/i)[0]!, '600000');
+    await user.type(dialog.getByLabelText('Variant 1 premium, ages 1 to 17'), '3681');
+
+    await user.click(dialog.getByRole('button', { name: /Add variant/i }));
+
+    // The second offers the next scope, so the two cannot collide on save.
+    const names = dialog.getAllByLabelText(/Variant name/i);
+    expect(names).toHaveLength(2);
+    expect(names[1]).toHaveValue('Gold+ International');
+
+    await user.type(dialog.getAllByLabelText(/Annual \/ in-patient limit/i)[1]!, '1000000');
+    await user.type(dialog.getByLabelText('Variant 2 premium, ages 1 to 17'), '5000');
+
+    await user.click(dialog.getByRole('button', { name: /Save plan/i }));
+
+    await waitFor(() => expect(store.configurations).toHaveLength(2));
+
+    // ONE plan, two variants — never "Gold+ Local" and "Gold+ International"
+    // as separate products.
+    expect(store.plans).toHaveLength(1);
+    expect(store.plans[0]?.name).toBe('Gold+');
+    expect(store.configurations.map((item) => item.geographicalCoverage).sort()).toEqual([
+      'INTERNATIONAL',
+      'LOCAL',
+    ]);
+    expect(
+      store.configurations.map((item) => item.annualLimit).sort((a, b) => (a ?? 0) - (b ?? 0)),
+    ).toEqual([600000, 1000000]);
+  });
+
   it('enters benefits once and carries them onto every age band priced', async () => {
     const user = userEvent.setup();
     givenCompany();
@@ -1127,13 +1182,13 @@ describe('plans', () => {
 
     const dialog = within(await screen.findByRole('dialog'));
     await user.type(dialog.getByLabelText(/Plan name/i), 'Elite');
-    await user.type(dialog.getByLabelText(/Annual limit/i), '600000');
+    await user.type(dialog.getByLabelText(/Annual \/ in-patient limit/i), '600000');
     await user.type(dialog.getByLabelText('In-patient coverage'), 'Fully Covered');
 
     // Three bands, three premiums, one benefit entry.
-    await user.type(dialog.getByLabelText('Premium, ages 1 to 17'), '3681');
-    await user.type(dialog.getByLabelText('Premium, ages 18 to 24'), '5701');
-    await user.type(dialog.getByLabelText('Premium, ages 25 to 29'), '7132');
+    await user.type(dialog.getByLabelText('Variant 1 premium, ages 1 to 17'), '3681');
+    await user.type(dialog.getByLabelText('Variant 1 premium, ages 18 to 24'), '5701');
+    await user.type(dialog.getByLabelText('Variant 1 premium, ages 25 to 29'), '7132');
     await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
     await waitFor(() => expect(store.configurations).toHaveLength(3));
@@ -1176,7 +1231,7 @@ describe('plan configurations', () => {
     expect(labels.some((l) => /couple/i.test(l))).toBe(false);
   });
 
-  it('offers Local and International only', async () => {
+  it('offers every coverage scope the shared configuration enables', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
@@ -1190,10 +1245,16 @@ describe('plan configurations', () => {
       .getAllByRole('radio')
       .map((radio) => radio.closest('label')?.textContent ?? '');
 
-    expect(labels).toHaveLength(2);
-    expect(labels.some((l) => l.includes('Local'))).toBe(true);
-    expect(labels.some((l) => l.includes('International'))).toBe(true);
-    expect(labels.some((l) => /egypt only|worldwide/i.test(l))).toBe(false);
+    /**
+     * The list is whatever @aggregator/shared enables — never a second copy
+     * written down here. It grew past Local and International because insurers
+     * sell wider scopes, and it may grow again.
+     */
+    const enabled = listEnabledOptions(GEOGRAPHICAL_COVERAGES);
+    expect(labels).toHaveLength(enabled.length);
+    for (const option of enabled) {
+      expect(labels.some((label) => label.includes(option.label))).toBe(true);
+    }
   });
 
   it('shows the fixed SME average age instead of an age input', async () => {

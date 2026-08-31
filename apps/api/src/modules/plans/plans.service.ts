@@ -17,6 +17,7 @@ const planDetailInclude = {
       options: { include: planOptionInclude, orderBy: { sortOrder: 'asc' as const } },
       /** So each variant names its network without a second request. */
       medicalNetwork: true,
+      plan: { select: { name: true } },
     },
     /**
      * Youngest band first within each customer type and coverage area — the

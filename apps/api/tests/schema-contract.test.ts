@@ -48,10 +48,14 @@ describe('customer type and geographical coverage', () => {
     expect(enums.get('CustomerType')?.values.map((v) => v.name)).not.toContain('COUPLE');
   });
 
-  it('use Local/International wording, not Egypt Only/Worldwide', () => {
+  it('carry every coverage scope the shared configuration declares', () => {
+    // The list grows: insurers sell wider scopes than Local and International,
+    // and the enum is what stops an invented spelling reaching the comparison.
+    // Parity with @aggregator/shared is enforced at compile time by
+    // `src/lib/enum-parity.ts`; this checks the migration kept up.
     const values = enums.get('GeographicalCoverage')?.values.map((v) => v.name) ?? [];
-    expect(values).toEqual(expect.arrayContaining(['LOCAL', 'INTERNATIONAL']));
-    expect(values).toHaveLength(2);
+    expect(values).toEqual(expect.arrayContaining([...GEOGRAPHICAL_COVERAGE_IDS]));
+    expect(values).toHaveLength(GEOGRAPHICAL_COVERAGE_IDS.length);
   });
 });
 

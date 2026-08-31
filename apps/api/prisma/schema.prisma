@@ -52,13 +52,24 @@ enum CustomerType {
   SME
 }
 
-/// Where a configuration provides cover.
+/// Where a variant provides cover.
+///
 /// SYSTEM CONFIGURATION, mirrored by `GEOGRAPHICAL_COVERAGES` in
-/// @aggregator/shared. Exactly LOCAL and INTERNATIONAL — never "Egypt Only"
-/// or "Worldwide".
+/// @aggregator/shared. A LIST THAT GROWS: adding a scope means an entry there,
+/// a value here, and a migration — `src/lib/enum-parity.ts` fails the build on
+/// anything less.
+///
+/// An enum rather than a table because the comparison FILTERS on it: an
+/// employee inventing "Locl" would quietly stop matching plans, and Postgres
+/// refusing it outright is worth the migration.
 enum GeographicalCoverage {
   LOCAL
   INTERNATIONAL
+  LOCAL_AND_INTERNATIONAL
+  WORLDWIDE
+  /// A scope the list does not yet name. Says nothing about WHERE, so a
+  /// comparison can only treat it as "not one of the above".
+  OTHER
 }
 
 // ============================================================================

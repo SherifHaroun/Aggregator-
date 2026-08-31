@@ -210,6 +210,15 @@ export interface PlanConfigurationDto extends RecordMeta {
   /** Resolved from the company's list, so a row renders without a join. */
   medicalNetworkName?: string | null;
   /**
+   * What this variant is called: the plan's name and what it covers, e.g.
+   * "Gold+ Local".
+   *
+   * DERIVED, NEVER STORED — a stored copy stops being true the moment the plan
+   * is renamed. Present when the variant was read with its plan; the parts are
+   * what the comparison filters on.
+   */
+  displayName?: string;
+  /**
    * The hospital accommodation this variant buys — "Private Room". It changes
    * the premium, so it belongs here; it is never compared.
    */
