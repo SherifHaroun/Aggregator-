@@ -49,21 +49,56 @@ export async function listComparisonCurrencies(): Promise<string[]> {
  * Shared so the comparison and the price range can never drift into answering
  * slightly different questions.
  */
-function matchingRequirements(input: ComparisonPriceRangePayload) {
+function variantRequirements(input: ComparisonPriceRangePayload) {
   return {
     isActive: true,
-    customerType: input.customerTypeId,
     geographicalCoverage: input.geographicalCoverageId,
     currency: input.currency,
-    ageFrom: { lte: input.ageFrom },
-    ageTo: { gte: input.ageTo },
     plan: {
       isActive: true,
       insuranceTypeId: input.insuranceTypeId,
+      /**
+       * WHO the plan is sold to is a property of the plan, not of the variant.
+       * A company's Individual, Family and SME books are separate products that
+       * merely share a name, so this filter is what keeps a family from ever
+       * being shown an individual's product.
+       */
+      customerType: input.customerTypeId,
       company: { isActive: true },
     },
   } as const;
 }
+
+/**
+ * The price band that must exist for a variant to be sellable to this customer.
+ *
+ * The band must SPAN the ages requested: its `ageFrom` at or below the
+ * youngest, its `ageTo` at or above the eldest. A single person is a range of
+ * one, so this is the same rule for everybody — and a family is never shown a
+ * plan that would leave one of its members outside the cover.
+ *
+ * A band with no premium is not sellable: the legacy data said "not sold at
+ * this age" by leaving the cell empty, so a null price is an exclusion rather
+ * than a free plan.
+ */
+function bandRequirements(
+  input: ComparisonPriceRangePayload,
+  price: Prisma.DecimalNullableFilter | { not: null } = { not: null },
+) {
+  return {
+    ageFrom: { lte: input.ageFrom },
+    ageTo: { gte: input.ageTo },
+    annualPrice: price,
+  } as const;
+}
+
+/**
+ * Of the bands that span the customer, the one that fits them most closely.
+ *
+ * Bands may overlap — an insurer quoting 0–64 and 0–17 means the narrower one
+ * for a child. Highest `ageFrom` first, then lowest `ageTo`, is that band.
+ */
+const tightestBandFirst = [{ ageFrom: "desc" as const }, { ageTo: "asc" as const }];
 
 /**
  * What the plans matching these requirements cost.
@@ -75,17 +110,30 @@ function matchingRequirements(input: ComparisonPriceRangePayload) {
 export async function getComparisonPriceRange(
   input: ComparisonPriceRangePayload,
 ): Promise<ComparisonPriceRangeDto> {
-  const summary = await getPrisma().planConfiguration.aggregate({
-    where: { ...matchingRequirements(input), annualPrice: { not: null } },
-    _count: { _all: true },
-    _min: { annualPrice: true },
-    _max: { annualPrice: true },
-  });
+  const prisma = getPrisma();
+  const requirements = variantRequirements(input);
+  const band = bandRequirements(input);
+
+  /**
+   * Prices come from the BANDS, but the count is of VARIANTS — a variant whose
+   * overlapping bands both span the customer is still one plan on the screen,
+   * and counting bands would quietly inflate "how many plans match".
+   */
+  const [summary, count] = await Promise.all([
+    prisma.planPriceBand.aggregate({
+      where: { ...band, variant: requirements },
+      _min: { annualPrice: true },
+      _max: { annualPrice: true },
+    }),
+    prisma.planConfiguration.count({
+      where: { ...requirements, priceBands: { some: band } },
+    }),
+  ]);
 
   const highestPrice = toNumber(summary._max.annualPrice);
 
   return {
-    count: summary._count._all,
+    count,
     lowestPrice: toNumber(summary._min.annualPrice),
     highestPrice,
     suggestedBudget: highestPrice,
@@ -118,14 +166,22 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
   });
   if (!insuranceType) throw notFound('Insurance type');
 
-  const requirements = matchingRequirements(input);
-  const ceiling = input.budget === undefined ? { not: null } : { not: null, lte: input.budget };
+  const requirements = variantRequirements(input);
+  const ceiling: Prisma.DecimalNullableFilter | { not: null } =
+    input.budget === undefined ? { not: null } : { not: null, lte: input.budget };
+
+  /**
+   * A variant qualifies when it HAS a band that spans the customer and fits the
+   * budget; the band it is read with is the one that does. Filtering the
+   * included bands by the same rule is what makes `priceBands[0]` the price
+   * this customer would actually pay.
+   */
+  const withinBudget = bandRequirements(input, ceiling);
 
   const [configurations, overBudget] = await Promise.all([
     prisma.planConfiguration.findMany({
-      where: { ...requirements, annualPrice: ceiling },
-      include: configurationForComparison,
-      orderBy: [{ annualPrice: 'asc' }, { id: 'asc' }],
+      where: { ...requirements, priceBands: { some: withinBudget } },
+      include: comparisonInclude(withinBudget),
     }),
     /**
      * The plans the budget ruled out. Fetched in full rather than counted, so
@@ -134,11 +190,13 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
      */
     input.budget === undefined
       ? Promise.resolve([])
-      : prisma.planConfiguration.findMany({
-          where: { ...requirements, annualPrice: { gt: input.budget } },
-          include: configurationForComparison,
-          orderBy: [{ annualPrice: 'asc' }, { id: 'asc' }],
-        }),
+      : (() => {
+          const dearer = bandRequirements(input, { gt: input.budget });
+          return prisma.planConfiguration.findMany({
+            where: { ...requirements, priceBands: { some: dearer } },
+            include: comparisonInclude(dearer),
+          });
+        })(),
   ]);
 
   const affordable = compareConfigurations(configurations);
@@ -172,29 +230,39 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
   };
 }
 
-/** Relations every compared configuration is read with. */
-const configurationForComparison = {
-  plan: {
-    select: {
-      id: true,
-      name: true,
-      company: { select: { id: true, name: true, logoUrl: true } },
+/**
+ * Relations every compared variant is read with.
+ *
+ * Takes the band rule so the variant arrives carrying the single band that
+ * applies to this customer, rather than all ten of its prices.
+ */
+const comparisonInclude = (band: ReturnType<typeof bandRequirements>) =>
+  ({
+    plan: {
+      select: {
+        id: true,
+        name: true,
+        customerType: true,
+        company: { select: { id: true, name: true, logoUrl: true } },
+      },
     },
-  },
-  // Every benefit these plans carry — the customer chose none of them.
-  options: { include: planOptionInclude, orderBy: { sortOrder: 'asc' as const } },
-  /**
-   * Named on the result so two variants of one plan can be told apart.
-   *
-   * Shown, never scored: which network is better is a judgement only the
-   * company's own ranking carries, and ranking across companies would compare
-   * two estates that have nothing to do with each other.
-   */
-  medicalNetwork: { select: { name: true } },
-} as const;
+    // Every benefit these plans carry — the customer chose none of them.
+    // Valued once for the whole variant, never once per age band.
+    options: { include: planOptionInclude, orderBy: { sortOrder: 'asc' as const } },
+    /**
+     * Named on the result so two variants of one plan can be told apart.
+     *
+     * Shown, never scored: which network is better is a judgement only the
+     * company's own ranking carries, and ranking across companies would compare
+     * two estates that have nothing to do with each other.
+     */
+    medicalNetwork: { select: { name: true } },
+    /** The one band that prices this customer. */
+    priceBands: { where: band, orderBy: tightestBandFirst, take: 1 },
+  }) as const;
 
 type ConfigurationForComparison = Prisma.PlanConfigurationGetPayload<{
-  include: typeof configurationForComparison;
+  include: ReturnType<typeof comparisonInclude>;
 }>;
 
 /**
@@ -324,11 +392,11 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
       medicalNetworkName: configuration.medicalNetwork?.name ?? null,
       roomType: configuration.roomType,
       currency: configuration.currency,
-      annualPrice: toNumber(configuration.annualPrice),
+      annualPrice: toNumber(configuration.priceBands[0]?.annualPrice),
       annualLimit: toNumber(configuration.annualLimit),
       deductible: toNumber(configuration.deductible),
       coPayment: toNumber(configuration.coPayment),
-      customerTypeLabel: optionLabel(CUSTOMER_TYPES, configuration.customerType),
+      customerTypeLabel: optionLabel(CUSTOMER_TYPES, configuration.plan.customerType),
       geographicalCoverageLabel: optionLabel(
         GEOGRAPHICAL_COVERAGES,
         configuration.geographicalCoverage,
@@ -336,6 +404,17 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
       benefits: cells,
     };
   });
+
+  /**
+   * Cheapest first, as the screen expects. Sorted here rather than in SQL
+   * because the price now lives on a child row, and ordering variants by a
+   * filtered child is not something the query can express.
+   */
+  candidates.sort(
+    (a, b) =>
+      (a.annualPrice ?? Number.POSITIVE_INFINITY) - (b.annualPrice ?? Number.POSITIVE_INFINITY) ||
+      a.configurationId.localeCompare(b.configurationId),
+  );
 
   const plans = scoreCandidates(candidates);
 

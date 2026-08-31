@@ -60,6 +60,28 @@ const variantFields = {
   roomType: z.string().trim().min(1).max(120).nullable().optional(),
 };
 
+/**
+ * ONE AGE BAND'S PRICE.
+ *
+ * A band with no premium is still a band: the insurer named the ages and left
+ * the cell empty, and "not sold at this age" is what that means. It is stored
+ * so the editor can show the row rather than silently losing it.
+ */
+export const priceBandSchema = orderedAgeBand(
+  z.object({ ...ageBandFields, annualPrice: money.nullable().optional() }),
+);
+
+/**
+ * The whole rate table, youngest first.
+ *
+ * Sent as a SET rather than one band at a time: an insurer's rate table is read
+ * off the document in one go, and replacing it wholesale is what lets a band be
+ * removed without inventing a delete endpoint for it.
+ */
+const priceBandsField = {
+  priceBands: z.array(priceBandSchema).max(40).optional(),
+};
+
 const pricingFields = {
   /** ISO 4217, e.g. "EGP". May differ between local and international. */
   currency: z
@@ -70,45 +92,50 @@ const pricingFields = {
     .transform((value) => value.toUpperCase())
     .nullable()
     .optional(),
-  annualPrice: money.nullable().optional(),
   annualLimit: money.nullable().optional(),
   deductible: money.nullable().optional(),
   coPayment: z.number().min(0).max(100).nullable().optional(),
   isActive: z.boolean().optional(),
 };
 
-export const createPlanConfigurationSchema = orderedAgeBand(
-  z.object({
-    planId: z.string().min(1),
-    customerType: customerTypeSchema,
-    geographicalCoverage: geographicalCoverageSchema,
-    ...ageBandFields,
-    ...variantFields,
-    ...pricingFields,
-  }),
-);
-
 /**
- * Customer type and coverage are not updatable: they identify the
- * configuration, and changing them would silently move every option value
- * attached to it. Delete the configuration and create the right one instead.
+ * Who the plan is sold to is NOT accepted here — it belongs to the plan. A
+ * variant says only where it covers and on what terms.
  */
-export const updatePlanConfigurationSchema = orderedAgeBand(
-  z.object({ ...ageBandFields, ...variantFields, ...pricingFields }).partial(),
-);
+export const createPlanConfigurationSchema = z.object({
+  planId: z.string().min(1),
+  geographicalCoverage: geographicalCoverageSchema,
+  ...variantFields,
+  ...pricingFields,
+  ...priceBandsField,
+});
 
 /**
- * Copy a configuration to another age band.
+ * Coverage is not updatable: with the network, room and ceiling it identifies
+ * the variant, and changing it would silently move every option value attached
+ * to it. Delete the variant and create the right one instead.
  *
- * The same cover sold to 21-25 year olds and to 26-30 year olds differs in one
- * thing — the price — so the age band is required and everything else is
- * optional: whatever is omitted is taken from the configuration being copied,
- * benefits and their values included. Customer type and coverage area are never
- * accepted here; a copy that changed those would not be the same product.
+ * `priceBands`, when given, REPLACES the whole rate table.
  */
-export const duplicatePlanConfigurationSchema = orderedAgeBand(
-  z.object({ ...ageBandFields, ...variantFields, ...pricingFields }),
-);
+export const updatePlanConfigurationSchema = z
+  .object({ ...variantFields, ...pricingFields, ...priceBandsField })
+  .partial();
+
+/**
+ * Copy a variant to a different one of the same plan — "Gold+ Local" becoming
+ * "Gold+ International".
+ *
+ * Everything omitted is inherited from the variant being copied, benefits,
+ * their values and the whole rate table included. Something must differ, or the
+ * copy would be the same variant twice; the service refuses that rather than
+ * asking the schema to describe it.
+ */
+export const duplicatePlanConfigurationSchema = z.object({
+  geographicalCoverage: geographicalCoverageSchema.optional(),
+  ...variantFields,
+  ...pricingFields,
+  ...priceBandsField,
+});
 
 export const listPlanConfigurationsQueryExtension = z.object({
   planId: z.string().min(1).optional(),

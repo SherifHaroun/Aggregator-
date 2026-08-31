@@ -1,26 +1,34 @@
+import { CUSTOMER_TYPE_IDS } from '@aggregator/shared';
 import { z } from 'zod';
 
 /**
- * A plan carries only what is true of the product itself. Price, limits,
- * deductible and co-payment live on `PlanConfiguration`, because they differ
- * per customer type and coverage area.
+ * A plan carries only what is true of the product itself, plus WHO it is sold
+ * to. Price, limits, network and coverage area live on its variants, because
+ * they are what differs between them.
  */
 export const createPlanSchema = z.object({
   companyId: z.string().min(1),
   insuranceTypeId: z.string().min(1),
+  /**
+   * Individual, Family and SME are separate products that merely share a name,
+   * so this is required: a plan with no buyer could not be filed under any of
+   * the three sections a company is managed through.
+   */
+  customerType: z.enum(CUSTOMER_TYPE_IDS),
   name: z.string().trim().min(1).max(200),
   /** Unique per company. */
   code: z.string().trim().min(1).max(60),
   description: z.string().trim().max(2000).nullable().optional(),
-  /**
-   * The company network this plan is sold on, chosen from that company's own
-   * list. `null` where the document does not say.
-   */
   isActive: z.boolean().optional(),
 });
 
 /**
- * The insurance type IS changeable; the company is not.
+ * The insurance type and the customer type ARE changeable; the company is not.
+ *
+ * Filing a plan under the wrong buyer is an ordinary mistake, and correcting it
+ * moves the whole product — its variants, their benefits and their prices —
+ * from one section to another. Nothing mixes: a plan has one customer type
+ * before the edit and one after.
  *
  * Benefits are global — they belong to no insurance type — so moving a plan
  * between types invalidates nothing it carries. All it changes is which

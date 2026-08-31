@@ -188,6 +188,15 @@ export interface PlanDto extends RecordMeta {
   name: string;
   code: string;
   description: string | null;
+  /**
+   * Resolved from the centralized business rules — never stored in the
+   * database. For SME this carries the standard average age and its label.
+   *
+   * It follows the CUSTOMER TYPE, which is a property of the plan: every
+   * variant of an SME plan is sold to the same average life, so asking each
+   * variant the question separately could only ever give the same answer.
+   */
+  averageAge: ResolvedAverageAge;
   /** Present when the plan was fetched with its variants. */
   configurations?: PlanConfigurationDto[];
 }
@@ -244,11 +253,6 @@ export interface PlanConfigurationDto extends RecordMeta {
   annualLimit: number | null;
   deductible: number | null;
   coPayment: number | null;
-  /**
-   * Resolved from the centralized business rules — never stored in the
-   * database. For SME this carries the standard average age and its label.
-   */
-  averageAge: ResolvedAverageAge;
   /** Present when the configuration was fetched with its options. */
   options?: PlanOptionDto[];
 }

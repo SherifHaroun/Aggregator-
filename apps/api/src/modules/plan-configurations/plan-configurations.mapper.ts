@@ -1,9 +1,5 @@
-import {
-  resolveAverageAgeForCustomerType,
-  variantDisplayName,
-  type PlanConfigurationDto,
-} from '@aggregator/shared';
-import type { CompanyMedicalNetwork, PlanConfiguration } from '@prisma/client';
+import { variantDisplayName, type PlanConfigurationDto } from '@aggregator/shared';
+import type { CompanyMedicalNetwork, PlanConfiguration, PlanPriceBand } from '@prisma/client';
 import { toIso, toNumber } from '../../lib/decimal.js';
 import {
   toPlanOptionDto,
@@ -15,6 +11,7 @@ export function toPlanConfigurationDto(
     options?: PlanOptionWithRelations[];
     medicalNetwork?: CompanyMedicalNetwork | null;
     plan?: { name: string } | null;
+    priceBands?: PlanPriceBand[];
   },
   /** Size of each limitation scope's list — see `readLimitationRankCounts`. */
   rankCounts: Record<string, number> = {},
@@ -22,7 +19,6 @@ export function toPlanConfigurationDto(
   return {
     id: configuration.id,
     planId: configuration.planId,
-    customerType: configuration.customerType,
     geographicalCoverage: configuration.geographicalCoverage,
     medicalNetworkId: configuration.medicalNetworkId,
     // Resolved when the variant was read with its network, so a row renders
@@ -43,19 +39,20 @@ export function toPlanConfigurationDto(
           ),
         }
       : {}),
-    ageFrom: configuration.ageFrom,
-    ageTo: configuration.ageTo,
+    /**
+     * Youngest first, which is the order the editor lists them in and the order
+     * an insurer's own rate table is written in.
+     */
+    priceBands: (configuration.priceBands ?? []).map((band) => ({
+      id: band.id,
+      ageFrom: band.ageFrom,
+      ageTo: band.ageTo,
+      annualPrice: toNumber(band.annualPrice),
+    })),
     currency: configuration.currency,
-    annualPrice: toNumber(configuration.annualPrice),
     annualLimit: toNumber(configuration.annualLimit),
     deductible: toNumber(configuration.deductible),
     coPayment: toNumber(configuration.coPayment),
-    /**
-     * Derived, never stored. For SME this yields the standard average age and
-     * its label straight from the centralized business rule, so the number
-     * exists in exactly one place in the codebase.
-     */
-    averageAge: resolveAverageAgeForCustomerType(configuration.customerType),
     isActive: configuration.isActive,
     createdAt: toIso(configuration.createdAt),
     updatedAt: toIso(configuration.updatedAt),

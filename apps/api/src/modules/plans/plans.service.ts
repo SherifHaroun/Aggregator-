@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import { derivePlanCode, type Paginated, type PlanDto } from '@aggregator/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
@@ -90,7 +91,10 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
     where: { id },
     include: {
       configurations: {
-        include: { options: { include: { values: true, selectedChoices: true } } },
+        include: {
+          options: { include: { values: true, selectedChoices: true } },
+          priceBands: { orderBy: { ageFrom: 'asc' } },
+        },
       },
     },
   });
@@ -140,6 +144,12 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
       data: {
         companyId: source.companyId,
         insuranceTypeId: source.insuranceTypeId,
+        /**
+         * A copy is sold to the same buyer. Individual, Family and SME are
+         * separate products, so a copy that quietly changed this would file the
+         * plan in a section the employee was not looking at.
+         */
+        customerType: source.customerType,
         name: input.name,
         code,
         description: input.description === undefined ? source.description : input.description,
@@ -159,12 +169,12 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
     const configurations = await tx.planConfiguration.createManyAndReturn({
       data: wanted.map((configuration) => ({
         planId: plan.id,
-        customerType: configuration.customerType,
         geographicalCoverage: configuration.geographicalCoverage,
-        ageFrom: configuration.ageFrom,
-        ageTo: configuration.ageTo,
+        // The network and room are part of what a variant IS, so a copy that
+        // dropped them would be a different offering wearing the same name.
+        medicalNetworkId: configuration.medicalNetworkId,
+        roomType: configuration.roomType,
         currency: configuration.currency,
-        annualPrice: configuration.annualPrice,
         annualLimit: configuration.annualLimit,
         deductible: configuration.deductible,
         coPayment: configuration.coPayment,
@@ -172,25 +182,47 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
       })),
       select: {
         id: true,
-        customerType: true,
         geographicalCoverage: true,
-        ageFrom: true,
-        ageTo: true,
+        medicalNetworkId: true,
+        roomType: true,
+        annualLimit: true,
       },
     });
 
-    /** A configuration is unique on these four within a plan, so this is exact. */
+    /** A variant is unique on exactly these within a plan, so this is exact. */
     const identity = (configuration: {
-      customerType: string;
       geographicalCoverage: string;
-      ageFrom: number;
-      ageTo: number;
+      medicalNetworkId: string | null;
+      roomType: string | null;
+      annualLimit: Prisma.Decimal | null;
     }) =>
-      `${configuration.customerType}|${configuration.geographicalCoverage}|${configuration.ageFrom}|${configuration.ageTo}`;
+      [
+        configuration.geographicalCoverage,
+        configuration.medicalNetworkId ?? '',
+        configuration.roomType ?? '',
+        configuration.annualLimit === null ? '' : configuration.annualLimit.toString(),
+      ].join('|');
 
     const newConfigurationId = new Map(
       configurations.map((configuration) => [identity(configuration), configuration.id]),
     );
+
+    /**
+     * The rate table comes across whole. It is the cheapest part of the copy —
+     * one row per band, no values hanging off it — and a copy priced at nothing
+     * would read as a plan nobody sells.
+     */
+    const bands = wanted.flatMap((configuration) => {
+      const variantId = newConfigurationId.get(identity(configuration));
+      if (!variantId) return [];
+      return configuration.priceBands.map((band) => ({
+        variantId,
+        ageFrom: band.ageFrom,
+        ageTo: band.ageTo,
+        annualPrice: band.annualPrice,
+      }));
+    });
+    if (bands.length > 0) await tx.planPriceBand.createMany({ data: bands });
 
     const attachments = wanted.flatMap((configuration) => {
       const planConfigurationId = newConfigurationId.get(identity(configuration));

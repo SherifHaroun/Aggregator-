@@ -35,6 +35,53 @@ WHERE c."planId" = p."id";
 -- the only buyer the entry form has ever created.
 UPDATE "plans" SET "customerType" = 'INDIVIDUAL' WHERE "customerType" IS NULL;
 
+-- A plan sold to MORE THAN ONE buyer SPLITS.
+--
+-- Individual, Family and SME are separate products that merely share a name,
+-- and they must never mix. A plan that held both an Individual and a Family
+-- configuration keeps the first and hands the rest to a NEW plan of its own —
+-- same name, same company, same insurance type, its own customer type.
+--
+-- Collapsing them onto one customer type instead would silently refile a
+-- company's Family book as Individual, and the comparison filters on exactly
+-- that column.
+CREATE TEMPORARY TABLE "plan_split" AS
+SELECT
+  c."planId"                       AS source_id,
+  c."customerType"                 AS customer_type,
+  md5(random()::text || clock_timestamp()::text || c."planId" || c."customerType"::text) AS new_id
+FROM (SELECT DISTINCT "planId", "customerType" FROM "plan_configurations") AS c
+JOIN "plans" AS p ON p."id" = c."planId"
+WHERE c."customerType" <> p."customerType";
+
+-- The code must stay unique within the company, so it gains the buyer. Only if
+-- THAT is taken as well does it need a disambiguator: two plans in one company
+-- cannot already share a code, so no two rows inserted here can collide.
+INSERT INTO "plans" (
+  "id", "companyId", "insuranceTypeId", "customerType",
+  "name", "code", "description", "isActive", "createdAt", "updatedAt"
+)
+SELECT
+  s.new_id, p."companyId", p."insuranceTypeId", s.customer_type,
+  p."name",
+  CASE WHEN EXISTS (
+    SELECT 1 FROM "plans" AS x
+    WHERE x."companyId" = p."companyId"
+      AND x."code" = p."code" || '-' || lower(s.customer_type::text)
+  )
+  THEN p."code" || '-' || lower(s.customer_type::text) || '-' || left(s.new_id, 6)
+  ELSE p."code" || '-' || lower(s.customer_type::text)
+  END,
+  p."description", p."isActive", p."createdAt", CURRENT_TIMESTAMP
+FROM "plan_split" AS s
+JOIN "plans" AS p ON p."id" = s.source_id;
+
+-- The configurations follow their buyer to the new plan.
+UPDATE "plan_configurations" AS c
+SET "planId" = s.new_id
+FROM "plan_split" AS s
+WHERE c."planId" = s.source_id AND c."customerType" = s.customer_type;
+
 ALTER TABLE "plans" ALTER COLUMN "customerType" SET NOT NULL;
 
 CREATE INDEX "plans_companyId_customerType_isActive_idx"

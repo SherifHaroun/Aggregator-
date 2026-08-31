@@ -19,7 +19,27 @@ const configurationDetailInclude = {
   medicalNetwork: true,
   /** So it can say what it is called: "Gold+ Local". */
   plan: { select: { name: true } },
+  /** The rate table, youngest first — the order it is read and edited in. */
+  priceBands: { orderBy: { ageFrom: 'asc' as const } },
 };
+
+/**
+ * Refuse a rate table that names the same band twice.
+ *
+ * The unique index would catch it, but as a constraint violation naming an
+ * index. An employee who typed 25-29 twice should be told that, and told it
+ * before the rest of the table is written.
+ */
+function assertBandsAreDistinct(bands: { ageFrom: number; ageTo: number }[]): void {
+  const seen = new Set<string>();
+  for (const band of bands) {
+    const key = `${band.ageFrom}-${band.ageTo}`;
+    if (seen.has(key)) {
+      throw conflict(`This variant lists ages ${band.ageFrom}-${band.ageTo} twice.`);
+    }
+    seen.add(key);
+  }
+}
 
 /**
  * List configurations.
@@ -49,7 +69,7 @@ export async function listPlanConfigurations(
   const where = {
     ...activeFilter(query.isActive),
     ...(query.planId ? { planId: query.planId } : {}),
-    ...(query.customerType ? { customerType: query.customerType } : {}),
+    ...(query.customerType ? { plan: { customerType: query.customerType } } : {}),
     ...(query.geographicalCoverage ? { geographicalCoverage: query.geographicalCoverage } : {}),
     ...(Object.keys(planFilter).length > 0 ? { plan: planFilter } : {}),
   };
@@ -57,7 +77,7 @@ export async function listPlanConfigurations(
   const [items, total] = await Promise.all([
     prisma.planConfiguration.findMany({
       where,
-      orderBy: [{ annualPrice: 'asc' }, { createdAt: 'asc' }],
+      orderBy: [{ geographicalCoverage: 'asc' }, { createdAt: 'asc' }],
       ...toSkipTake(query),
     }),
     prisma.planConfiguration.count({ where }),
@@ -95,8 +115,11 @@ export async function createPlanConfiguration(
   await assertNetworkBelongsToCompany(plan.companyId, input.medicalNetworkId);
   await assertVariantIsDistinct(input.planId, input);
 
+  const { priceBands = [], ...variant } = input;
+  assertBandsAreDistinct(priceBands);
+
   const configuration = await prisma.planConfiguration.create({
-    data: input,
+    data: { ...variant, priceBands: { create: priceBands } },
     include: configurationDetailInclude,
   });
   return toPlanConfigurationDto(configuration);
@@ -114,13 +137,10 @@ export async function createPlanConfiguration(
 async function assertVariantIsDistinct(
   planId: string,
   variant: {
-    customerType?: string;
     geographicalCoverage?: string;
     medicalNetworkId?: string | null;
     roomType?: string | null;
     annualLimit?: number | null;
-    ageFrom?: number;
-    ageTo?: number;
   },
   { excludeId }: { excludeId?: string } = {},
 ): Promise<void> {
@@ -128,36 +148,33 @@ async function assertVariantIsDistinct(
     where: {
       planId,
       ...(excludeId ? { id: { not: excludeId } } : {}),
-      customerType: variant.customerType as never,
       geographicalCoverage: variant.geographicalCoverage as never,
       medicalNetworkId: variant.medicalNetworkId ?? null,
       roomType: variant.roomType ?? null,
       annualLimit: variant.annualLimit ?? null,
-      ageFrom: variant.ageFrom,
-      ageTo: variant.ageTo,
     },
     select: { id: true },
   });
   if (twin) {
     throw conflict(
-      `This plan already has that variant for ages ${variant.ageFrom}-${variant.ageTo}. Edit it instead, or change the network, room or annual limit.`,
+      'This plan already has that variant. Edit it instead, or change the coverage, network, room or annual limit.',
     );
   }
 }
 
 /**
- * Copy a configuration to a different age band — "the same cover, for another
- * age".
+ * Copy a variant to another of the same plan — "Gold+ Local" becoming
+ * "Gold+ International".
  *
- * Insurance is priced by age, so the identical benefit set is sold ten times
- * over at ten different premiums. Re-entering thirty benefits and their values
- * for each band is how mistakes get made, so the copy takes them all: every
- * attached benefit, in its order, with the value it holds here. The new
- * configuration is then edited freely — it shares nothing with its source,
- * because each configuration owns its own option rows and values.
+ * The same product sold into a wider area is the same benefits at another
+ * price, and re-entering thirty of them is how mistakes get made. So the copy
+ * takes them all: every attached benefit, in its order, with the value it holds
+ * here, and the whole rate table with it. The new variant is then edited
+ * freely — it shares nothing with its source, because each variant owns its own
+ * option rows, values and bands.
  *
- * Everything the caller omits is inherited, so "the same, but 26-30" is a
- * request with two numbers in it.
+ * Everything the caller omits is inherited, so "the same, but international" is
+ * a request with one field in it.
  */
 export async function duplicatePlanConfiguration(
   id: string,
@@ -172,6 +189,7 @@ export async function duplicatePlanConfiguration(
         orderBy: { sortOrder: 'asc' },
         include: { values: true, selectedChoices: true },
       },
+      priceBands: { orderBy: { ageFrom: 'asc' } },
     },
   });
   if (!source) throw notFound('Plan configuration');
@@ -193,15 +211,26 @@ export async function duplicatePlanConfiguration(
   if (!plan) throw notFound('Plan');
   await assertNetworkBelongsToCompany(plan.companyId, network);
 
+  const coverage = pick(input.geographicalCoverage, source.geographicalCoverage);
+
+  /**
+   * Something has to differ, or this is the same variant twice. The check that
+   * already guards create says so in the same words.
+   */
   await assertVariantIsDistinct(source.planId, {
-    customerType: source.customerType,
-    geographicalCoverage: source.geographicalCoverage,
+    geographicalCoverage: coverage,
     medicalNetworkId: network,
     roomType: room,
     annualLimit: limit,
-    ageFrom: input.ageFrom,
-    ageTo: input.ageTo,
   });
+
+  /** The source's rate table unless a new one was given outright. */
+  const bands = (input.priceBands ?? source.priceBands).map((band) => ({
+    ageFrom: band.ageFrom,
+    ageTo: band.ageTo,
+    annualPrice: band.annualPrice === null ? null : Number(band.annualPrice),
+  }));
+  assertBandsAreDistinct(bands);
 
   /** Inherited unless the caller states otherwise — including a deliberate `null`. */
   const inherit = <TKey extends keyof DuplicatePlanConfigurationInput>(key: TKey) =>
@@ -211,14 +240,11 @@ export async function duplicatePlanConfiguration(
     const configuration = await tx.planConfiguration.create({
       data: {
         planId: source.planId,
-        customerType: source.customerType,
-        geographicalCoverage: source.geographicalCoverage,
-        ageFrom: input.ageFrom,
-        ageTo: input.ageTo,
+        geographicalCoverage: coverage,
         medicalNetworkId: network,
         roomType: room,
+        priceBands: { create: bands },
         currency: inherit('currency') as string | null,
-        annualPrice: inherit('annualPrice') as number | null,
         annualLimit: inherit('annualLimit') as number | null,
         deductible: inherit('deductible') as number | null,
         coPayment: inherit('coPayment') as number | null,
@@ -297,10 +323,31 @@ export async function updatePlanConfiguration(
   id: string,
   input: UpdatePlanConfigurationInput,
 ): Promise<PlanConfigurationDto> {
-  const configuration = await getPrisma().planConfiguration.update({
-    where: { id },
-    data: input,
-    include: configurationDetailInclude,
+  const { priceBands, ...variant } = input;
+
+  /**
+   * The rate table is replaced WHOLE when it is sent at all.
+   *
+   * Editing it band by band would need a delete endpoint for a row that has no
+   * meaning on its own, and an employee who removes the 65+ line means the plan
+   * is no longer sold at 65 — which is exactly the absence of a row.
+   */
+  if (priceBands !== undefined) assertBandsAreDistinct(priceBands);
+
+  const configuration = await getPrisma().$transaction(async (tx) => {
+    if (priceBands !== undefined) {
+      await tx.planPriceBand.deleteMany({ where: { variantId: id } });
+      if (priceBands.length > 0) {
+        await tx.planPriceBand.createMany({
+          data: priceBands.map((band) => ({ ...band, variantId: id })),
+        });
+      }
+    }
+    return tx.planConfiguration.update({
+      where: { id },
+      data: variant,
+      include: configurationDetailInclude,
+    });
   });
   return toPlanConfigurationDto(configuration);
 }
