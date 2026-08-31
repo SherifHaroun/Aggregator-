@@ -34,7 +34,11 @@ import {
   Select,
   useToast,
 } from '@/components/ui';
-import { keys, useMedicalNetworks } from '@/features/insurance-data/insurance-data.api';
+import {
+  keys,
+  useInsuranceOptions,
+  useMedicalNetworks,
+} from '@/features/insurance-data/insurance-data.api';
 import { ApiError, api, query } from '@/lib/api-client';
 import { describeError } from '@/components/ui/DataState';
 
@@ -135,6 +139,29 @@ export function PlanSetupForm({
   const { notify } = useToast();
   const queryClient = useQueryClient();
   const networks = useMedicalNetworks(companyId);
+  /**
+   * The catalogue, so a box matches the benefit it writes to.
+   *
+   * A benefit that already exists carries whatever it was created with —
+   * "Physiotherapy" may be a percentage from an earlier design. Drawing a text
+   * box over it and only discovering the mismatch on save is how an employee
+   * loses a screenful of typing, so the box is chosen from the real field.
+   */
+  const catalogue = useInsuranceOptions({ isActive: true });
+
+  const existingKinds = useMemo(() => {
+    const byName = new Map<string, { dataType: string; unit: string | null }>();
+    for (const option of catalogue.data ?? []) {
+      for (const item of [option, ...(option.children ?? [])]) {
+        const field = (item.fields ?? []).find(
+          (candidate) =>
+            candidate.key !== CO_PAYMENT_FIELD.key && candidate.key !== ALTERNATIVE_VALUE_KEY,
+        );
+        if (field) byName.set(fold(item.name), { dataType: field.dataType, unit: field.unit });
+      }
+    }
+    return byName;
+  }, [catalogue.data]);
 
   const [name, setName] = useState('');
   const [medicalNetworkId, setMedicalNetworkId] = useState('');
@@ -320,7 +347,21 @@ export function PlanSetupForm({
       const page = await api.get<Paginated<InsuranceOptionDto>>(
         `/insurance-options${query({ pageSize: 200 })}`,
       );
-      const catalogue = new Map(page.items.map((item) => [fold(item.name), item]));
+      /**
+       * CHILDREN COUNT TOO.
+       *
+       * The catalogue endpoint returns top-level benefits with a group's
+       * members nested inside it, so a map built from the top level alone
+       * cannot see "Physiotherapy" when it is filed under "Other key
+       * benefits". The form would then try to create it, and the catalogue —
+       * which is global and unique by name — would refuse. Flattening is what
+       * lets an existing benefit be reused wherever it happens to sit.
+       */
+      const catalogue = new Map<string, InsuranceOptionDto>();
+      for (const item of page.items) {
+        catalogue.set(fold(item.name), item);
+        for (const child of item.children ?? []) catalogue.set(fold(child.name), child);
+      }
 
       /**
        * Which benefits this plan records.
@@ -565,6 +606,7 @@ export function PlanSetupForm({
             <BenefitRow
               key={spec.name}
               spec={spec}
+              existing={existingKinds.get(fold(spec.name)) ?? null}
               entry={entries[spec.name] ?? emptyEntry()}
               onChange={(patch) => setEntry(spec.name, patch)}
             />
@@ -587,6 +629,13 @@ export function PlanSetupForm({
               if (!spec) return null;
               const entry = entries[spec.name] ?? emptyEntry();
               const isRoom = spec.name === 'Room Type';
+              /**
+               * An optional benefit is free text by design. But one already in
+               * the catalogue may carry a figure from an earlier design, and a
+               * text box over a number field only fails on save.
+               */
+              const kind = existingKinds.get(fold(spec.name)) ?? null;
+              const numeric = kind !== null && kind.dataType !== 'TEXT' && kind.dataType !== 'RANK';
               return (
                 <div
                   key={spec.name}
@@ -599,13 +648,23 @@ export function PlanSetupForm({
                     <span className="text-content text-sm font-medium">{spec.name}</span>
                   </div>
 
-                  <Input
-                    aria-label={isRoom ? `${spec.name} coverage` : `${spec.name} detail`}
-                    value={entry.coverage}
-                    list={isRoom ? 'room-types' : undefined}
-                    onChange={(event) => setEntry(spec.name, { coverage: event.target.value })}
-                    placeholder={isRoom ? UNSPECIFIED_OPTION_LABEL : BENEFIT_DETAIL_PLACEHOLDER}
-                  />
+                  {numeric ? (
+                    <NumberInput
+                      aria-label={`${spec.name} detail`}
+                      value={entry.coverage}
+                      suffix={kind?.unit ?? undefined}
+                      onChange={(value) => setEntry(spec.name, { coverage: value })}
+                      placeholder={UNSPECIFIED_OPTION_LABEL}
+                    />
+                  ) : (
+                    <Input
+                      aria-label={isRoom ? `${spec.name} coverage` : `${spec.name} detail`}
+                      value={entry.coverage}
+                      list={isRoom ? 'room-types' : undefined}
+                      onChange={(event) => setEntry(spec.name, { coverage: event.target.value })}
+                      placeholder={isRoom ? UNSPECIFIED_OPTION_LABEL : BENEFIT_DETAIL_PLACEHOLDER}
+                    />
+                  )}
 
                   <button
                     type="button"
@@ -748,13 +807,24 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
  */
 function BenefitRow({
   spec,
+  existing,
   entry,
   onChange,
 }: {
   spec: MedicalBenefitSpec;
+  /** What this benefit already carries, when it is already in the catalogue. */
+  existing: { dataType: string; unit: string | null } | null;
   entry: BenefitEntry;
   onChange: (patch: Partial<BenefitEntry>) => void;
 }) {
+  /**
+   * The box follows the benefit, not the other way round. A benefit already in
+   * the catalogue keeps whatever it carries; only a brand-new one takes the
+   * kind this form would create it with.
+   */
+  const numeric = existing
+    ? existing.dataType !== 'TEXT' && existing.dataType !== 'RANK'
+    : spec.valueKind === 'LIMIT';
   const setDetail = (index: number, text: string) =>
     onChange({ details: entry.details.map((line, i) => (i === index ? text : line)) });
 
@@ -768,11 +838,12 @@ function BenefitRow({
           <span className="text-content text-sm font-medium">{spec.name}</span>
         </div>
 
-        {spec.valueKind === 'LIMIT' ? (
+        {numeric ? (
           <NumberInput
             aria-label={`${spec.name} coverage`}
             value={entry.coverage}
             onChange={(value) => onChange({ coverage: value })}
+            suffix={existing?.unit ?? undefined}
             placeholder={UNSPECIFIED_OPTION_LABEL}
           />
         ) : (

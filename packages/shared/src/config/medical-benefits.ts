@@ -102,7 +102,15 @@ export const CORE_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
   },
 ];
 
-/** Added only when a plan actually states them. */
+/**
+ * Added only when a plan actually states them.
+ *
+ * ALL TEXT, deliberately. These are extra detail — whatever the document says
+ * about the benefit, in whatever form it says it. "15,000" and "covered at
+ * authorized centres" are both complete answers, and a box that accepted only
+ * one of them would refuse half the documents. Nothing here is compared, so
+ * nothing here needs to be a number.
+ */
 export const OPTIONAL_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
   /**
    * Text rather than a ranked list, for now.
@@ -134,7 +142,7 @@ export const OPTIONAL_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
     order: 17,
   },
   { name: 'Road Ambulance', emoji: '🚑', valueKind: 'TEXT', coPayment: false, order: 18 },
-  { name: 'Morgue / Last Expenses', emoji: '⚰️', valueKind: 'LIMIT', coPayment: false, order: 19 },
+  { name: 'Morgue / Last Expenses', emoji: '⚰️', valueKind: 'TEXT', coPayment: false, order: 19 },
   { name: 'Personal Accident', emoji: '⚠️', valueKind: 'TEXT', coPayment: false, order: 20 },
   { name: 'Home Care', emoji: '🏠', valueKind: 'TEXT', coPayment: false, order: 21 },
   { name: 'Heart Procedures', emoji: '🫀', valueKind: 'TEXT', coPayment: false, order: 22 },

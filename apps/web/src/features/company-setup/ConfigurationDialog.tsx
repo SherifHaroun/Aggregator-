@@ -80,7 +80,6 @@ export function ConfigurationDialog({
     ageFrom: duplicateOf ? '' : (configuration?.ageFrom?.toString() ?? ''),
     ageTo: duplicateOf ? '' : (configuration?.ageTo?.toString() ?? ''),
     medicalNetworkId: source?.medicalNetworkId ?? '',
-    roomType: source?.roomType ?? '',
     currency: source?.currency ?? '',
     annualPrice: source?.annualPrice?.toString() ?? '',
     annualLimit: source?.annualLimit?.toString() ?? '',
@@ -144,7 +143,6 @@ export function ConfigurationDialog({
       ageTo,
       // What makes this variant different from the plan's others.
       medicalNetworkId: values.medicalNetworkId === '' ? null : values.medicalNetworkId,
-      roomType: values.roomType.trim() === '' ? null : values.roomType.trim(),
       currency: values.currency.trim() === '' ? null : values.currency.trim(),
       annualPrice: toNumber(values.annualPrice),
       annualLimit: toNumber(values.annualLimit),
@@ -278,9 +276,11 @@ export function ConfigurationDialog({
           </div>
         ) : null}
 
-        {/* What this variant is, beyond its age band. The same plan sold on
-            another network, or at another ceiling, is a second variant — which
-            is why these sit here and not on the plan. */}
+        {/* WHAT MAKES THIS A DIFFERENT VARIANT.
+            The same plan sold on another network, or at another ceiling, is a
+            second variant — which is why these sit here and not on the plan.
+            Room type is not among them: it is an optional benefit, so a plan
+            that states one says so with its benefits. */}
         <div className="grid gap-4 sm:grid-cols-2">
           <Field
             label="Medical network"
@@ -308,22 +308,20 @@ export function ConfigurationDialog({
             )}
           </Field>
 
-          <Field label="Room type" error={fieldErrors.roomType} hint={NOT_STATED_HINT}>
+          <Field
+            label="Annual limit"
+            error={fieldErrors.annualLimit}
+            hint="The ceiling. The same plan at another ceiling is another variant."
+          >
             {(props) => (
-              <Input
+              <NumberInput
                 {...props}
-                value={values.roomType}
-                list="configuration-room-types"
-                onChange={(event) => setValue('roomType', event.target.value)}
-                placeholder={UNSPECIFIED_OPTION_LABEL}
+                suffix={values.currency || ''}
+                value={values.annualLimit}
+                onChange={(value) => setValue('annualLimit', value)}
               />
             )}
           </Field>
-          <datalist id="configuration-room-types">
-            {ROOM_TYPES.map((room) => (
-              <option key={room} value={room} />
-            ))}
-          </datalist>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -403,17 +401,6 @@ export function ConfigurationDialog({
             )}
           </Field>
 
-          <Field label="Annual limit" error={fieldErrors.annualLimit} hint={NOT_STATED_HINT}>
-            {(props) => (
-              <NumberInput
-                {...props}
-                suffix={values.currency || ''}
-                value={values.annualLimit}
-                onChange={(next) => setValue('annualLimit', next)}
-              />
-            )}
-          </Field>
-
           <Field label="Deductible" error={fieldErrors.deductible} hint={NOT_STATED_HINT}>
             {(props) => (
               <NumberInput
@@ -454,5 +441,4 @@ export function ConfigurationDialog({
 /** Says what a blank field means, so nobody types a 0 that isn't in the plan. */
 const NOT_STATED_HINT = 'Leave blank if the plan does not state one.';
 
-/** Room suggestions, from the legacy `hb_medical_room_type` lookup. */
-const ROOM_TYPES = ['Private Room', 'Suite Room', 'Semi private Room', 'Shared Room'];
+

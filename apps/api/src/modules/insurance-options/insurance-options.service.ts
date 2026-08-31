@@ -164,10 +164,20 @@ export async function createInsuranceOption(
    */
   const existing = await prisma.insuranceOption.findFirst({
     where: { name: { equals: input.name, mode: 'insensitive' } },
-    select: { name: true },
+    select: { name: true, parent: { select: { name: true } } },
   });
   if (existing) {
-    throw conflict(`This benefit already exists — "${existing.name}" is available to every plan.`);
+    /**
+     * Say WHERE it already is. The catalogue is global and unique by name, and
+     * a benefit filed inside a group is easy to miss when looking at a list of
+     * top-level ones — which is exactly when somebody tries to create a second
+     * copy and cannot see why it is refused.
+     */
+    throw conflict(
+      existing.parent
+        ? `A benefit called "${existing.name}" already exists, inside the group "${existing.parent.name}". Use that one, or rename it.`
+        : `A benefit called "${existing.name}" already exists. Benefits are shared by every plan, so there is only ever one of each.`,
+    );
   }
 
   const isUmbrella = input.isUmbrella ?? false;
