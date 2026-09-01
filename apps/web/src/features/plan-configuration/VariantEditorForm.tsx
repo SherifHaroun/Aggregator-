@@ -5,17 +5,18 @@ import {
   MIN_INSURABLE_AGE,
   UNSPECIFIED_OPTION_LABEL,
   listEnabledOptions,
+  planTierLabel,
   variantDisplayName,
   type CompanyMedicalNetworkDto,
+  type CustomerTypeId,
   type GeographicalCoverageId,
   type InsuranceOptionDto,
-  type OptionFieldDto,
   type PlanConfigurationDto,
   type PlanOptionDto,
 } from '@aggregator/shared';
-import { useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import {
+  Badge,
   Button,
   Callout,
   Card,
@@ -32,22 +33,17 @@ import {
   describeError,
   useToast,
 } from '@/components/ui';
-import { keys } from '@/features/insurance-data/insurance-data.api';
-import { api } from '@/lib/api-client';
+import {
+  useAddPlanOption,
+  useRemovePlanOption,
+  useSavePlanConfiguration,
+} from '@/features/insurance-data/insurance-data.api';
 import { AddBenefitDialog } from './AddBenefitDialog';
-import {
-  BenefitValueField,
-  toApiValue,
-  toDraftValue,
-  type DraftValue,
-} from './BenefitValueField';
-import {
-  isResolved,
-  optionalBenefitChoices,
-  optionalTargets,
-  resolveCoreSections,
-  type BenefitValueTarget,
-} from './core-benefits';
+import { BenefitConditions } from './BenefitConditions';
+import { BenefitCoreFields, BenefitValue, isCondition } from './AttachedBenefitFields';
+import { PlanOptionNoteInline } from './PlanOptionValuesForm';
+import { appliesToCustomerType } from './settings';
+import { isResolved, optionalBenefitChoices, resolveCoreSections } from './core-benefits';
 
 interface BandDraft {
   key: string;
@@ -59,45 +55,52 @@ interface BandDraft {
 let nextKey = 0;
 const newKey = () => `band-${(nextKey += 1)}`;
 
-/** One drafted value, addressed by the record that holds it and the field. */
-const valueKey = (optionId: string, fieldId: string) => `${optionId}::${fieldId}`;
-
-const sameValue = (a: DraftValue, b: DraftValue) =>
-  Array.isArray(a) || Array.isArray(b)
-    ? JSON.stringify([...(Array.isArray(a) ? a : [])].sort()) ===
-      JSON.stringify([...(Array.isArray(b) ? b : [])].sort())
-    : a === b;
+const toBandDrafts = (variant: PlanConfigurationDto): BandDraft[] =>
+  variant.priceBands.map((band) => ({
+    key: newKey(),
+    from: String(band.ageFrom),
+    to: String(band.ageTo),
+    premium: band.annualPrice === null ? '' : String(band.annualPrice),
+  }));
 
 /**
- * THE WHOLE VARIANT, ON ONE PAGE, IN ONE FORM.
+ * THE WHOLE VARIANT, ON ONE PAGE.
  *
  * What it covers and on what terms, the six core areas every plan is judged on,
- * whichever optional benefits it states, and the premium at every age it is
- * sold at. One Save writes all of it, because they are one document to the
- * person reading it off an insurer's PDF, and making them three screens is how
- * half-entered plans happen.
+ * whichever additional benefits it states, and the premium at every age it is
+ * sold at. One screen, because they are one document to the person reading them
+ * off an insurer's PDF.
  *
  * The core areas are LABELS, not records. "In-patient" is this business's
  * heading; the record beneath it is whatever the catalogue already holds —
  * "Inpatient & Daycase" at one company, "Inpatient and daycare Details" at
- * another. Nothing is created to make the headings fit, and an area the
- * catalogue has no record for says so instead.
+ * another. Nothing is created here to make a heading fit; an area the catalogue
+ * has no record for says so and points at the Benefits screen.
+ *
+ * TWO SAVING RULES, on purpose. The variant's own terms and its rate table are
+ * a form, saved together by the button at the foot. A benefit's values save
+ * themselves as they are typed — that is older than this screen and worth
+ * keeping: benefits are filled in while reading a document, and losing a
+ * screenful to a missed button is the failure worth designing out.
  */
 export function VariantEditorForm({
   variant,
   planName,
-  companyId,
+  customerType,
   catalogue,
   networks,
 }: {
   variant: PlanConfigurationDto;
   planName: string;
-  companyId: string;
+  /** The plan's, never the variant's — every variant beneath it shares it. */
+  customerType: CustomerTypeId;
   catalogue: InsuranceOptionDto[];
   networks: CompanyMedicalNetworkDto[];
 }) {
   const { notify } = useToast();
-  const queryClient = useQueryClient();
+  const save = useSavePlanConfiguration(variant.id);
+  const addOption = useAddPlanOption(variant.id);
+  const removeOption = useRemovePlanOption(variant.id);
 
   const sections = useMemo(() => resolveCoreSections(catalogue), [catalogue]);
   const byId = useMemo(() => {
@@ -110,7 +113,9 @@ export function VariantEditorForm({
     return map;
   }, [catalogue]);
 
-  /** Every record the six core areas already occupy — group and members alike. */
+  const attached = variant.options ?? [];
+
+  /** Every record the six core areas occupy — group and members alike. */
   const coreOptionIds = useMemo(() => {
     const ids = new Set<string>();
     for (const section of sections) {
@@ -121,47 +126,28 @@ export function VariantEditorForm({
     return ids;
   }, [sections]);
 
-  const attachedByOptionId = useMemo(
-    () => new Map(variant.options?.map((planOption) => [planOption.optionId, planOption]) ?? []),
-    [variant.options],
+  /**
+   * Additional benefits: the top-level records on this variant that are not one
+   * of the six. A group's members render underneath it rather than as rows of
+   * their own, because attaching a group brings them and listing both would
+   * offer the same cover twice.
+   */
+  const attachedOptionIds = new Set(attached.map((planOption) => planOption.optionId));
+  const additional = attached.filter(
+    (planOption) =>
+      !coreOptionIds.has(planOption.optionId) &&
+      /**
+       * A member is shown UNDER its group, so it is not a row of its own —
+       * unless the group has been taken off and it alone is left, in which case
+       * hiding it would make an attached benefit unreachable.
+       */
+      (planOption.parentOptionId === null || !attachedOptionIds.has(planOption.parentOptionId)),
   );
 
-  // --- draft state, seeded from what the variant already says ---------------
+  const attachedIds = new Set(attached.map((planOption) => planOption.optionId));
+  const available = optionalBenefitChoices(catalogue, new Set([...coreOptionIds, ...attachedIds]));
 
-  const seededValues = useMemo(() => {
-    const draft: Record<string, DraftValue> = {};
-    for (const planOption of variant.options ?? []) {
-      const option = byId.get(planOption.optionId);
-      for (const field of option?.fields ?? []) {
-        const stored = planOption.values.find((value) => value.optionFieldId === field.id);
-        draft[valueKey(planOption.optionId, field.id)] = toDraftValue(field, stored);
-      }
-    }
-    return draft;
-  }, [variant.options, byId]);
-
-  const seededOptional = useMemo(
-    () =>
-      (variant.options ?? [])
-        .filter(
-          (planOption) =>
-            planOption.parentOptionId === null && !coreOptionIds.has(planOption.optionId),
-        )
-        .map((planOption) => planOption.optionId)
-        .filter((optionId) => byId.has(optionId)),
-    [variant.options, coreOptionIds, byId],
-  );
-
-  const seededBands = useMemo(
-    () =>
-      variant.priceBands.map((band) => ({
-        key: newKey(),
-        from: String(band.ageFrom),
-        to: String(band.ageTo),
-        premium: band.annualPrice === null ? '' : String(band.annualPrice),
-      })),
-    [variant.priceBands],
-  );
+  // --- the variant's own terms, saved together ------------------------------
 
   const [coverage, setCoverage] = useState<GeographicalCoverageId>(variant.geographicalCoverage);
   const [networkId, setNetworkId] = useState(variant.medicalNetworkId ?? '');
@@ -176,12 +162,10 @@ export function VariantEditorForm({
     variant.coPayment === null ? '' : String(variant.coPayment),
   );
   const [isActive, setIsActive] = useState(variant.isActive);
-  const [values, setValues] = useState<Record<string, DraftValue>>(seededValues);
-  const [optional, setOptional] = useState<string[]>(seededOptional);
-  const [bands, setBands] = useState<BandDraft[]>(seededBands);
+  const [bands, setBands] = useState<BandDraft[]>(() => toBandDrafts(variant));
 
   const [adding, setAdding] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [pendingAdd, setPendingAdd] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function reset() {
@@ -193,17 +177,56 @@ export function VariantEditorForm({
     setDeductible(variant.deductible === null ? '' : String(variant.deductible));
     setCoPayment(variant.coPayment === null ? '' : String(variant.coPayment));
     setIsActive(variant.isActive);
-    setValues(seededValues);
-    setOptional(seededOptional);
-    setBands(seededBands);
+    setBands(toBandDrafts(variant));
   }
 
-  const setValue = (optionId: string, fieldId: string, next: DraftValue) => {
+  // --- benefits: attached and removed at once, values save themselves -------
+
+  /**
+   * Attaching a GROUP brings its members with it, so the optimistic rows are
+   * the group and everything under it, in the order they should read.
+   */
+  function attachBenefit(option: InsuranceOptionDto) {
     setError(null);
-    setValues((current) => ({ ...current, [valueKey(optionId, fieldId)]: next }));
-  };
-  const readValue = (optionId: string, fieldId: string): DraftValue =>
-    values[valueKey(optionId, fieldId)] ?? (/* MULTI seeds as a list */ '');
+    setPendingAdd(option.id);
+    addOption.mutate(
+      { option, rows: [option, ...(option.children ?? [])] },
+      {
+        onSuccess: () => {
+          notify(`${option.name} was added.`);
+          setPendingAdd(null);
+        },
+        onError: (addError) => {
+          setError(describeError(addError, 'the benefit'));
+          setPendingAdd(null);
+        },
+      },
+    );
+  }
+
+  function detachBenefit(planOptionId: string, name: string) {
+    setError(null);
+    removeOption.mutate(planOptionId, {
+      onSuccess: () => notify(`${name} was removed.`),
+      onError: (removeError) => setError(describeError(removeError, 'the benefit')),
+    });
+  }
+
+  /**
+   * Every plan option one section covers: the records named, and anything
+   * attached UNDER them.
+   *
+   * Read off the attachments rather than the catalogue's nesting, because a
+   * member is a member by virtue of pointing at its group — waiting for the
+   * catalogue to say so as well is how an attached sub-benefit goes missing
+   * from the only screen that could edit it.
+   */
+  const rowsUnder = (optionIds: Set<string>) =>
+    attached.filter(
+      (planOption) =>
+        optionIds.has(planOption.optionId) ||
+        (planOption.parentOptionId !== null && optionIds.has(planOption.parentOptionId)),
+    );
 
   // --- age bands ------------------------------------------------------------
 
@@ -259,24 +282,20 @@ export function VariantEditorForm({
     return null;
   }
 
-  // --- saving ---------------------------------------------------------------
+  const updateBand = (key: string, patch: Partial<BandDraft>) => {
+    setError(null);
+    setBands((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  };
 
-  async function save() {
+  function submit() {
     const problem = bandProblem();
     if (problem) {
       setError(problem);
       return;
     }
 
-    setSaving(true);
-    setError(null);
-    try {
-      /**
-       * The variant's own terms and its whole rate table, in one request. The
-       * table is replaced wholesale, so a band removed here is a band the plan
-       * no longer sells.
-       */
-      await api.patch(`/plan-configurations/${variant.id}`, {
+    save.mutate(
+      {
         geographicalCoverage: coverage,
         medicalNetworkId: networkId === '' ? null : networkId,
         annualLimit: annualLimit.trim() === '' ? null : Number(annualLimit.replace(/,/g, '')),
@@ -284,95 +303,26 @@ export function VariantEditorForm({
         deductible: deductible.trim() === '' ? null : Number(deductible.replace(/,/g, '')),
         coPayment: coPayment.trim() === '' ? null : Number(coPayment.replace(/,/g, '')),
         isActive,
+        /**
+         * The rate table is replaced whole, so a band removed here is a band
+         * the plan no longer sells.
+         */
         priceBands: bands.map((row) => ({
           ageFrom: Number(row.from),
           ageTo: Number(row.to),
           annualPrice: row.premium.trim() === '' ? null : Number(row.premium.replace(/,/g, '')),
         })),
-      });
-
-      // Optional benefits the employee took off this variant.
-      for (const optionId of seededOptional) {
-        if (optional.includes(optionId)) continue;
-        const planOption = attachedByOptionId.get(optionId);
-        if (planOption) await api.delete(`/plan-options/${planOption.id}`);
-      }
-
-      /**
-       * Which records need attaching. A core area is attached when the
-       * employee has actually said something about it — an untouched area
-       * stays off the variant rather than arriving as a row of blanks.
-       */
-      const planOptionIdByOptionId = new Map(
-        [...attachedByOptionId].map(([optionId, planOption]) => [optionId, planOption.id]),
-      );
-
-      const needed = new Set<string>();
-      for (const section of sections) {
-        if (!isResolved(section)) continue;
-        const stated = section.targets.some((target) =>
-          [...target.valueFields, ...(target.coPaymentField ? [target.coPaymentField] : [])].some(
-            (field) => {
-              const draft = readValue(target.option.id, field.id);
-              return Array.isArray(draft) ? draft.length > 0 : draft.trim() !== '';
-            },
-          ),
-        );
-        if (stated && !planOptionIdByOptionId.has(section.attach.id)) needed.add(section.attach.id);
-      }
-      for (const optionId of optional) {
-        if (!planOptionIdByOptionId.has(optionId)) needed.add(optionId);
-      }
-
-      for (const optionId of needed) {
-        const attached = await api.post<PlanOptionDto[]>(
-          `/plan-configurations/${variant.id}/options`,
-          { optionId },
-        );
-        // Attaching a group brings its members, so record every one returned.
-        for (const planOption of attached) {
-          planOptionIdByOptionId.set(planOption.optionId, planOption.id);
-        }
-      }
-
-      // Every value the employee actually changed, and nothing else.
-      for (const [key, draft] of Object.entries(values)) {
-        const [optionId, fieldId] = key.split('::');
-        if (!optionId || !fieldId) continue;
-        if (sameValue(draft, seededValues[key] ?? '')) continue;
-
-        const planOptionId = planOptionIdByOptionId.get(optionId);
-        if (!planOptionId) continue;
-
-        const field = byId.get(optionId)?.fields?.find((item) => item.id === fieldId);
-        if (!field) continue;
-
-        if (field.dataType === 'MULTI') {
-          await api.put(`/plan-options/${planOptionId}/settings/${fieldId}/choices`, {
-            choiceIds: Array.isArray(draft) ? draft : [],
-          });
-          continue;
-        }
-        await api.put(`/plan-options/${planOptionId}/values/${fieldId}`, {
-          value: toApiValue(field, draft),
-        });
-      }
-
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: keys.planConfigurations }),
-        queryClient.invalidateQueries({ queryKey: keys.plans }),
-        queryClient.invalidateQueries({ queryKey: keys.insuranceOptions }),
-      ]);
-      notify('The variant was saved.');
-    } catch (saveError) {
-      setError(describeError(saveError, 'the variant'));
-    } finally {
-      setSaving(false);
-    }
+      },
+      {
+        onSuccess: () => notify('The variant was saved.'),
+        onError: (saveError) => setError(describeError(saveError, 'the variant')),
+      },
+    );
   }
 
-  const attachedOptionIds = new Set([...coreOptionIds, ...optional]);
-  const available = optionalBenefitChoices(catalogue, attachedOptionIds);
+  const tier = planTierLabel(
+    annualLimit.trim() === '' ? null : Number(annualLimit.replace(/,/g, '')),
+  );
 
   return (
     <div className="space-y-5">
@@ -382,11 +332,11 @@ export function VariantEditorForm({
         </Callout>
       ) : null}
 
-      {/* ---------------------------------------------------------------- */}
       <Card>
         <CardHeader
           title={variantDisplayName(planName, coverage)}
           description="The plan's name and this scope read together. It is never typed, and it follows the plan if the plan is renamed."
+          action={tier ? <Badge tone="brand">{tier}</Badge> : undefined}
         />
         <CardBody className="grid gap-4 sm:grid-cols-3">
           <Field label="Coverage">
@@ -430,9 +380,16 @@ export function VariantEditorForm({
             )}
           </Field>
 
-          <Field label="Annual limit">
+          {/* The tier is read off this figure — nothing to pick, and it moves
+              the moment the ceiling does. */}
+          <Field label="Annual limit" {...(tier ? { hint: `Reads as ${tier}.` } : {})}>
             {(props) => (
-              <NumberInput {...props} suffix={currency} value={annualLimit} onChange={setAnnualLimit} />
+              <NumberInput
+                {...props}
+                suffix={currency}
+                value={annualLimit}
+                onChange={setAnnualLimit}
+              />
             )}
           </Field>
 
@@ -451,7 +408,12 @@ export function VariantEditorForm({
           {/* Blank means the document did not state one — never a zero. */}
           <Field label="Deductible" hint={NOT_STATED}>
             {(props) => (
-              <NumberInput {...props} suffix={currency} value={deductible} onChange={setDeductible} />
+              <NumberInput
+                {...props}
+                suffix={currency}
+                value={deductible}
+                onChange={setDeductible}
+              />
             )}
           </Field>
 
@@ -462,61 +424,50 @@ export function VariantEditorForm({
           </Field>
 
           <Field label="Status">
-            {(props) => (
-              <StatusToggle id={props.id} value={isActive} onChange={setIsActive} />
-            )}
+            {(props) => <StatusToggle id={props.id} value={isActive} onChange={setIsActive} />}
           </Field>
         </CardBody>
       </Card>
 
-      {/* ---------------------------------------------------------------- */}
       <Card>
         <CardHeader
           title="Core benefits"
-          description="The six areas every plan is judged on. Blank means the document did not say."
+          description="The six areas every plan is judged on. Each box saves itself; blank means the document did not say."
         />
-        <CardBody className="divide-y divide-(--color-border)">
+        <CardBody className="divide-y divide-(--color-border)" role="region" aria-label="Core benefits">
           {sections.map((section) => (
             <div key={section.label} className="py-4 first:pt-0 last:pb-0">
-              <p className="text-content font-semibold">{section.label}</p>
               {isResolved(section) ? (
-                <>
-                  {/* Named when it differs, so it is clear WHICH record the
-                      heading is editing. */}
-                  {section.attach.name !== section.label ? (
-                    <p className="text-content-subtle mt-0.5 text-xs">
-                      Recorded as “{section.attach.name}”
-                    </p>
-                  ) : null}
-                  <div className="mt-3 space-y-3">
-                    {section.targets.map((target) => (
-                      <BenefitTargetRow
-                        key={target.option.id}
-                        target={target}
-                        showName={section.targets.length > 1}
-                        currency={variant.currency}
-                        read={readValue}
-                        write={setValue}
-                      />
-                    ))}
-                  </div>
-                </>
+                <BenefitRow
+                  label={section.label}
+                  attached={rowsUnder(
+                    new Set([section.attach.id, ...section.targets.map((t) => t.option.id)]),
+                  )}
+                  customerType={customerType}
+                  adding={pendingAdd === section.attach.id}
+                  onAdd={() => attachBenefit(section.attach)}
+                  {...(section.attach.name === section.label
+                    ? {}
+                    : { note: `Recorded as “${section.attach.name}”` })}
+                />
               ) : (
-                <p className="text-content-muted mt-1 text-sm">
-                  No benefit in the catalogue matches this area yet. Add one named{' '}
-                  <span className="font-medium">{section.lookedFor[0]}</span> on the Benefits
-                  screen and it will appear here.
-                </p>
+                <>
+                  <p className="text-content font-semibold">{section.label}</p>
+                  <p className="text-content-muted mt-1 text-sm">
+                    No benefit in the catalogue matches this area yet. Create one named{' '}
+                    <span className="font-medium">{section.lookedFor[0]}</span> on the Benefits
+                    screen and it will appear here.
+                  </p>
+                </>
               )}
             </div>
           ))}
         </CardBody>
       </Card>
 
-      {/* ---------------------------------------------------------------- */}
       <Card>
         <CardHeader
-          title="Optional benefits"
+          title="Additional benefits"
           description="Only what this variant actually states. Nothing here is required."
           action={
             <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
@@ -525,42 +476,26 @@ export function VariantEditorForm({
             </Button>
           }
         />
-        <CardBody>
-          {optional.length === 0 ? (
-            <p className="text-content-muted text-sm">No optional benefits selected.</p>
+        <CardBody role="region" aria-label="Additional benefits">
+          {additional.length === 0 ? (
+            <p className="text-content-muted text-sm">No additional benefits selected.</p>
           ) : (
             <ul className="divide-y divide-(--color-border)">
-              {optional.map((optionId) => {
-                const option = byId.get(optionId);
-                if (!option) return null;
+              {additional.map((planOption) => {
+                const option = byId.get(planOption.optionId);
                 return (
-                  <li key={optionId} className="py-4 first:pt-0 last:pb-0">
-                    <div className="flex items-start justify-between gap-3">
-                      <p className="text-content font-semibold">{option.name}</p>
-                      <button
-                        type="button"
-                        aria-label={`Remove ${option.name}`}
-                        onClick={() => {
-                          setError(null);
-                          setOptional((current) => current.filter((id) => id !== optionId));
-                        }}
-                        className="text-content-muted hover:bg-surface-muted hover:text-danger rounded-(--radius-control) p-1.5"
-                      >
-                        <IconTrash className="size-4" />
-                      </button>
-                    </div>
-                    <div className="mt-3 space-y-3">
-                      {optionalTargets(option).map((target) => (
-                        <BenefitTargetRow
-                          key={target.option.id}
-                          target={target}
-                          showName={optionalTargets(option).length > 1}
-                          currency={variant.currency}
-                          read={readValue}
-                          write={setValue}
-                        />
-                      ))}
-                    </div>
+                  <li key={planOption.id} className="py-4 first:pt-0 last:pb-0">
+                    <BenefitRow
+                      label={planOption.optionName}
+                      attached={rowsUnder(new Set([planOption.optionId]))}
+                      customerType={customerType}
+                      adding={false}
+                      onAdd={() => {
+                        const option = byId.get(planOption.optionId);
+                        if (option) attachBenefit(option);
+                      }}
+                      onRemove={() => detachBenefit(planOption.id, planOption.optionName)}
+                    />
                   </li>
                 );
               })}
@@ -569,7 +504,6 @@ export function VariantEditorForm({
         </CardBody>
       </Card>
 
-      {/* ---------------------------------------------------------------- */}
       <Card>
         <CardHeader
           title="Age pricing"
@@ -599,14 +533,7 @@ export function VariantEditorForm({
                       step={1}
                       value={row.from}
                       aria-label="Age from"
-                      onChange={(event) => {
-                        setError(null);
-                        setBands((rows) =>
-                          rows.map((item) =>
-                            item.key === row.key ? { ...item, from: event.target.value } : item,
-                          ),
-                        );
-                      }}
+                      onChange={(event) => updateBand(row.key, { from: event.target.value })}
                     />
                   </label>
                   <label className="w-20">
@@ -618,30 +545,16 @@ export function VariantEditorForm({
                       step={1}
                       value={row.to}
                       aria-label="Age to"
-                      onChange={(event) => {
-                        setError(null);
-                        setBands((rows) =>
-                          rows.map((item) =>
-                            item.key === row.key ? { ...item, to: event.target.value } : item,
-                          ),
-                        );
-                      }}
+                      onChange={(event) => updateBand(row.key, { to: event.target.value })}
                     />
                   </label>
                   <div className="min-w-0 flex-1">
                     <span className="text-content-subtle text-xs font-medium">Annual premium</span>
                     <NumberInput
-                      suffix={variant.currency ?? ''}
+                      suffix={currency}
                       value={row.premium}
                       aria-label={`Annual premium for ages ${row.from} to ${row.to}`}
-                      onChange={(next) => {
-                        setError(null);
-                        setBands((rows) =>
-                          rows.map((item) =>
-                            item.key === row.key ? { ...item, premium: next } : item,
-                          ),
-                        );
-                      }}
+                      onChange={(next) => updateBand(row.key, { premium: next })}
                     />
                   </div>
                   {/* Blank is a statement, so it is labelled rather than left
@@ -667,21 +580,24 @@ export function VariantEditorForm({
         </CardBody>
       </Card>
 
-      <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={reset} disabled={saving}>
+      <div className="flex items-center justify-end gap-3">
+        <p className="text-content-subtle mr-auto text-xs">
+          Benefit values save as you type. Cancel and Save apply to the terms and the rate table.
+        </p>
+        <Button variant="secondary" onClick={reset} disabled={save.isPending}>
           Cancel
         </Button>
-        <Button onClick={() => void save()} disabled={saving}>
-          {saving ? 'Saving…' : 'Save changes'}
+        <Button onClick={submit} disabled={save.isPending}>
+          {save.isPending ? 'Saving…' : 'Save changes'}
         </Button>
       </div>
 
       {adding ? (
         <AddBenefitDialog
           available={available}
-          onAdd={(chosen) =>
-            setOptional((current) => [...current, ...chosen.map((option) => option.id)])
-          }
+          onAdd={(chosen) => {
+            for (const option of chosen) attachBenefit(option);
+          }}
           onClose={() => setAdding(false)}
         />
       ) : null}
@@ -689,65 +605,111 @@ export function VariantEditorForm({
   );
 }
 
+/** Says what a blank field means, so nobody types a 0 that isn't in the plan. */
+const NOT_STATED = 'Leave blank if the plan does not state one.';
+
 /**
- * The fields ONE record holds, laid out as the business reads them: what the
- * plan covers, and what the member pays towards it.
+ * ONE BENEFIT'S ROW: its heading, and whatever the catalogue says it carries.
+ *
+ * The fields are the board's own — conditional reveals, waiting periods that
+ * appear once ticked, settings that apply to a family but not to an individual,
+ * ranked answer lists. Rewriting them flat for a tidier layout would have
+ * quietly thrown all of that away.
+ *
+ * A benefit the variant does not carry yet shows an Add rather than a row of
+ * dead boxes, because a blank field and an absent benefit mean different
+ * things — one says the document was silent, the other that nobody looked.
  */
-function BenefitTargetRow({
-  target,
-  showName,
-  currency,
-  read,
-  write,
+function BenefitRow({
+  label,
+  attached,
+  customerType,
+  onAdd,
+  onRemove,
+  adding,
+  note,
 }: {
-  target: BenefitValueTarget;
-  /** Shown when a section edits more than one record, so rows stay tellable apart. */
-  showName: boolean;
-  currency: string | null;
-  read: (optionId: string, fieldId: string) => DraftValue;
-  write: (optionId: string, fieldId: string, next: DraftValue) => void;
+  label: string;
+  /** Every plan option this section covers: the group and its members. */
+  attached: PlanOptionDto[];
+  customerType: CustomerTypeId;
+  onAdd: () => void;
+  onRemove?: () => void;
+  adding: boolean;
+  note?: string;
 }) {
-  if (target.valueFields.length === 0 && !target.coPaymentField) {
-    return (
-      <p className="text-content-subtle text-xs">
-        “{target.option.name}” records no value of its own.
-      </p>
-    );
-  }
-
-  const cell = (field: OptionFieldDto) => {
-    const id = `f-${target.option.id}-${field.id}`;
-    return (
-      <div key={field.id}>
-        <p id={id} className="text-content-subtle mb-1 text-xs font-medium">
-          {field.label}
-        </p>
-        <BenefitValueField
-          field={field}
-          labelledBy={id}
-          currency={currency}
-          value={read(target.option.id, field.id)}
-          onChange={(next) => write(target.option.id, field.id, next)}
-        />
-      </div>
-    );
-  };
-
   return (
     <div>
-      {showName ? (
-        <p className="text-content-muted mb-1.5 flex items-center gap-1.5 text-sm font-medium">
-          <IconLayers className="text-content-subtle size-3.5" />
-          {target.option.name}
-        </p>
-      ) : null}
-      <div className="grid gap-3 sm:grid-cols-2">
-        {target.valueFields.map(cell)}
-        {target.coPaymentField ? cell(target.coPaymentField) : null}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-content font-semibold">{label}</p>
+          {/* Named when it differs, so it is clear WHICH record is being edited. */}
+          {note ? <p className="text-content-subtle mt-0.5 text-xs">{note}</p> : null}
+        </div>
+
+        {attached.length === 0 ? (
+          <Button size="sm" variant="secondary" onClick={onAdd} disabled={adding}>
+            <IconAdd className="size-4" />
+            {adding ? 'Adding…' : 'Add'}
+          </Button>
+        ) : onRemove ? (
+          <button
+            type="button"
+            aria-label={`Remove ${label}`}
+            onClick={onRemove}
+            className="text-content-muted hover:bg-surface-muted hover:text-danger rounded-(--radius-control) p-1.5"
+          >
+            <IconTrash className="size-4" />
+          </button>
+        ) : null}
       </div>
+
+      {attached.length === 0 ? (
+        <p className="text-content-subtle mt-1 text-sm">
+          Not on this variant. Add it to record what the plan says.
+        </p>
+      ) : (
+        <div className="mt-2 space-y-3">
+          {attached.map((planOption) => (
+            <div key={planOption.id}>
+              {attached.length > 1 ? (
+                <p className="text-content-muted mb-1 flex items-center gap-1.5 text-sm font-medium">
+                  <IconLayers className="text-content-subtle size-3.5" />
+                  {planOption.optionName}
+                </p>
+              ) : null}
+              <BenefitValue planOption={planOption} pending={false} />
+              <BenefitCoreFields
+                planOption={planOption}
+                customerType={customerType}
+                disabled={false}
+              />
+              <BenefitConditions
+                planOptionId={planOption.id}
+                planConfigurationId={planOption.planConfigurationId}
+                optionName={planOption.optionName}
+                customerType={customerType}
+                conditions={planOption.values.filter(
+                  (value) => isCondition(value) && appliesToCustomerType(value, customerType),
+                )}
+                disabled={false}
+              />
+              {/*
+                The remark that qualifies the figures — "1 in 10 members",
+                "basic procedures only". It belongs to this variant, not to the
+                benefit: the same benefit is noted differently on the next plan.
+              */}
+              <PlanOptionNoteInline
+                planOptionId={planOption.id}
+                planConfigurationId={planOption.planConfigurationId}
+                optionName={planOption.optionName}
+                note={planOption.note}
+                disabled={false}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
-
-/** Says what a blank field means, so nobody types a 0 that isn't in the plan. */
-const NOT_STATED = 'Leave blank if the plan does not state one.';

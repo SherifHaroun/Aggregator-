@@ -273,6 +273,18 @@ function givenOptionWithAlternative(id = 'option_1', name = 'Dental') {
   return id;
 }
 
+/**
+ * Put a benefit on a variant the way an employee does: Add benefit, tick it,
+ * confirm. There is no dragging any more — the catalogue lives on its own
+ * screen and this picks from it.
+ */
+async function addBenefitOnVariant(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(await screen.findByRole('button', { name: /Add benefit/i }));
+  const dialog = within(await screen.findByRole('dialog'));
+  await user.click(dialog.getByRole('checkbox', { name: new RegExp(name, 'i') }));
+  await user.click(dialog.getByRole('button', { name: /^Add benefit/i }));
+}
+
 function givenConfiguration(
   id: string,
   planId: string,
@@ -1415,7 +1427,7 @@ describe('plan configurations', () => {
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    expect(await screen.findByText('Average age: 35')).toBeInTheDocument();
+    expect(await screen.findByText(/Average age: 35/)).toBeInTheDocument();
     expect(screen.queryByLabelText(/average age/i)).not.toBeInTheDocument();
   });
 
@@ -1458,7 +1470,7 @@ describe('plan configurations', () => {
     const from = await screen.findByLabelText('Age from');
     await user.clear(from);
     await user.type(from, '70');
-    await user.click(screen.getByRole('button', { name: /Save prices/i }));
+    await user.click(screen.getByRole('button', { name: /Save changes/i }));
 
     expect(await screen.findByText(/Ages 50–60 run backwards|run backwards/i)).toBeInTheDocument();
   });
@@ -1480,8 +1492,8 @@ describe('plan configurations', () => {
     await user.clear(tos[1]!);
     await user.type(tos[1]!, '60');
 
-    await user.click(screen.getByRole('button', { name: /Save prices/i }));
-    expect(await screen.findByText(/listed twice/i)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /Save changes/i }));
+    expect(await screen.findByText(/overlap/i)).toBeInTheDocument();
   });
 });
 
@@ -1524,8 +1536,12 @@ describe('figures', () => {
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    const summary = await screen.findByText('Deductible');
-    expect(summary.parentElement).toHaveTextContent('Not specified in plan');
+    /**
+     * Blank, not zero. The plan said nothing about a deductible, and an empty
+     * box says that — a 0 would be a figure the document does not contain.
+     */
+    expect(await screen.findByLabelText(/Deductible/i)).toHaveValue('');
+    expect(screen.getByLabelText(/Co-payment/i)).toHaveValue('');
     expect(screen.queryByText('0 EGP')).not.toBeInTheDocument();
   });
 });
@@ -1714,7 +1730,7 @@ describe('another age', () => {
     await user.type(tos[1]!, '65');
     await user.type(screen.getByLabelText(/Annual premium for ages 61 to 65/i), '15984');
 
-    await user.click(screen.getByRole('button', { name: /Save prices/i }));
+    await user.click(screen.getByRole('button', { name: /Save changes/i }));
 
     await waitFor(() => expect(store.configurations[0]?.priceBands).toHaveLength(2));
 
@@ -1742,7 +1758,7 @@ describe('another age', () => {
     // The new row is left unpriced, which is how a plan says it is not sold.
     expect(await screen.findByText('Not covered')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Save prices/i }));
+    await user.click(screen.getByRole('button', { name: /Save changes/i }));
 
     await waitFor(() => expect(store.configurations[0]?.priceBands).toHaveLength(2));
     expect(store.configurations[0]?.priceBands[1]?.annualPrice).toBeNull();
@@ -1761,7 +1777,7 @@ describe('dynamic insurance options', () => {
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: /New benefit/i }));
 
@@ -1782,7 +1798,7 @@ describe('dynamic insurance options', () => {
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: /New benefit/i }));
     await user.type(await screen.findByLabelText(/Benefit name/i), 'Optical Limit');
@@ -1805,7 +1821,7 @@ describe('dynamic insurance options', () => {
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: /New benefit/i }));
     await user.type(await screen.findByLabelText(/Benefit name/i), 'Life & Accident Coverage');
@@ -1841,7 +1857,7 @@ describe('dynamic insurance options', () => {
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    await user.click(await screen.findByRole('button', { name: 'Add Life & Accident Coverage' }));
+    await addBenefitOnVariant(user, 'Life & Accident Coverage');
 
     // One gesture, two rows: the heading and the benefit that belongs under it.
     await waitFor(() => expect(store.planOptions).toHaveLength(2));
@@ -1878,7 +1894,7 @@ describe('dynamic insurance options', () => {
       value: 80,
     });
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: 'Edit Aurora Wellness Programme' }));
     const kinds = await screen.findByRole('group', { name: /What does it carry/i });
@@ -1903,7 +1919,7 @@ describe('dynamic insurance options', () => {
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    const catalogue = renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: /New benefit/i }));
     await user.type(await screen.findByLabelText(/Benefit name/i), 'Dental');
@@ -1931,8 +1947,21 @@ describe('dynamic insurance options', () => {
       'PERCENTAGE',
     ]);
 
-    // On the plan, both are editable side by side.
-    await user.click(screen.getByRole('button', { name: 'Add Dental' }));
+    /**
+     * On the variant, both are editable side by side. Dental is one of the six
+     * CORE areas, so it is not offered in the picker — it already has a
+     * section of its own, waiting for the record to exist.
+     */
+    catalogue.unmount();
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    const core = within(await screen.findByRole('region', { name: 'Core benefits' }));
+    await user.click(
+      within(core.getByText('Dental').closest('div')!.parentElement!).getByRole('button', {
+        name: /Add/i,
+      }),
+    );
+
     expect(await screen.findByLabelText('Dental value')).toBeInTheDocument();
     expect(await screen.findByLabelText('Dental alternative value')).toBeInTheDocument();
     expect(screen.getByText('or')).toBeInTheDocument();
@@ -1986,7 +2015,7 @@ describe('dynamic insurance options', () => {
     // The note stays out of the way until it is asked for.
     expect(screen.queryByLabelText('Aurora Wellness Programme note')).not.toBeInTheDocument();
     await user.click(
-      await screen.findByRole('button', { name: 'Add a note to Aurora Wellness Programme' }),
+      await screen.findByRole('button', { name: /Add a note to Aurora Wellness Programme/i }),
     );
 
     await user.type(
@@ -2097,7 +2126,7 @@ describe('dynamic insurance options', () => {
     givenOption();
     givenOption('option_2', 'Dental Care');
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
 
     const search = await screen.findByLabelText('Search benefits');
     expect(await screen.findByText('Dental Care')).toBeInTheDocument();
@@ -2255,7 +2284,7 @@ describe('dynamic insurance options', () => {
       sortOrder: 0,
     });
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    const catalogue = renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: 'Edit Aurora Wellness Programme' }));
     const field = await screen.findByLabelText(/Benefit name/i);
@@ -2264,7 +2293,14 @@ describe('dynamic insurance options', () => {
     await user.click(screen.getByRole('button', { name: /^Save$/ }));
 
     await waitFor(() => expect(store.options[0]?.name).toBe('Wellness Programme'));
-    // The benefit is one record, so the row on the plan reads the new name.
+
+    /**
+     * The benefit is ONE record, shared by every plan that points at it — so
+     * the variant already carrying it reads the new name without anybody
+     * touching the variant.
+     */
+    catalogue.unmount();
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
     expect(await screen.findByLabelText('Wellness Programme value')).toBeInTheDocument();
   });
 
@@ -2281,7 +2317,7 @@ describe('dynamic insurance options', () => {
     givenOption('option_death', 'Death (Natural)');
     store.options[1]!.parentId = 'option_group';
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: 'Edit Death (Natural)' }));
     const field = await screen.findByLabelText(/Benefit name/i);
@@ -2303,7 +2339,7 @@ describe('dynamic insurance options', () => {
     givenOption('option_1', 'Optical');
     givenOption('option_2', 'Dental');
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: 'Edit Optical' }));
     const field = await screen.findByLabelText(/Benefit name/i);
@@ -2323,7 +2359,7 @@ describe('dynamic insurance options', () => {
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
     givenOption();
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
 
     await user.click(
       await screen.findByRole('button', { name: 'Delete Aurora Wellness Programme' }),
@@ -2354,12 +2390,12 @@ describe('dynamic insurance options', () => {
       value: 80,
     });
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
 
     await user.click(
       await screen.findByRole('button', { name: 'Delete Aurora Wellness Programme' }),
     );
-    expect(await screen.findByText(/1 plan configuration that carries it/i)).toBeInTheDocument();
+    expect(await screen.findByText(/1 variant that carries it/i)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /Delete everywhere/i }));
 
     // The benefit, its attachment and its recorded value all go.
@@ -2381,7 +2417,7 @@ describe('dynamic insurance options', () => {
     givenOption('option_death', 'Death (Natural)');
     store.options[1]!.parentId = 'option_group';
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: 'Delete Death (Natural)' }));
     await user.click(await screen.findByRole('button', { name: /^Delete$/ }));
@@ -2390,23 +2426,6 @@ describe('dynamic insurance options', () => {
     expect(store.options[0]?.name).toBe('Life & Accident Coverage');
   });
 
-  it('offers a saved benefit under Available benefits, draggable and labelled Percentage', async () => {
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    // The card itself is the draggable item, so the benefit is what gets dragged.
-    const card = await screen.findByRole('button', { name: 'Drag Aurora Wellness Programme' });
-    expect(card).toBeInTheDocument();
-    expect(within(card).getByText('Percentage')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Add Aurora Wellness Programme' }),
-    ).toBeInTheDocument();
-  });
 
   it('saves a percentage automatically, with no Save button to press', async () => {
     const user = userEvent.setup();
@@ -2558,7 +2577,8 @@ describe('dynamic insurance options', () => {
      * in. The rate table below has one, because a set of age bands is edited
      * and saved as a set — but no benefit value ever waits for a button.
      */
-    expect(screen.queryByRole('button', { name: /^Save (?!prices)/ })).not.toBeInTheDocument();
+    const benefits = within(screen.getByRole('region', { name: 'Additional benefits' }));
+    expect(benefits.queryByRole('button', { name: /^Save/ })).not.toBeInTheDocument();
     await waitFor(() => expect(store.values).toHaveLength(2), { timeout: 4000 });
     expect(store.values.find((v) => v.optionFieldId === 'f_available')?.value).toBe(true);
   });
@@ -2569,36 +2589,33 @@ describe('dynamic insurance options', () => {
 // ---------------------------------------------------------------------------
 
 describe('plan coverage', () => {
-  it('adds a benefit from the available panel', async () => {
+  it('adds a benefit by picking it from the catalogue', async () => {
+    const user = userEvent.setup();
     givenCompany();
-    givenInsuranceType();
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
     givenOption();
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    expect(await screen.findByText('Aurora Wellness Programme')).toBeInTheDocument();
+    // Nothing additional until it is chosen — a variant states what it states.
+    expect(await screen.findByText('No additional benefits selected.')).toBeInTheDocument();
 
-    // fireEvent rather than user.click: userEvent's pointer emulation does not
-    // reach buttons inside a dnd-kit draggable under jsdom, which has no layout.
-    // The real pointer path is verified in a browser instead.
-    fireEvent.click(screen.getByRole('button', { name: 'Add Aurora Wellness Programme' }));
+    await addBenefitOnVariant(user, 'Aurora Wellness Programme');
 
     expect(await screen.findByLabelText('Aurora Wellness Programme value')).toBeInTheDocument();
-    expect(store.planOptions).toHaveLength(1);
+    await waitFor(() => expect(store.planOptions).toHaveLength(1));
   });
 
-  it('shows a dropped benefit before the server answers, and takes it back if the save fails', async () => {
+  it('shows a picked benefit before the server answers, and takes it back if the save fails', async () => {
+    const user = userEvent.setup();
     givenCompany();
-    givenInsuranceType();
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
     givenOption();
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    expect(await screen.findByText('Aurora Wellness Programme')).toBeInTheDocument();
+    await screen.findByText('No additional benefits selected.');
 
     store.failNext = {
       method: 'POST',
@@ -2611,7 +2628,7 @@ describe('plan coverage', () => {
       },
     };
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add Aurora Wellness Programme' }));
+    await addBenefitOnVariant(user, 'Aurora Wellness Programme');
 
     // It is in the coverage list straight away, before any response.
     expect(
@@ -2628,47 +2645,6 @@ describe('plan coverage', () => {
     expect(await screen.findByText(/database is not available/i)).toBeInTheDocument();
   });
 
-  it('exposes drag handles on both panels and persists a new order', async () => {
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption('option_1', 'Aurora Wellness Programme');
-    givenOption('option_2', 'Zenith Travel Assistance');
-    store.planOptions.push(
-      {
-        id: 'planOption_a',
-        planConfigurationId: configurationId,
-        optionId: 'option_1',
-        sortOrder: 0,
-      },
-      {
-        id: 'planOption_b',
-        planConfigurationId: configurationId,
-        optionId: 'option_2',
-        sortOrder: 1,
-      },
-    );
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    expect(
-      await screen.findByRole('button', { name: /Reorder Aurora Wellness Programme/i }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /Reorder Zenith Travel Assistance/i }),
-    ).toBeInTheDocument();
-
-    // jsdom reports zero-sized rects, so dnd-kit cannot resolve a pointer drop
-    // target. The endpoint the board calls on drop is exercised directly.
-    await fetch(`/api/v1/plan-configurations/${configurationId}/options/reorder`, {
-      method: 'POST',
-      body: JSON.stringify({ orderedIds: ['planOption_b', 'planOption_a'] }),
-    });
-
-    expect(store.planOptions.find((p) => p.id === 'planOption_b')?.sortOrder).toBe(0);
-    expect(store.planOptions.find((p) => p.id === 'planOption_a')?.sortOrder).toBe(1);
-  });
 
   it('keeps each configuration’s values separate', async () => {
     const user = userEvent.setup();
@@ -2729,12 +2705,19 @@ describe('global benefits', () => {
     // Created once. It belongs to no company and no type.
     givenOption('option_1', 'Outpatient Care');
 
+    const offered = async () => {
+      const user = userEvent.setup();
+      await user.click(await screen.findByRole('button', { name: /Add benefit/i }));
+      const dialog = within(await screen.findByRole('dialog'));
+      return dialog.queryByRole('checkbox', { name: /Outpatient Care/i });
+    };
+
     const first = renderApp(ROUTES.configurations.detail('company_a', 'plan_a', a));
-    expect(await screen.findByRole('button', { name: 'Add Outpatient Care' })).toBeInTheDocument();
+    expect(await offered()).toBeInTheDocument();
     first.unmount();
 
     renderApp(ROUTES.configurations.detail('company_b', 'plan_b', b));
-    expect(await screen.findByRole('button', { name: 'Add Outpatient Care' })).toBeInTheDocument();
+    expect(await offered()).toBeInTheDocument();
 
     // Nobody had to create it twice.
     expect(store.options).toHaveLength(1);
@@ -2771,13 +2754,14 @@ describe('global benefits', () => {
     const { a, b } = givenTwoCompanies();
     givenOption('option_1', 'Outpatient Care');
 
+    const user = userEvent.setup();
     const first = renderApp(ROUTES.configurations.detail('company_a', 'plan_a', a));
-    fireEvent.click(await screen.findByRole('button', { name: 'Add Outpatient Care' }));
+    await addBenefitOnVariant(user, 'Outpatient Care');
     await waitFor(() => expect(store.planOptions).toHaveLength(1));
     first.unmount();
 
     renderApp(ROUTES.configurations.detail('company_b', 'plan_b', b));
-    fireEvent.click(await screen.findByRole('button', { name: 'Add Outpatient Care' }));
+    await addBenefitOnVariant(user, 'Outpatient Care');
     await waitFor(() => expect(store.planOptions).toHaveLength(2));
 
     // Two relationships, still ONE benefit, both pointing at it.
@@ -2793,7 +2777,7 @@ describe('global benefits', () => {
     const { a } = givenTwoCompanies();
     givenOption('option_1', 'Dental');
 
-    renderApp(ROUTES.configurations.detail('company_a', 'plan_a', a));
+    renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: /New benefit/i }));
     // Different casing — still the same benefit.
@@ -3006,8 +2990,12 @@ describe('pre-existing and chronic conditions', () => {
     }
     await screen.findByLabelText(`${PRE_EXISTING} Co-payment value`);
 
-    // Not one answer anywhere is "Other".
-    expect(screen.queryByRole('option', { name: /^other$/i })).toBeNull();
+    /**
+     * Not one ANSWER is "Other". Scoped to the benefits: the variant's own
+     * coverage dropdown offers Other as a scope, which is a different thing.
+     */
+    const benefits = within(screen.getByRole('region', { name: 'Core benefits' }));
+    expect(benefits.queryByRole('option', { name: /^other$/i })).toBeNull();
 
     // Not one setting is defined as free text — including behind a toggle.
     expect((store.options[0]?.fields ?? []).filter((field) => field.dataType === 'TEXT')).toEqual(
@@ -3626,7 +3614,13 @@ describe('maternity: pregnancy before the policy started', () => {
     );
     expect(screen.queryByLabelText(`${MATERNITY} Pregnancy before policy value`)).toBeNull();
     // Nothing to pick and nothing to type — the checkbox said it all.
-    expect(screen.queryByRole('option', { name: 'Not specified' })).toBeNull();
+    // Scoped to the benefit: the variant's own network dropdown legitimately
+    // offers "Not specified", which answers a different question.
+    expect(
+      within(screen.getByRole('region', { name: 'Core benefits' })).queryByRole('option', {
+        name: 'Not specified',
+      }),
+    ).toBeNull();
 
     // Switching it off says the document never mentioned it — nothing remains.
     await user.click(toggle);
@@ -4637,9 +4631,9 @@ describe('other key benefits: a statement is a complete benefit', () => {
   });
 
   it('describes itself as a statement, not as a percentage', async () => {
-    const configurationId = givenStatementOnAPlan();
+    givenStatementOnAPlan();
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
     await screen.findAllByText('Covers Hepatitis');
 
     // Calling it "Percentage" would name it after a figure it need never hold.

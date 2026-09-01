@@ -1,4 +1,9 @@
-import { isCoreMedicalBenefit, type InsuranceOptionDto } from '@aggregator/shared';
+import {
+  UMBRELLA_BENEFIT_LABEL,
+  benefitTypeLabel,
+  isCoreMedicalBenefit,
+  type InsuranceOptionDto,
+} from '@aggregator/shared';
 import { useMemo, useState } from 'react';
 import {
   Badge,
@@ -259,17 +264,20 @@ function BenefitRow({
       <span className="min-w-0 flex-1">
         <span className="text-content block truncate font-medium">{option.name}</span>
         <span className="text-content-subtle block truncate text-xs">
-          {option.isUmbrella
-            ? `Group · ${(option.children ?? []).length} inside`
-            : /**
-               * A core area is one of the six every plan is judged on. Saying so
-               * here is what stops somebody deleting the record the variant
-               * editor's "Dental" heading is pointing at.
-               */
-              isCoreMedicalBenefit(option.name)
-              ? 'Core benefit'
-              : 'Optional benefit'}
-          {usage > 0 ? ` · used by ${usage} ${usage === 1 ? 'variant' : 'variants'}` : ''}
+          {/*
+            WHAT IT CARRIES, read from the benefit's own definition rather than
+            assumed — a benefit whose every setting is optional is a statement
+            of cover, and calling it a percentage would name it after a figure
+            it need never hold.
+          */}
+          <span>
+            {option.isUmbrella
+              ? `${UMBRELLA_BENEFIT_LABEL} · ${(option.children ?? []).length} inside`
+              : benefitTypeLabel(option.fields ?? [])}
+          </span>
+          {usage > 0 ? (
+            <span> · used by {`${usage} ${usage === 1 ? 'variant' : 'variants'}`}</span>
+          ) : null}
         </span>
       </span>
 
@@ -279,8 +287,8 @@ function BenefitRow({
         <button
           type="button"
           onClick={onAddChild}
-          aria-label={`Add a benefit inside ${option.name}`}
-          title={`Add a benefit inside ${option.name}`}
+          aria-label={`New benefit in this group — ${option.name}`}
+          title={`New benefit in this group — ${option.name}`}
           className="text-content-muted hover:bg-surface-muted hover:text-content rounded-(--radius-control) p-2"
         >
           <IconAdd className="size-4" />
