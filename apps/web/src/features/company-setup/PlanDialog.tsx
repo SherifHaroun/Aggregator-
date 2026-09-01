@@ -53,8 +53,12 @@ export function PlanDialog({
   const creatingType = values.insuranceTypeId === NEW_TYPE;
   const pending = savePlan.isPending || saveType.isPending;
 
-  // The API requires a code; the shared rule derives one so the employee need not.
-  const derivedCode = derivePlanCode(values.name);
+  /**
+   * The API requires a code; the shared rule derives one so the employee need
+   * not. It carries the customer type, because that is part of what identifies
+   * a plan — a company's Individual and Family "Platinum" are two products.
+   */
+  const derivedCode = derivePlanCode(values.name, plan?.customerType ?? 'INDIVIDUAL');
 
   async function submit() {
     const blankToNull = (value: string) => (value.trim() === '' ? null : value.trim());

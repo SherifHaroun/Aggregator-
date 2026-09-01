@@ -11,6 +11,7 @@ import {
   type Column,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
+import { customerTypeLabel } from '@/features/insurance-data/labels';
 import {
   useCompanies,
   useInsuranceTypes,
@@ -76,10 +77,12 @@ export function PlansPage() {
         render: (plan) => typeName.get(plan.insuranceTypeId) ?? '—',
       },
       {
-        key: 'code',
-        header: 'Code',
+        key: 'customerType',
+        header: 'Customer type',
         hideOnMobile: true,
-        render: (plan) => <span className="text-content-muted">{plan.code}</span>,
+        render: (plan) => (
+          <span className="text-content-muted">{customerTypeLabel(plan.customerType)}</span>
+        ),
       },
       {
         key: 'configurations',

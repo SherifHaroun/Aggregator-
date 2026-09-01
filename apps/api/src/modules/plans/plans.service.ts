@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import type { CustomerType, Prisma } from '@prisma/client';
 import { derivePlanCode, type Paginated, type PlanDto } from '@aggregator/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
@@ -103,7 +103,8 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
     });
   }
 
-  const code = input.code ?? derivePlanCode(input.name);
+  // A copy is sold to the same buyer, so its code carries the same suffix.
+  const code = input.code ?? derivePlanCode(input.name, source.customerType);
   if (code === '') {
     throw badRequest('The plan code could not be derived from this name. Enter one.', {
       code: ['Enter a plan code.'],
@@ -298,8 +299,45 @@ export async function createPlan(input: CreatePlanInput): Promise<PlanDto> {
   if (!company) throw notFound('Company');
   if (!insuranceType) throw notFound('Insurance type');
 
+  await assertPlanIsDistinct(input.companyId, input.customerType, input.name);
+
   const plan = await prisma.plan.create({ data: input, include: planDetailInclude });
   return toPlanDto(plan);
+}
+
+/**
+ * Refuse a plan that repeats one this company already sells to the same buyer.
+ *
+ * The unique index covers the CODE, which is enough for the codes this
+ * application derives. It is not enough for a code an employee typed: two
+ * plans both named "Platinum" for individuals, coded PLAT and PLATINUM, would
+ * both be accepted and neither would be tellable from the other on screen.
+ *
+ * Scoped to one customer type on purpose. "Platinum" for individuals and
+ * "Platinum" for families are DIFFERENT products, and refusing the second is
+ * the fault this whole change exists to fix.
+ */
+async function assertPlanIsDistinct(
+  companyId: string,
+  customerType: CustomerType,
+  name: string,
+  { excludeId }: { excludeId?: string } = {},
+): Promise<void> {
+  const twin = await getPrisma().plan.findFirst({
+    where: {
+      companyId,
+      customerType,
+      // Names compare case-insensitively, as the catalogue's own rule does.
+      name: { equals: name.trim(), mode: 'insensitive' },
+      ...(excludeId ? { id: { not: excludeId } } : {}),
+    },
+    select: { id: true },
+  });
+  if (twin) {
+    throw conflict(
+      `This company already sells a plan called "${name.trim()}" to ${customerType.toLowerCase()} customers. Edit that one, or give this a different name.`,
+    );
+  }
 }
 
 /**
@@ -319,6 +357,25 @@ export async function updatePlan(id: string, input: UpdatePlanInput): Promise<Pl
       select: { id: true },
     });
     if (!insuranceType) throw notFound('Insurance type');
+  }
+
+  /**
+   * Renaming, or moving a plan to another buyer, can collide with a plan that
+   * is already there. Checked against where the plan is ABOUT to be, not where
+   * it is now.
+   */
+  if (input.name !== undefined || input.customerType !== undefined) {
+    const current = await prisma.plan.findUnique({
+      where: { id },
+      select: { companyId: true, customerType: true, name: true },
+    });
+    if (!current) throw notFound('Plan');
+    await assertPlanIsDistinct(
+      current.companyId,
+      input.customerType ?? current.customerType,
+      input.name ?? current.name,
+      { excludeId: id },
+    );
   }
 
   const plan = await prisma.plan.update({

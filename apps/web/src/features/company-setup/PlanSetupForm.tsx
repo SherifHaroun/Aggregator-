@@ -361,7 +361,7 @@ export function PlanSetupForm({
         insuranceTypeId: medical.id,
         customerType,
         name: name.trim(),
-        code: derivePlanCode(name),
+        code: derivePlanCode(name, customerType),
         isActive: true,
       });
 

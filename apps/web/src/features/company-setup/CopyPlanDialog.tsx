@@ -55,7 +55,9 @@ export function CopyPlanDialog({
 
   const name = values.name.trim();
   /** The code follows the new name until the employee types one of their own. */
-  const code = values.code.trim() === '' ? derivePlanCode(name) : values.code.trim();
+  // A copy is sold to the same buyer, so its code carries the same suffix.
+  const code =
+    values.code.trim() === '' ? derivePlanCode(name, plan.customerType) : values.code.trim();
 
   const isSameName = name !== '' && name.toLowerCase() === plan.name.trim().toLowerCase();
   const nameIssue = submitted && name === '' ? 'Enter a name for the copy.' : undefined;

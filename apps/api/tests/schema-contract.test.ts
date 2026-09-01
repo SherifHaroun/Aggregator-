@@ -124,6 +124,19 @@ describe('Plan vs PlanConfiguration', () => {
     );
   });
 
+  it('makes the buyer part of what identifies a plan', () => {
+    /**
+     * A company sells "Platinum" to individuals, to families and to SMEs.
+     * Keying on (company, code) alone meant the second collided with the first
+     * and could not be saved at all — the code became the thing standing in the
+     * way of a real business case.
+     */
+    expect(uniqueSets('Plan')).toContain(
+      ['companyId', 'customerType', 'code'].sort().join('+'),
+    );
+    expect(uniqueSets('Plan')).not.toContain(['companyId', 'code'].sort().join('+'));
+  });
+
   it('puts the customer type on the plan, never on the variant', () => {
     // A company's Individual, Family and SME books are separate products that
     // merely share a name, so the buyer identifies the PLAN.

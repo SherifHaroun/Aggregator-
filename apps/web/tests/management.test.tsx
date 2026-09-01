@@ -1144,12 +1144,21 @@ describe('plans', () => {
     // category. Refiling a plan elsewhere remains possible when editing it.
     expect(store.insuranceTypes).toHaveLength(1);
     expect(store.insuranceTypes[0]?.name).toBe('Medical');
-    // The code is derived so the employee never has to invent one.
+    /**
+     * The code is derived so the employee never has to invent one, and it
+     * carries the BUYER: a company's Individual and Family "Tier One" are two
+     * products, and a code without it would let the first block the second.
+     *
+     * The displayed name stays clean — the suffix is database identity, never
+     * something the employee reads.
+     */
     expect(store.plans[0]).toMatchObject({
       name: 'Tier One',
-      code: 'TIER-ONE',
+      code: 'TIER-ONE-INDIVIDUAL',
+      customerType: 'INDIVIDUAL',
       insuranceTypeId: store.insuranceTypes[0]?.id,
     });
+    expect(store.plans[0]?.name).not.toContain('INDIVIDUAL');
   });
 
   it('stores the price on the configuration, never on the plan', async () => {
@@ -1559,8 +1568,9 @@ describe('copying a plan', () => {
     await user.click(await screen.findByRole('button', { name: /Copy plan/i }));
 
     await user.type(await screen.findByLabelText(/New plan name/i), 'Tier Two');
-    // The code follows the name unless one is typed.
-    expect(screen.getByLabelText(/Plan code/i)).toHaveValue('TIER-TWO');
+    // The code follows the name unless one is typed, and keeps the buyer the
+    // plan is copied for — a copy is sold to the same people as its original.
+    expect(screen.getByLabelText(/Plan code/i)).toHaveValue('TIER-TWO-INDIVIDUAL');
 
     // Everything is selected by default; drop the older band.
     const choices = screen.getAllByRole('checkbox');
@@ -1572,7 +1582,7 @@ describe('copying a plan', () => {
     await waitFor(() => expect(store.plans).toHaveLength(2));
     const copy = store.plans[1]!;
     expect(copy.name).toBe('Tier Two');
-    expect(copy.code).toBe('TIER-TWO');
+    expect(copy.code).toBe('TIER-TWO-INDIVIDUAL');
 
     // One configuration came across, with its benefit, value and note.
     const copied = store.configurations.filter((item) => item.planId === copy.id);

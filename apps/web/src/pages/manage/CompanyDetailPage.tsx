@@ -379,9 +379,12 @@ function PlanRow({
         <IconLayers className="size-5" />
       </span>
 
+      {/* The NAME, and nothing else. The code carries the customer type so a
+          company's three "Platinum" plans can coexist as separate records, but
+          that is database identity — printing it here would show the employee
+          "PLATINUM-INDIVIDUAL" under a heading that already says Individual. */}
       <Link to={ROUTES.plans.detail(companyId, plan.id)} className="min-w-0 flex-1">
         <span className="text-content block truncate font-semibold">{plan.name}</span>
-        <span className="text-content-subtle block truncate text-xs">{plan.code}</span>
       </Link>
 
       <Badge tone={plan.isActive ? 'success' : 'neutral'}>

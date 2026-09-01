@@ -37,6 +37,7 @@ import {
   priceRangeLabel,
   configurationLabel,
   coverageLabel,
+  customerTypeLabel,
   formatMoney,
 } from '@/features/insurance-data/labels';
 
@@ -128,7 +129,13 @@ export function PlanDetailPage() {
                 }
               />
               <CardBody className="grid gap-4 sm:grid-cols-3">
-                <Detail label="Plan code" value={current!.code} />
+                {/* Who it is sold to, which is what separates this plan from
+                    the identically named one in the next section. The code is
+                    database identity and is not shown. */}
+                <Detail
+                  label="Customer type"
+                  value={customerTypeLabel(current!.customerType)}
+                />
                 {/* The network is a property of each VARIANT, not of the
                     product: one plan is sold on two networks at two prices. It
                     is shown on the variant rows below. */}

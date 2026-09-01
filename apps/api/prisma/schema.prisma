@@ -454,7 +454,17 @@ model Plan {
 
   configurations PlanConfiguration[]
 
-  @@unique([companyId, code])
+  /// WHAT IDENTIFIES A PLAN WITHIN ITS COMPANY.
+  ///
+  /// The buyer is part of it. A company sells "Platinum" to individuals, to
+  /// families and to SMEs; those are three separate products that merely share
+  /// a name, and the name alone identifies none of them. Keying on the code
+  /// alone meant the second one collided with the first and could not be saved.
+  ///
+  /// The customer type is in the key as well as in the derived code, so an
+  /// employee who types a code of their own still gets three plans rather than
+  /// a collision.
+  @@unique([companyId, customerType, code])
   @@index([companyId, isActive])
   @@index([insuranceTypeId, isActive])
   /// The comparison's first cut: "every plan sold to this kind of buyer".
