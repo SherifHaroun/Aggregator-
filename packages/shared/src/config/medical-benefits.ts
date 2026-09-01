@@ -108,7 +108,13 @@ export const CORE_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
     valueKind: 'TEXT',
     coPayment: true,
     order: 1,
-    aliases: ['Inpatient and daycare Details', 'Inpatient Details', 'In-patient Details'],
+    aliases: [
+      'Inpatient & Daycase',
+      'Inpatient and daycare Details',
+      'Inpatient Details',
+      'In-patient Details',
+      'Inpatient',
+    ],
   },
   {
     name: 'Out-patient',
@@ -116,7 +122,7 @@ export const CORE_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
     valueKind: 'TEXT',
     coPayment: true,
     order: 2,
-    aliases: ['Outpatient Details', 'Out-patient Details'],
+    aliases: ['Outpatient', 'Outpatient Details', 'Out-patient Details'],
   },
   {
     name: 'Maternity',

@@ -1,5 +1,5 @@
 import type { Paginated, PlanConfigurationDto } from '@aggregator/shared';
-import { conflict, notFound } from '../../lib/errors.js';
+import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
 import { getPrisma } from '../../lib/prisma.js';
 import { assertNetworkBelongsToCompany } from '../companies/medical-networks.service.js';
@@ -24,20 +24,30 @@ const configurationDetailInclude = {
 };
 
 /**
- * Refuse a rate table that names the same band twice.
+ * Refuse a rate table whose bands overlap.
  *
- * The unique index would catch it, but as a constraint violation naming an
- * index. An employee who typed 25-29 twice should be told that, and told it
- * before the rest of the table is written.
+ * An age must fall into exactly ONE band, or the premium a customer is quoted
+ * depends on which row happened to be read first. "1-17" beside "10-25" does
+ * not say what a twelve-year-old pays; it says the table was entered wrong, and
+ * the employee should be told that before the rest of it is written.
+ *
+ * This is checked here as well as in the browser because the browser is not the
+ * only thing that can call this endpoint.
  */
-function assertBandsAreDistinct(bands: { ageFrom: number; ageTo: number }[]): void {
-  const seen = new Set<string>();
-  for (const band of bands) {
-    const key = `${band.ageFrom}-${band.ageTo}`;
-    if (seen.has(key)) {
-      throw conflict(`This variant lists ages ${band.ageFrom}-${band.ageTo} twice.`);
+function assertBandsDoNotOverlap(bands: { ageFrom: number; ageTo: number }[]): void {
+  // Youngest first, so an overlap is always with the row immediately before.
+  const ordered = [...bands].sort((a, b) => a.ageFrom - b.ageFrom || a.ageTo - b.ageTo);
+
+  for (const [index, band] of ordered.entries()) {
+    if (band.ageFrom > band.ageTo) {
+      throw badRequest(`Ages ${band.ageFrom}-${band.ageTo} run backwards.`);
     }
-    seen.add(key);
+    const previous = ordered[index - 1];
+    if (previous && band.ageFrom <= previous.ageTo) {
+      throw conflict(
+        `Ages ${previous.ageFrom}-${previous.ageTo} and ${band.ageFrom}-${band.ageTo} overlap. Every age must fall into exactly one band.`,
+      );
+    }
   }
 }
 
@@ -116,7 +126,7 @@ export async function createPlanConfiguration(
   await assertVariantIsDistinct(input.planId, input);
 
   const { priceBands = [], ...variant } = input;
-  assertBandsAreDistinct(priceBands);
+  assertBandsDoNotOverlap(priceBands);
 
   const configuration = await prisma.planConfiguration.create({
     data: { ...variant, priceBands: { create: priceBands } },
@@ -230,7 +240,7 @@ export async function duplicatePlanConfiguration(
     ageTo: band.ageTo,
     annualPrice: band.annualPrice === null ? null : Number(band.annualPrice),
   }));
-  assertBandsAreDistinct(bands);
+  assertBandsDoNotOverlap(bands);
 
   /** Inherited unless the caller states otherwise — including a deliberate `null`. */
   const inherit = <TKey extends keyof DuplicatePlanConfigurationInput>(key: TKey) =>
@@ -332,7 +342,43 @@ export async function updatePlanConfiguration(
    * meaning on its own, and an employee who removes the 65+ line means the plan
    * is no longer sold at 65 — which is exactly the absence of a row.
    */
-  if (priceBands !== undefined) assertBandsAreDistinct(priceBands);
+  if (priceBands !== undefined) assertBandsDoNotOverlap(priceBands);
+
+  /**
+   * Anything that identifies the variant is checked against where it is ABOUT
+   * to be, so an edit cannot land on top of a sibling variant of the same plan.
+   */
+  const identityFields = ['geographicalCoverage', 'medicalNetworkId', 'roomType', 'annualLimit'];
+  if (identityFields.some((field) => field in variant)) {
+    const current = await getPrisma().planConfiguration.findUnique({
+      where: { id },
+      select: {
+        planId: true,
+        geographicalCoverage: true,
+        medicalNetworkId: true,
+        roomType: true,
+        annualLimit: true,
+      },
+    });
+    if (!current) throw notFound('Plan configuration');
+
+    const pick = <T>(given: T | undefined, fallback: T): T =>
+      given === undefined ? fallback : given;
+
+    await assertVariantIsDistinct(
+      current.planId,
+      {
+        geographicalCoverage: pick(variant.geographicalCoverage, current.geographicalCoverage),
+        medicalNetworkId: pick(variant.medicalNetworkId, current.medicalNetworkId),
+        roomType: pick(variant.roomType, current.roomType),
+        annualLimit: pick(
+          variant.annualLimit,
+          current.annualLimit === null ? null : Number(current.annualLimit),
+        ),
+      },
+      { excludeId: id },
+    );
+  }
 
   const configuration = await getPrisma().$transaction(async (tx) => {
     if (priceBands !== undefined) {

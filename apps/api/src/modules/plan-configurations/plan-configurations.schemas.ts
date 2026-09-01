@@ -111,14 +111,23 @@ export const createPlanConfigurationSchema = z.object({
 });
 
 /**
- * Coverage is not updatable: with the network, room and ceiling it identifies
- * the variant, and changing it would silently move every option value attached
- * to it. Delete the variant and create the right one instead.
+ * Coverage IS updatable, along with everything else that identifies a variant.
+ *
+ * Nothing moves when it changes: the benefits, their values and the rate table
+ * all hang off this row and travel with it, so correcting a variant entered as
+ * Local when the document said Local + International is an edit rather than a
+ * re-entry. The service refuses the change when it would collide with another
+ * variant of the same plan.
  *
  * `priceBands`, when given, REPLACES the whole rate table.
  */
 export const updatePlanConfigurationSchema = z
-  .object({ ...variantFields, ...pricingFields, ...priceBandsField })
+  .object({
+    geographicalCoverage: geographicalCoverageSchema,
+    ...variantFields,
+    ...pricingFields,
+    ...priceBandsField,
+  })
   .partial();
 
 /**
