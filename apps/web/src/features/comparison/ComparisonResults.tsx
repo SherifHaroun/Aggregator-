@@ -158,10 +158,15 @@ export function RecommendedPlanCard({
 /**
  * The full comparison, benefit by benefit.
  *
+ * WHAT IT COSTS AND HOW IT SCORES COME FIRST, because they are the two
+ * questions a customer arrives with; the six core areas underneath are the
+ * working that produced them. Reading the benefits first means holding six
+ * rows in your head before learning the price, and the price is what decides.
+ *
  * Values are never altered — the best one in each row is simply marked, so the
  * customer can see who leads without reading every number. Direction comes from
- * the engine, which is why a lower deductible highlights just like a higher
- * percentage.
+ * the engine, which is why a lower figure highlights just like a higher one
+ * wherever less is better.
  */
 export function ComparisonTable({
   plans,
@@ -173,9 +178,14 @@ export function ComparisonTable({
 }) {
   if (plans.length === 0) return null;
 
+  /** A score out of one, as the engine produced it. */
+  const score = (value: number) => value.toFixed(3);
+
   const rows: {
     key: string;
     label: string;
+    /** A heading that divides the table rather than a row of figures. */
+    heading?: true;
     cells: {
       key: string;
       display: string;
@@ -185,6 +195,44 @@ export function ComparisonTable({
       qualifiers?: string[];
     }[];
   }[] = [
+    {
+      key: 'premium',
+      label: 'Premium',
+      cells: plans.map((plan) => ({
+        key: plan.configurationId,
+        display: price(plan),
+        isBest: plan.isCheapest,
+        muted: plan.annualPrice === null,
+      })),
+    },
+    {
+      /**
+       * The trade-off between cover and price, which is the order the plans
+       * are in. Shown so the ranking is something the customer can check
+       * rather than something they are asked to take on trust.
+       */
+      key: 'value',
+      label: 'Overall value',
+      cells: plans.map((plan) => ({
+        key: plan.configurationId,
+        display: score(plan.valueScore),
+        isBest: plan.isRecommended,
+        muted: false,
+      })),
+    },
+    {
+      // Cover alone, with price set aside — the dearest plan is often best here
+      // and still not the one recommended.
+      key: 'coverage',
+      label: 'Coverage score',
+      cells: plans.map((plan) => ({
+        key: plan.configurationId,
+        display: score(plan.coverageScore),
+        isBest: plan.isHighestCoverage,
+        muted: false,
+      })),
+    },
+    { key: 'benefits-heading', label: 'Core benefits', heading: true, cells: [] },
     ...benefits.map((benefit, index) => ({
       key: benefit.id,
       label: benefit.name,
@@ -216,16 +264,6 @@ export function ComparisonTable({
         };
       }),
     })),
-    {
-      key: 'price',
-      label: 'Annual price',
-      cells: plans.map((plan) => ({
-        key: plan.configurationId,
-        display: price(plan),
-        isBest: plan.isCheapest,
-        muted: plan.annualPrice === null,
-      })),
-    },
   ];
 
   return (
@@ -238,7 +276,9 @@ export function ComparisonTable({
                 scope="col"
                 className="text-content-muted px-5 py-3 text-xs font-semibold tracking-wide uppercase"
               >
-                Benefit
+                {/* The rows are a price, two scores and six benefits, so the
+                    column is left blank rather than named for one of them. */}
+                <span className="sr-only">What is being compared</span>
               </th>
               {plans.map((plan) => (
                 <th
@@ -267,41 +307,53 @@ export function ComparisonTable({
             </tr>
           </thead>
           <tbody className="divide-border-subtle divide-y">
-            {rows.map((row) => (
-              <tr key={row.key}>
-                <th scope="row" className="text-content-muted px-5 py-3 text-sm font-medium">
-                  {row.label}
-                </th>
-                {row.cells.map((cell, index) => (
-                  <td
-                    key={cell.key}
-                    className={cn(
-                      'px-5 py-3 text-right tabular-nums',
-                      plans[index]!.isRecommended && 'bg-brand-soft/50',
-                      cell.muted && 'text-content-subtle italic',
-                      cell.isBest && !cell.muted && 'text-success font-bold',
-                    )}
+            {rows.map((row) =>
+              row.heading ? (
+                <tr key={row.key} className="bg-surface-muted/60">
+                  <th
+                    scope="colgroup"
+                    colSpan={plans.length + 1}
+                    className="text-content-muted px-5 py-2 text-xs font-semibold tracking-wide uppercase"
                   >
-                    {cell.display}
-                    {cell.qualifiers ? (
-                      <span className="mt-1 flex flex-wrap justify-end gap-1 font-normal">
-                        {cell.qualifiers.map((qualifier) => (
-                          <span
-                            key={qualifier}
-                            className="bg-surface-muted text-content-subtle rounded-(--radius-control) px-1.5 py-0.5 text-xs"
-                          >
-                            {qualifier}
-                          </span>
-                        ))}
-                      </span>
-                    ) : null}
-                    {cell.isBest && !cell.muted ? (
-                      <span className="sr-only"> (best of the matching plans)</span>
-                    ) : null}
-                  </td>
-                ))}
-              </tr>
-            ))}
+                    {row.label}
+                  </th>
+                </tr>
+              ) : (
+                <tr key={row.key}>
+                  <th scope="row" className="text-content-muted px-5 py-3 text-sm font-medium">
+                    {row.label}
+                  </th>
+                  {row.cells.map((cell, index) => (
+                    <td
+                      key={cell.key}
+                      className={cn(
+                        'px-5 py-3 text-right tabular-nums',
+                        plans[index]!.isRecommended && 'bg-brand-soft/50',
+                        cell.muted && 'text-content-subtle italic',
+                        cell.isBest && !cell.muted && 'text-success font-bold',
+                      )}
+                    >
+                      {cell.display}
+                      {cell.qualifiers ? (
+                        <span className="mt-1 flex flex-wrap justify-end gap-1 font-normal">
+                          {cell.qualifiers.map((qualifier) => (
+                            <span
+                              key={qualifier}
+                              className="bg-surface-muted text-content-subtle rounded-(--radius-control) px-1.5 py-0.5 text-xs"
+                            >
+                              {qualifier}
+                            </span>
+                          ))}
+                        </span>
+                      ) : null}
+                      {cell.isBest && !cell.muted ? (
+                        <span className="sr-only"> (best of the matching plans)</span>
+                      ) : null}
+                    </td>
+                  ))}
+                </tr>
+              ),
+            )}
           </tbody>
         </table>
       </div>

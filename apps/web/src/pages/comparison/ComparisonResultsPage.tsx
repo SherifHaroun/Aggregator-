@@ -1,10 +1,14 @@
 import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
+  CUSTOMER_TYPE_IDS,
+  GEOGRAPHICAL_COVERAGE_IDS,
+  PLAN_TIER_IDS,
   formatNumber,
   type ComparisonRequestInput,
   type CustomerTypeId,
   type GeographicalCoverageId,
+  type PlanTierId,
 } from '@aggregator/shared';
 import {
   Badge,
@@ -31,27 +35,44 @@ import { useComparison } from '@/features/insurance-data/insurance-data.api';
 export function ComparisonResultsPage() {
   const [params] = useSearchParams();
 
-  /** The request, or `null` when the URL does not describe a full selection. */
+  /**
+   * The request, or `null` when the URL does not describe a full selection.
+   *
+   * Every value is checked against what the business actually offers rather
+   * than cast and hoped for. A link carrying a customer type this system has
+   * never heard of is not a selection, and saying so here is better than
+   * sending it to the API to be refused.
+   */
   const request = useMemo<ComparisonRequestInput | null>(() => {
-    const insuranceTypeId = params.get('insuranceTypeId');
-    const customerTypeId = params.get('customerTypeId') as CustomerTypeId | null;
-    const geographicalCoverageId = params.get(
-      'geographicalCoverageId',
-    ) as GeographicalCoverageId | null;
+    const oneOf = <T extends string>(ids: readonly T[], value: string | null): T | null =>
+      value !== null && (ids as readonly string[]).includes(value) ? (value as T) : null;
+
+    const customerTypeId = oneOf<CustomerTypeId>(CUSTOMER_TYPE_IDS, params.get('customerTypeId'));
+    const geographicalCoverageId = oneOf<GeographicalCoverageId>(
+      GEOGRAPHICAL_COVERAGE_IDS,
+      params.get('geographicalCoverageId'),
+    );
     const currency = params.get('currency');
     const ageFrom = Number(params.get('ageFrom'));
     const ageTo = Number(params.get('ageTo'));
     const rawBudget = params.get('budget');
 
-    if (!insuranceTypeId || !customerTypeId || !geographicalCoverageId || !currency) return null;
+    if (!customerTypeId || !geographicalCoverageId || !currency) return null;
     if (!Number.isFinite(ageFrom) || !Number.isFinite(ageTo)) return null;
+
+    /**
+     * The tier is OPTIONAL, and its absence is an answer: a customer with no
+     * view on how much cover they need sees every tier rather than being made
+     * to rule two of them out.
+     */
+    const planTierId = oneOf<PlanTierId>(PLAN_TIER_IDS, params.get('planTierId'));
 
     // No budget in the URL means no price ceiling — not an incomplete request.
     const budget = rawBudget === null ? undefined : Number(rawBudget);
     if (budget !== undefined && !Number.isFinite(budget)) return null;
 
     return {
-      insuranceTypeId,
+      ...(planTierId === null ? {} : { planTierId }),
       customerTypeId,
       geographicalCoverageId,
       currency,

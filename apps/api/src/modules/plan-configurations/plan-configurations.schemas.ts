@@ -149,7 +149,6 @@ export const duplicatePlanConfigurationSchema = z.object({
 export const listPlanConfigurationsQueryExtension = z.object({
   planId: z.string().min(1).optional(),
   companyId: z.string().min(1).optional(),
-  insuranceTypeId: z.string().min(1).optional(),
   /** The two criteria the comparison will search on. */
   customerType: customerTypeSchema.optional(),
   geographicalCoverage: geographicalCoverageSchema.optional(),

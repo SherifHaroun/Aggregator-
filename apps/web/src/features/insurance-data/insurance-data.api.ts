@@ -345,7 +345,7 @@ export function useDeleteInsuranceOption() {
 // ---------------------------------------------------------------------------
 
 export function usePlans(
-  filters: { companyId?: string; insuranceTypeId?: string; isActive?: boolean } = {},
+  filters: { companyId?: string; isActive?: boolean } = {},
 ) {
   return useQuery({
     queryKey: [...keys.plans, filters],

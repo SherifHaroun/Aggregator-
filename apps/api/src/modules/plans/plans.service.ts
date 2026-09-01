@@ -32,13 +32,12 @@ const planDetailInclude = {
 };
 
 export async function listPlans(
-  query: ListQuery & { companyId?: string; insuranceTypeId?: string },
+  query: ListQuery & { companyId?: string },
 ): Promise<Paginated<PlanDto>> {
   const prisma = getPrisma();
   const where = {
     ...activeFilter(query.isActive),
     ...(query.companyId ? { companyId: query.companyId } : {}),
-    ...(query.insuranceTypeId ? { insuranceTypeId: query.insuranceTypeId } : {}),
     ...(query.search
       ? {
           OR: [

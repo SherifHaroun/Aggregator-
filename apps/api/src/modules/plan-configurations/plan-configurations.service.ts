@@ -74,7 +74,6 @@ export async function listPlanConfigurations(
 
   const planFilter = {
     ...(query.companyId ? { companyId: query.companyId } : {}),
-    ...(query.insuranceTypeId ? { insuranceTypeId: query.insuranceTypeId } : {}),
     ...(query.search
       ? {
           OR: [

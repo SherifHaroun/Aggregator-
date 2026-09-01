@@ -182,6 +182,13 @@ export function VariantEditorForm({
   );
   const [currency, setCurrency] = useState(variant.currency ?? '');
   const [isActive, setIsActive] = useState(variant.isActive);
+  /**
+   * SME is priced by employee bracket — a partition of the ages, where every
+   * one falls into exactly one row. An individual has one age and a family is a
+   * list of people, so neither is a partition and neither gets this.
+   */
+  const usesBrackets = customerType === 'SME';
+
   const [bands, setBands] = useState<BandDraft[]>(() => toBandDrafts(variant));
 
   /**
@@ -480,13 +487,6 @@ export function VariantEditorForm({
       setSaving(false);
     }
   }
-
-  /**
-   * SME is priced by employee bracket — a partition of the ages, where every
-   * one falls into exactly one row. An individual has one age and a family is a
-   * list of people, so neither is a partition and neither gets this.
-   */
-  const usesBrackets = customerType === 'SME';
 
   /**
    * Write what each benefit says: its one figure, and its detail lines.

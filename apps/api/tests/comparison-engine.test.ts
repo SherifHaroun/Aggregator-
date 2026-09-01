@@ -240,18 +240,10 @@ describe('comparison engine', () => {
     expect(recommended(results)?.configurationId).toBe('strong');
   });
 
-  it('scores a lower deductible and co-payment as better, and a bigger limit as better', () => {
+  it('scores a bigger annual limit as better', () => {
     const results = scoreCandidates([
-      plan('good', 'Company A', 700, [pct('out', 'Outpatient', 80)], {
-        annualLimit: 100_000,
-        deductible: 5_000,
-        coPayment: 10,
-      }),
-      plan('poor', 'Company B', 700, [pct('out', 'Outpatient', 80)], {
-        annualLimit: 50_000,
-        deductible: 10_000,
-        coPayment: 20,
-      }),
+      plan('good', 'Company A', 700, [pct('out', 'Outpatient', 80)], { annualLimit: 100_000 }),
+      plan('poor', 'Company B', 700, [pct('out', 'Outpatient', 80)], { annualLimit: 50_000 }),
     ]);
 
     const good = results.find((r) => r.configurationId === 'good')!;
@@ -259,12 +251,30 @@ describe('comparison engine', () => {
     const cell = (result: typeof good, id: string) => result.attributes.find((a) => a.id === id)!;
 
     expect(cell(good, 'annualLimit').isBest).toBe(true);
-    expect(cell(good, 'deductible').isBest).toBe(true); // 5,000 beats 10,000
-    expect(cell(good, 'coPayment').isBest).toBe(true); // 10% beats 20%
-    expect(cell(poor, 'deductible').isBest).toBe(false);
+    expect(cell(poor, 'annualLimit').isBest).toBe(false);
 
     expect(good.coverageScore).toBeGreaterThan(poor.coverageScore);
     expect(recommended(results)?.configurationId).toBe('good');
+  });
+
+  it('compares nothing the business stopped collecting', () => {
+    const results = scoreCandidates([
+      plan('a', 'Company A', 700, [pct('out', 'Outpatient', 80)], {
+        annualLimit: 100_000,
+        deductible: 5_000,
+        coPayment: 10,
+      }),
+      plan('b', 'Company B', 700, [pct('out', 'Outpatient', 80)], { annualLimit: 50_000 }),
+    ]);
+
+    /**
+     * Deductible and co-payment are still columns, and older records still
+     * hold what they stated — but nothing asks for one any more, so a plan
+     * entered today would lose to a plan entered last year on a figure the
+     * newer one was never given the chance to state.
+     */
+    const ids = results[0]!.attributes.map((attribute) => attribute.id);
+    expect(ids).toEqual(['annualLimit']);
   });
 
   it('breaks a genuine tie deterministically, recommending exactly one plan', () => {
@@ -348,16 +358,16 @@ describe('comparison engine', () => {
   });
 
   it('does not punish a plan for leaving an attribute blank', () => {
-    // Same benefits, same price; one simply declares no deductible.
+    // Same benefits, same price; one simply declares no annual limit.
     const results = scoreCandidates([
-      plan('declares', 'Company A', 700, [pct('out', 'Outpatient', 80)], { deductible: 5_000 }),
+      plan('declares', 'Company A', 700, [pct('out', 'Outpatient', 80)], { annualLimit: 100_000 }),
       plan('blank', 'Company B', 700, [pct('out', 'Outpatient', 80)]),
     ]);
 
     const blank = results.find((r) => r.configurationId === 'blank')!;
     // Judged on its benefits alone rather than scored zero for the blank.
     expect(blank.coverageScore).toBeGreaterThan(0);
-    expect(blank.attributes.find((a) => a.id === 'deductible')!.value).toBeNull();
+    expect(blank.attributes.find((a) => a.id === 'annualLimit')!.value).toBeNull();
   });
   it('does not claim strong cover when no matching plan carries the benefit', () => {
     // Both plans match the criteria; neither provides what was asked for.
@@ -693,6 +703,60 @@ describe('a figure the plan never stated', () => {
     const cell = results.find((r) => r.configurationId === 'a')!.benefits[0]!;
     expect(cell.display).toBe(NOT_COVERED_LABEL);
     expect(cell.covered).toBe(false);
+  });
+
+  it('never lets a plan lead an area it never quoted', () => {
+    const results = scoreCandidates([
+      plan('quiet', 'Company A', 1000, [unquoted('chr', 'Chronic')]),
+      plan('stated', 'Company B', 1000, [pct('chr', 'Chronic', 90)]),
+    ]);
+
+    const quiet = results.find((r) => r.configurationId === 'quiet')!.benefits[0]!;
+    const stated = results.find((r) => r.configurationId === 'stated')!.benefits[0]!;
+
+    /**
+     * The quiet plan may well cover chronic conditions better than anybody.
+     * Nothing in its document says so, and marking silence "best" tells the
+     * customer something no insurer ever claimed — while the plan that put a
+     * figure on paper loses the row for having done it.
+     */
+    expect(quiet.isBest).toBe(false);
+    expect(stated.isBest).toBe(true);
+    expect(stated.score).toBeGreaterThan(quiet.score);
+  });
+
+  it('still credits a plan for carrying an area it did not put a figure on', () => {
+    const results = scoreCandidates([
+      plan('quiet', 'Company A', 1000, [unquoted('chr', 'Chronic')]),
+      plan('declined', 'Company B', 1000, [pct('chr', 'Chronic', 0)]),
+    ]);
+
+    const quiet = results.find((r) => r.configurationId === 'quiet')!.benefits[0]!;
+    const declined = results.find((r) => r.configurationId === 'declined')!.benefits[0]!;
+
+    /**
+     * Not being allowed to WIN the row is not the same as being treated as no
+     * cover. A plan that carries chronic without stating a ceiling still
+     * offers more than one that wrote 0.
+     */
+    expect(quiet.score).toBeGreaterThan(declined.score);
+    expect(quiet.covered).toBe(true);
+    expect(declined.covered).toBe(false);
+  });
+
+  it('lets a benefit stated in words lead its row, because words are all it has', () => {
+    const results = scoreCandidates([
+      plan('a', 'Company A', 1000, [words('net', 'Medical Network', 'Golden Care Network')]),
+      plan('b', 'Company B', 1000, [words('net', 'Medical Network', null)]),
+    ]);
+
+    /**
+     * The rule above is about a MISSING figure on an area quoted in figures.
+     * A provider network has no scale at all, so "provided" is the best any
+     * plan can say and the plan that says it leads the row.
+     */
+    const said = results.find((r) => r.configurationId === 'a')!.benefits[0]!;
+    expect(said.isBest).toBe(true);
   });
 
   it('still tells an unquoted benefit apart from one the plan lacks', () => {

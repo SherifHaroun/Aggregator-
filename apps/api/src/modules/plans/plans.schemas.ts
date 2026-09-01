@@ -62,7 +62,6 @@ export const duplicatePlanSchema = z.object({
 
 export const listPlansQueryExtension = z.object({
   companyId: z.string().min(1).optional(),
-  insuranceTypeId: z.string().min(1).optional(),
 });
 
 export type CreatePlanInput = z.infer<typeof createPlanSchema>;

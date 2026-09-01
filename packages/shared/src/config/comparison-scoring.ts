@@ -28,8 +28,7 @@ export const COMPARISON_WEIGHTS = {
 } as const;
 
 /**
- * How much of the coverage score the plan-level attributes (annual limit,
- * deductible, co-payment) may account for.
+ * How much of the coverage score the plan-level attributes may account for.
  *
  * Small on purpose. The customer chose the benefits, so those must decide the
  * ranking; the attributes only separate plans that are otherwise close. Set
@@ -55,8 +54,14 @@ export const COVERED_SCORE_FLOOR = 0.15;
  * A plan configuration attribute that takes part in scoring.
  *
  * These are columns of the configuration itself rather than benefits, which is
- * why their direction is declared here: a bigger annual limit is better, while
- * a bigger deductible or co-payment is worse.
+ * why their direction is declared here: a bigger annual limit is better.
+ *
+ * Deductible and co-payment stay in the list, DISABLED. The business does not
+ * collect them any more — nothing on the variant editor asks for one — so a
+ * column of blanks is all they could produce, and scoring on a figure nobody
+ * enters ranks plans on which record happened to predate the change. They are
+ * kept rather than deleted because the columns still hold what older records
+ * stated, and turning one back on is the one edit it should take.
  */
 export type PlanAttributeId = 'annualLimit' | 'deductible' | 'coPayment';
 
@@ -85,7 +90,7 @@ export const PLAN_ATTRIBUTES: readonly PlanAttributeDefinition[] = [
     direction: 'LOWER_IS_BETTER',
     unit: null,
     order: 2,
-    enabled: true,
+    enabled: false,
   },
   {
     id: 'coPayment',
@@ -93,7 +98,7 @@ export const PLAN_ATTRIBUTES: readonly PlanAttributeDefinition[] = [
     direction: 'LOWER_IS_BETTER',
     unit: '%',
     order: 3,
-    enabled: true,
+    enabled: false,
   },
 ];
 

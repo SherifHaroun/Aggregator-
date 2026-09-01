@@ -243,8 +243,17 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
        */
       const declined = benefit.value === 0;
       const covered = benefit.carried && !declined;
-      const comparable =
-        benefit.value !== null && !declined && direction !== 'NOT_COMPARABLE';
+      const comparable = benefit.value !== null && !declined && direction !== 'NOT_COMPARABLE';
+
+      /**
+       * Whether this area is quoted on a SCALE at all.
+       *
+       * The six core areas are: a percentage of the bill, or a ceiling in
+       * money. A benefit stated in words — a provider network, "covered at
+       * authorized centres" — is not, and the difference decides what a
+       * missing figure is worth.
+       */
+      const scaled = direction !== 'NOT_COMPARABLE';
 
       /**
        * What the figure is worth BEFORE its conditions are read.
@@ -253,11 +262,19 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
        * there is no scale to place it on, and "provided" is the best a plan
        * can say about it. Its conditions are then what separate one plan's
        * physiotherapy from another's.
+       *
+       * A SCALED area the plan never quoted is a different thing entirely. The
+       * plan carries the benefit but did not say how much, and full marks
+       * would put that silence above every plan that stated a real figure —
+       * rewarding the document nobody finished reading. It scores the floor
+       * instead: something rather than nothing, but never the best on offer.
        */
       const rawScore = comparable
         ? normaliseCovered(benefit.value!, range.min, range.max, direction)
         : covered
-          ? 1
+          ? scaled
+            ? COVERED_SCORE_FLOOR
+            : 1
           : 0;
 
       /**
@@ -361,7 +378,17 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
    * Genuine ties are all marked, as they were before.
    */
   for (const [index] of (scored[0]?.benefits ?? []).entries()) {
-    const cells = scored.map((entry) => entry.benefits[index]!).filter((cell) => cell.covered);
+    const cells = scored
+      .map((entry) => entry.benefits[index]!)
+      /**
+       * A plan that never quoted a scaled area cannot lead it. It may well be
+       * the best cover on the market; nothing in the document says so, and
+       * marking silence "best" tells the customer something no insurer ever
+       * claimed.
+       */
+      .filter(
+        (cell) => cell.covered && !(cell.direction !== 'NOT_COMPARABLE' && cell.value === null),
+      );
     if (cells.length === 0) continue;
     const best = Math.max(...cells.map((cell) => cell.score));
     for (const cell of cells) cell.isBest = cell.score + COMPARISON_TIE_EPSILON >= best;
