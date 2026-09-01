@@ -1,6 +1,6 @@
 import {
   CUSTOMER_TYPE_IDS,
-  GEOGRAPHICAL_COVERAGE_IDS,
+  ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
   PLAN_TIER_IDS,
@@ -31,7 +31,11 @@ export const comparisonRequestSchema = z
      */
     planTierId: z.enum(PLAN_TIER_IDS).optional(),
     customerTypeId: z.enum(CUSTOMER_TYPE_IDS),
-    geographicalCoverageId: z.enum(GEOGRAPHICAL_COVERAGE_IDS),
+    /**
+     * Only a scope still on sale. A retired one cannot be asked for, whatever
+     * the request was built by — there is nothing left to match it against.
+     */
+    geographicalCoverageId: z.enum(ENABLED_GEOGRAPHICAL_COVERAGE_IDS),
     /** ISO 4217, as stored on the configuration. */
     currency: z.string().trim().length(3).toUpperCase(),
     /**

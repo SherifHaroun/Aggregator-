@@ -1,6 +1,6 @@
 import {
   CUSTOMER_TYPE_IDS,
-  GEOGRAPHICAL_COVERAGE_IDS,
+  ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
 } from '@aggregator/shared';
@@ -13,7 +13,13 @@ const money = z.number().min(0).max(9_999_999_999.99);
  * configuration, never against a list retyped here.
  */
 export const customerTypeSchema = z.enum(CUSTOMER_TYPE_IDS);
-export const geographicalCoverageSchema = z.enum(GEOGRAPHICAL_COVERAGE_IDS);
+/**
+ * What a variant may be SAVED as: a scope still on sale.
+ *
+ * Existing variants recorded under a retired scope are unaffected — they are
+ * read back through the enum, which still holds every value ever used.
+ */
+export const geographicalCoverageSchema = z.enum(ENABLED_GEOGRAPHICAL_COVERAGE_IDS);
 
 /**
  * One end of a configuration's age band.

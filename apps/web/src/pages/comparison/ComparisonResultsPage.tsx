@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   CUSTOMER_TYPE_IDS,
-  GEOGRAPHICAL_COVERAGE_IDS,
+  ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
   PLAN_TIER_IDS,
   formatNumber,
   isSmeAgeBracketId,
@@ -50,7 +50,7 @@ export function ComparisonResultsPage() {
 
     const customerTypeId = oneOf<CustomerTypeId>(CUSTOMER_TYPE_IDS, params.get('customerTypeId'));
     const geographicalCoverageId = oneOf<GeographicalCoverageId>(
-      GEOGRAPHICAL_COVERAGE_IDS,
+      ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
       params.get('geographicalCoverageId'),
     );
     const currency = params.get('currency');

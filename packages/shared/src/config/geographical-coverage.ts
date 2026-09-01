@@ -13,8 +13,14 @@
  * employee inventing "Locl" at midnight would quietly stop matching plans.
  * PostgreSQL refusing an unknown value outright is worth the migration.
  *
- * `enabled: false` retires a scope from the pickers without invalidating the
- * variants already recorded against it.
+ * `enabled: false` RETIRES a scope. It disappears from every picker and the
+ * API stops accepting it, while the variants already recorded against it stay
+ * readable and keep their label — retiring a scope is not the same as deciding
+ * it never existed, and a plan sold that way is still a plan that was sold.
+ *
+ * Currently the business sells two: Local and International. The wider scopes
+ * are kept, retired, because the enum value is what makes an old row readable
+ * and dropping one is a migration that fails the moment a row uses it.
  */
 
 import type { ConfigOption, OptionRegistry } from './option-registry.js';
@@ -47,35 +53,50 @@ export const GEOGRAPHICAL_COVERAGES: OptionRegistry<
     order: 2,
     enabled: true,
   },
+  /**
+   * RETIRED. The business quotes Local or International and nothing between —
+   * a plan covering both is sold as two variants, which is what the rest of
+   * the model already assumes when it prices and compares them separately.
+   */
   LOCAL_AND_INTERNATIONAL: {
     id: 'LOCAL_AND_INTERNATIONAL',
     label: 'Local + International',
     description: 'Cover at home and abroad under one variant.',
     order: 3,
-    enabled: true,
+    enabled: false,
   },
+  /** RETIRED. International is the scope the documents actually state. */
   WORLDWIDE: {
     id: 'WORLDWIDE',
     label: 'Worldwide',
     order: 4,
-    enabled: true,
+    enabled: false,
   },
   /**
-   * A scope the list does not yet name.
-   *
-   * Present so an unusual plan can be recorded today rather than waiting for a
-   * migration — but it says nothing about WHERE, so a comparison can only treat
-   * it as "not one of the above". A scope that turns up repeatedly deserves its
-   * own entry here.
+   * RETIRED. It said nothing about WHERE, so a comparison could only ever read
+   * it as "not one of the above" — a variant nobody could be matched against
+   * on the one question the field exists to answer.
    */
   OTHER: {
     id: 'OTHER',
     label: 'Other',
     description: 'Anything the list above does not cover.',
     order: 5,
-    enabled: true,
+    enabled: false,
   },
 };
+
+/**
+ * The scopes a variant may be SAVED as, and a comparison may ask for.
+ *
+ * Derived from the registry rather than listed again, so retiring a scope stops
+ * it being written by every route at once — including a request typed by hand
+ * against the API, which no picker can prevent. Reading an old variant recorded
+ * under a retired scope is unaffected: the enum still holds it.
+ */
+export const ENABLED_GEOGRAPHICAL_COVERAGE_IDS = GEOGRAPHICAL_COVERAGE_IDS.filter(
+  (id) => GEOGRAPHICAL_COVERAGES[id].enabled,
+) as unknown as readonly [GeographicalCoverageId, ...GeographicalCoverageId[]];
 
 /**
  * What a variant is called on screen: the plan's name and what it covers.

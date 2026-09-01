@@ -1,6 +1,6 @@
 import {
   DEFAULT_AGE_BANDS,
-  GEOGRAPHICAL_COVERAGE_IDS,
+  ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
   type GeographicalCoverageId,
 } from '@aggregator/shared';
 
@@ -66,10 +66,11 @@ export function newVariant(
   taken: readonly GeographicalCoverageId[] = [],
 ): VariantDraft {
   sequence += 1;
-  const free = GEOGRAPHICAL_COVERAGE_IDS.find((id) => !taken.includes(id));
+  // Only a scope still on sale: a retired one could not be saved anyway.
+  const free = ENABLED_GEOGRAPHICAL_COVERAGE_IDS.find((id) => !taken.includes(id));
   return {
     key: `variant_${sequence}`,
-    geographicalCoverage: free ?? GEOGRAPHICAL_COVERAGE_IDS[0],
+    geographicalCoverage: free ?? ENABLED_GEOGRAPHICAL_COVERAGE_IDS[0],
     medicalNetworkId: '',
     annualLimit: '',
     entries: Object.fromEntries(coreBenefits.map((benefit) => [benefit.name, emptyEntry()])),

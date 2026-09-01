@@ -6,9 +6,15 @@
  * they are never written anywhere.
  */
 
+import { geographicalCoverageSchema } from '../src/modules/plan-configurations/plan-configurations.schemas.js';
 import {
   BENEFIT_VALUE_KINDS,
   CUSTOMER_TYPES,
+  ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
+  GEOGRAPHICAL_COVERAGES,
+  GEOGRAPHICAL_COVERAGE_IDS,
+  listEnabledOptions,
+  variantDisplayName,
   NOT_SPECIFIED_LABEL,
   SME_FIXED_AVERAGE_AGE,
   benefitTypeLabel,
@@ -216,5 +222,46 @@ describe('figures read the way a plan document writes them', () => {
     expect(formatPercentage(null)).toBe(NOT_SPECIFIED_LABEL);
     expect(formatMoney(100000, 'EGP')).toBe('100,000 EGP');
     expect(formatPercentage(20)).toBe('20%');
+  });
+});
+
+/**
+ * WHERE A PLAN COVERS, and the two answers the business gives.
+ */
+describe('geographical coverage', () => {
+  it('offers Local and International, and nothing else', () => {
+    /**
+     * A plan covering both is sold as TWO variants — which is what the rest of
+     * the model already assumes when it prices and compares them separately.
+     * "Other" said nothing about where at all, so a comparison could only read
+     * it as "not one of the above": a variant nobody could be matched against
+     * on the one question the field exists to answer.
+     */
+    expect(listEnabledOptions(GEOGRAPHICAL_COVERAGES).map((option) => option.label)).toEqual([
+      'Local',
+      'International',
+    ]);
+    expect(ENABLED_GEOGRAPHICAL_COVERAGE_IDS).toEqual(['LOCAL', 'INTERNATIONAL']);
+  });
+
+  it('keeps a retired scope readable, so an old variant still says where', () => {
+    /**
+     * Retiring a scope is not deciding it never existed. The enum value stays,
+     * so a variant recorded under it still loads and still carries its label —
+     * dropping one is a migration that fails the moment a row uses it.
+     */
+    expect(GEOGRAPHICAL_COVERAGE_IDS).toContain('WORLDWIDE');
+    expect(GEOGRAPHICAL_COVERAGES.WORLDWIDE.label).toBe('Worldwide');
+    expect(variantDisplayName('Gold+', 'WORLDWIDE')).toBe('Gold+ Worldwide');
+  });
+
+  it('refuses to save a variant under a retired scope', () => {
+    // Not merely absent from the pickers: a request typed by hand is refused
+    // too, which is the only version of the rule that actually holds.
+    expect(geographicalCoverageSchema.safeParse('LOCAL').success).toBe(true);
+    expect(geographicalCoverageSchema.safeParse('INTERNATIONAL').success).toBe(true);
+    for (const retired of ['LOCAL_AND_INTERNATIONAL', 'WORLDWIDE', 'OTHER']) {
+      expect(geographicalCoverageSchema.safeParse(retired).success).toBe(false);
+    }
   });
 });
