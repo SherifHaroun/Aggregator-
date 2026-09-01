@@ -26,6 +26,10 @@ export const ROUTES = {
     list: '/plans',
     detail: (companyId: string, planId: string) => `/companies/${companyId}/plans/${planId}`,
   },
+  benefits: {
+    /** The catalogue every company shares. Created here, valued on a variant. */
+    list: '/benefits',
+  },
   planTiers: {
     /** Read-only: what Basic, Standard and Premium mean. Nothing to manage. */
     list: '/plan-tiers',

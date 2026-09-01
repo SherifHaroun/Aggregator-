@@ -312,14 +312,25 @@ function givenConfiguration(
 // ---------------------------------------------------------------------------
 
 describe('navigation', () => {
-  it('offers exactly Dashboard, Compare plans, Add Company and Companies', async () => {
+  it('offers exactly Dashboard, Compare plans, Add Company, Companies and Benefits', async () => {
     renderApp(ROUTES.dashboard);
     const sidebar = await screen.findByRole('navigation');
     const links = within(sidebar)
       .getAllByRole('link')
       .map((link) => link.textContent?.trim());
 
-    expect(links).toEqual(['Dashboard', 'Compare plans', 'Add Company', 'Companies']);
+    /**
+     * Benefits earns its place at the top level: the catalogue belongs to no
+     * company — it is one list shared by all of them — so it cannot be reached
+     * by drilling into one. Everything else still is.
+     */
+    expect(links).toEqual([
+      'Dashboard',
+      'Compare plans',
+      'Add Company',
+      'Companies',
+      'Benefits',
+    ]);
   });
 
   it('leads with starting a comparison, not with managing companies', async () => {
@@ -630,8 +641,13 @@ describe('navigation', () => {
 
     // The label sits in the tile's header row; the count is its sibling. Tiles
     // show a dash until their query lands, so wait for the real figure.
+    /**
+     * Scoped to the tiles: "Benefits" is also a sidebar link now, and the
+     * dashboard is asking about the count rather than the navigation.
+     */
+    const tiles = within(await screen.findByRole('main'));
     const tile = (label: string) =>
-      screen.getByText(label).parentElement?.parentElement?.textContent ?? '';
+      tiles.getByText(label).parentElement?.parentElement?.textContent ?? '';
 
     await screen.findByText('Available plans');
     await waitFor(() => {

@@ -1,16 +1,26 @@
 /**
  * Sidebar navigation.
  *
- * Deliberately short. Insurance types, plans, options, configurations and
- * option fields are all reached by drilling into a company, so the employee
- * never has to hunt across parallel screens.
+ * Deliberately short. Plans, variants and their values are all reached by
+ * drilling into a company, so the employee never has to hunt across parallel
+ * screens.
+ *
+ * BENEFITS is the exception, and earns it: the catalogue belongs to no company.
+ * It is one list shared by all of them, and a benefit has to exist in it before
+ * any plan can point at one — so it cannot live underneath a company.
  *
  * "Compare plans" leads instead: it is what the site exists to do, and it reads
  * the same database the rest of these screens fill in.
  */
 
 import type { ComponentType, SVGProps } from 'react';
-import { IconAdd, IconBuilding, IconDashboard, IconSparkle } from '@/components/ui/icons';
+import {
+  IconAdd,
+  IconBuilding,
+  IconDashboard,
+  IconLayers,
+  IconSparkle,
+} from '@/components/ui/icons';
 import { ROUTES } from './routes';
 
 export interface NavItem {
@@ -36,6 +46,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: IconBuilding,
     matchPrefix: ROUTES.companies.list,
   },
+  { label: 'Benefits', to: ROUTES.benefits.list, icon: IconLayers },
 ];
 
 export const APP_NAME = 'Hadbrok';
