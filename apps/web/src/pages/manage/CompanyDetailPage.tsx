@@ -212,6 +212,9 @@ export function CompanyDetailPage() {
         <Dialog
           open
           size="lg"
+          /* A plan with several variants, each with its own rate table, is a
+             long form; the default width reads it through a letterbox. */
+          expandable
           onClose={() => setAddingPlan(false)}
           title="Add a plan"
           description="The plan and its first price. More combinations can be added from the plan itself."

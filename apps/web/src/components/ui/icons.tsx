@@ -184,3 +184,25 @@ export const IconCopy = (p: IconProps) => (
     <path d="M13 4.5a2 2 0 0 0-2-2H4.5a2 2 0 0 0-2 2V11a2 2 0 0 0 2 2" />
   </Icon>
 );
+
+/** Corners pushing outward — "make this fill the screen". */
+export const IconExpand = (props: SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} {...props}>
+    <path
+      d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);
+
+/** Corners pulling inward — "give me the small one back". */
+export const IconCollapse = (props: SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} {...props}>
+    <path
+      d="M4 9h5V4M20 9h-5V4M20 15h-5v5M4 15h5v5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  </svg>
+);

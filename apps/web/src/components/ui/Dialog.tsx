@@ -1,6 +1,7 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 import { Button } from './Button';
+import { IconCollapse, IconExpand } from './icons';
 
 /**
  * Modal dialog built on the native <dialog> element, so focus trapping and
@@ -14,6 +15,7 @@ export function Dialog({
   children,
   footer,
   size = 'md',
+  expandable = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -22,8 +24,17 @@ export function Dialog({
   children?: ReactNode;
   footer?: ReactNode;
   size?: 'md' | 'lg';
+  /**
+   * Offers a control that fills the screen with this dialog.
+   *
+   * For the forms that are genuinely long — a plan and every variant of it —
+   * where the default width leaves a rate table reading through a letterbox.
+   * The employee chooses; nothing opens expanded on its own.
+   */
+  expandable?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     const element = ref.current;
@@ -48,15 +59,42 @@ export function Dialog({
       className={cn(
         'bg-surface text-content m-auto w-[calc(100vw-2rem)] rounded-(--radius-card) p-0 shadow-(--shadow-raised)',
         'backdrop:bg-black/40',
-        size === 'lg' ? 'max-w-2xl' : 'max-w-lg',
+        expanded
+          ? 'flex h-[calc(100vh-2rem)] max-w-none flex-col'
+          : size === 'lg'
+            ? 'max-w-2xl'
+            : 'max-w-lg',
       )}
     >
-      <div className="border-border-subtle border-b px-6 py-4">
-        <h2 className="text-content text-base font-semibold">{title}</h2>
-        {description ? <p className="text-content-muted mt-1 text-sm">{description}</p> : null}
+      <div className="border-border-subtle flex items-start gap-3 border-b px-6 py-4">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-content text-base font-semibold">{title}</h2>
+          {description ? <p className="text-content-muted mt-1 text-sm">{description}</p> : null}
+        </div>
+        {expandable ? (
+          <button
+            type="button"
+            onClick={() => setExpanded((current) => !current)}
+            aria-pressed={expanded}
+            aria-label={expanded ? 'Exit full screen' : 'Full screen'}
+            title={expanded ? 'Exit full screen' : 'Full screen'}
+            className="text-content-muted hover:bg-surface-muted hover:text-content shrink-0 rounded-(--radius-control) p-2"
+          >
+            {expanded ? <IconCollapse className="size-4" /> : <IconExpand className="size-4" />}
+          </button>
+        ) : null}
       </div>
 
-      {children ? <div className="max-h-[60vh] overflow-y-auto px-6 py-5">{children}</div> : null}
+      {children ? (
+        <div
+          className={cn(
+            'overflow-y-auto px-6 py-5',
+            expanded ? 'min-h-0 flex-1' : 'max-h-[60vh]',
+          )}
+        >
+          {children}
+        </div>
+      ) : null}
 
       {footer ? (
         <div className="border-border-subtle bg-surface-muted/60 flex flex-wrap justify-end gap-3 border-t px-6 py-4">
