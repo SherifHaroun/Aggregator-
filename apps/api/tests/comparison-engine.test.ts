@@ -12,6 +12,7 @@ import {
   rankLabel,
   rankValue,
   scoreCandidates,
+  NOT_COVERED_LABEL,
   NOT_SPECIFIED_LABEL,
   type AppliedLimitation,
   type CandidateBenefit,
@@ -36,6 +37,23 @@ const pct = (
   value,
   dataType: 'PERCENTAGE',
   unit: '%',
+  carried: value !== null,
+  textValue: null,
+  limitations,
+});
+
+/** A benefit quoted as a ceiling in money — maternity, dental, optical, chronic. */
+const money = (
+  optionId: string,
+  optionName: string,
+  value: number | null,
+  limitations: AppliedLimitation[] = [],
+): CandidateBenefit => ({
+  optionId,
+  optionName,
+  value,
+  dataType: 'CURRENCY',
+  unit: null,
   carried: value !== null,
   textValue: null,
   limitations,
@@ -627,17 +645,54 @@ describe('a figure the plan never stated', () => {
     expect(cell.display).not.toBe('Covered');
   });
 
-  it('keeps a stated zero as zero', () => {
+  it('reads a stated zero as the plan declining the area', () => {
     const results = scoreCandidates([
-      plan('a', 'Company A', 1000, [pct('cop', 'Co-payment', 0)]),
-      plan('b', 'Company B', 1100, [pct('cop', 'Co-payment', 20)]),
+      plan('a', 'Company A', 1000, [pct('den', 'Dental', 0)]),
+      plan('b', 'Company B', 1100, [pct('den', 'Dental', 20)]),
     ]);
 
     const cell = results.find((r) => r.configurationId === 'a')!.benefits[0]!;
-    // A document that says "no co-payment" said something, and it is not blank.
+
+    /**
+     * A document that writes 0 said something — and what it said is "we do not
+     * cover this". Showing it as 0% would read as the weakest cover on offer,
+     * which is a different and better claim than none at all.
+     */
     expect(cell.value).toBe(0);
-    expect(cell.display).toBe('0%');
+    expect(cell.display).toBe(NOT_COVERED_LABEL);
     expect(cell.display).not.toBe(NOT_SPECIFIED_LABEL);
+    expect(cell.display).not.toContain('0');
+  });
+
+  it('scores a stated zero as no cover, so it never outranks a real figure', () => {
+    const results = scoreCandidates([
+      plan('a', 'Company A', 1000, [pct('den', 'Dental', 0)]),
+      plan('b', 'Company B', 1000, [pct('den', 'Dental', 10)]),
+    ]);
+
+    const declined = results.find((r) => r.configurationId === 'a')!;
+    const thin = results.find((r) => r.configurationId === 'b')!;
+
+    /**
+     * Same premium, and the only difference is that one plan covers dental
+     * thinly and the other not at all. Ranking 0 as a figure would put them
+     * a hair apart; it is the whole benefit.
+     */
+    expect(thin.coverageScore).toBeGreaterThan(declined.coverageScore);
+    expect(declined.benefits[0]!.covered).toBe(false);
+    expect(thin.benefits[0]!.covered).toBe(true);
+  });
+
+  it('reads a zero ceiling the same way it reads a zero percentage', () => {
+    const results = scoreCandidates([
+      plan('a', 'Company A', 1000, [money('mat', 'Maternity', 0)]),
+      plan('b', 'Company B', 1100, [money('mat', 'Maternity', 40000)]),
+    ]);
+
+    // The rule is about the figure, not about which kind of figure it is.
+    const cell = results.find((r) => r.configurationId === 'a')!.benefits[0]!;
+    expect(cell.display).toBe(NOT_COVERED_LABEL);
+    expect(cell.covered).toBe(false);
   });
 
   it('still tells an unquoted benefit apart from one the plan lacks', () => {

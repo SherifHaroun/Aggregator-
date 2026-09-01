@@ -1322,7 +1322,8 @@ describe('plans', () => {
     const dialog = within(await screen.findByRole('dialog'));
     await user.type(dialog.getByLabelText(/Plan name/i), 'Elite');
     await user.type(dialog.getByLabelText(/Annual \/ in-patient limit/i), '600000');
-    await user.type(dialog.getByLabelText('In-patient coverage'), 'Fully Covered');
+    // In-patient is quoted as a share of the bill, so the box takes a figure.
+    await user.type(dialog.getByLabelText('In-patient coverage'), '80');
 
     // Three bands, three premiums, one benefit entry.
     await user.type(dialog.getByLabelText('Variant 1 premium, ages 1 to 17'), '3681');
@@ -1526,23 +1527,21 @@ describe('figures', () => {
     expect(store.configurations[0]?.annualLimit).toBe(100000);
   });
 
-  it('reads a figure the plan never stated as not specified, never as zero', async () => {
+  it('reads a figure the plan never stated as blank, never as zero', async () => {
     givenCompany();
-    givenInsuranceType();
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    store.configurations[0]!.deductible = null;
-    store.configurations[0]!.coPayment = null;
+    givenDentalCatalogueRecord();
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
     /**
-     * Blank, not zero. The plan said nothing about a deductible, and an empty
-     * box says that — a 0 would be a figure the document does not contain.
+     * Blank and 0 are different statements. The document said nothing about
+     * dental here, so the box is empty — a 0 would be the plan declining it.
      */
-    expect(await screen.findByLabelText(/Deductible/i)).toHaveValue('');
-    expect(screen.getByLabelText(/Co-payment/i)).toHaveValue('');
-    expect(screen.queryByText('0 EGP')).not.toBeInTheDocument();
+    expect(await screen.findByLabelText('Dental Limit')).toHaveValue('');
+    expect(screen.queryByText('Not covered')).not.toBeInTheDocument();
+    expect(store.values).toHaveLength(0);
   });
 });
 
@@ -1845,7 +1844,6 @@ describe('dynamic insurance options', () => {
   it('attaches a group with everything under it, and takes it all away again', async () => {
     const user = userEvent.setup();
     givenCompany();
-    givenInsuranceType();
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
 
@@ -1859,20 +1857,20 @@ describe('dynamic insurance options', () => {
 
     await addBenefitOnVariant(user, 'Life & Accident Coverage');
 
-    // One gesture, two rows: the heading and the benefit that belongs under it.
+    // One gesture, two rows: the heading and the benefit filed under it.
     await waitFor(() => expect(store.planOptions).toHaveLength(2));
-    expect(await screen.findByLabelText('Death (Natural) value')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Remove Life & Accident Coverage' }));
+    /**
+     * It reads as ONE additional benefit. A group's members are what it is
+     * made of, not separate things a plan states — and an additional benefit
+     * is stated in words rather than figures, so there is no box per member.
+     */
+    const additional = within(screen.getByRole('region', { name: 'Additional benefits' }));
+    expect(await additional.findByText('Life & Accident Coverage')).toBeInTheDocument();
+    expect(additional.queryByText('Death (Natural)')).not.toBeInTheDocument();
 
-    // One click removes one row: the sub-benefit and its value stay put.
+    await user.click(additional.getByRole('button', { name: 'Remove Life & Accident Coverage' }));
     await waitFor(() => expect(store.planOptions).toHaveLength(1));
-    expect(store.planOptions[0]?.optionId).toBe('option_death');
-    expect(await screen.findByLabelText('Death (Natural) value')).toBeInTheDocument();
-
-    // ...and the row that is left can still be removed on its own.
-    await user.click(screen.getByRole('button', { name: 'Remove Death (Natural)' }));
-    await waitFor(() => expect(store.planOptions).toHaveLength(0));
   });
 
   it('changes what a benefit carries, keeping the figures already entered', async () => {
@@ -1912,94 +1910,11 @@ describe('dynamic insurance options', () => {
     expect(store.values[0]?.value).toBe(80);
   });
 
-  it('creates a benefit quoted two ways, and shows both boxes with OR between', async () => {
+
+
+  it('records a detail against a benefit, kept per variant', async () => {
     const user = userEvent.setup();
     givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-
-    const catalogue = renderApp(ROUTES.benefits.list);
-
-    await user.click(await screen.findByRole('button', { name: /New benefit/i }));
-    await user.type(await screen.findByLabelText(/Benefit name/i), 'Dental');
-
-    const kinds = await screen.findByRole('group', { name: /What does it carry/i });
-    await user.click(
-      within(kinds)
-        .getAllByRole('radio')
-        .find((radio) => (radio.closest('label')?.textContent ?? '').includes('Limit'))!,
-    );
-
-    await user.click(screen.getByRole('checkbox', { name: /quoted another way/i }));
-    const alternative = await screen.findByRole('group', { name: /What is the alternative/i });
-    await user.click(
-      within(alternative)
-        .getAllByRole('radio')
-        .find((radio) => (radio.closest('label')?.textContent ?? '').includes('Percentage'))!,
-    );
-    await user.click(screen.getByRole('button', { name: /^Save$/ }));
-
-    await waitFor(() => expect(store.options).toHaveLength(1));
-    // Two fields: the limit it is worth, and the percentage it may be quoted as.
-    expect(store.options[0]?.fields?.map((field) => field.dataType)).toEqual([
-      'CURRENCY',
-      'PERCENTAGE',
-    ]);
-
-    /**
-     * On the variant, both are editable side by side. Dental is one of the six
-     * CORE areas, so it is not offered in the picker — it already has a
-     * section of its own, waiting for the record to exist.
-     */
-    catalogue.unmount();
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    const core = within(await screen.findByRole('region', { name: 'Core benefits' }));
-    await user.click(
-      within(core.getByText('Dental').closest('div')!.parentElement!).getByRole('button', {
-        name: /Add/i,
-      }),
-    );
-
-    expect(await screen.findByLabelText('Dental value')).toBeInTheDocument();
-    expect(await screen.findByLabelText('Dental alternative value')).toBeInTheDocument();
-    expect(screen.getByText('or')).toBeInTheDocument();
-  });
-
-  it('records a different figure in each box', async () => {
-    const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOptionWithAlternative();
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-    });
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    await user.type(await screen.findByLabelText('Dental value'), '800');
-    await user.tab();
-    await waitFor(() => expect(store.values).toHaveLength(1));
-
-    await user.type(await screen.findByLabelText('Dental alternative value'), '80');
-    await user.tab();
-    await waitFor(() => expect(store.values).toHaveLength(2));
-
-    // The two figures are independent values of the same benefit.
-    expect(store.values.find((v) => v.optionFieldId === 'option_1_limit')?.value).toBe(800);
-    expect(store.values.find((v) => v.optionFieldId === 'option_1_alternative')?.value).toBe(80);
-  });
-
-  it('adds a note to a benefit, kept per configuration', async () => {
-    const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
     givenOption();
@@ -2012,19 +1927,21 @@ describe('dynamic insurance options', () => {
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    // The note stays out of the way until it is asked for.
-    expect(screen.queryByLabelText('Aurora Wellness Programme note')).not.toBeInTheDocument();
-    await user.click(
-      await screen.findByRole('button', { name: /Add a note to Aurora Wellness Programme/i }),
-    );
-
+    const additional = within(await screen.findByRole('region', { name: 'Additional benefits' }));
+    await user.click(additional.getByRole('button', { name: /Add detail/i }));
     await user.type(
-      await screen.findByLabelText('Aurora Wellness Programme note'),
+      await screen.findByLabelText('Aurora Wellness Programme detail 1'),
       '1 in 10 members ratio',
     );
-    await user.tab();
+    await user.click(screen.getByRole('button', { name: /Save changes/i }));
 
-    await waitFor(() => expect(store.planOptions[0]?.note).toBe('1 in 10 members ratio'));
+    /**
+     * The detail belongs to this VARIANT, not to the benefit: the same benefit
+     * is qualified differently on the next plan.
+     */
+    await waitFor(() =>
+      expect(store.planOptions[0]?.note).toBe('1 in 10 members ratio'),
+    );
   });
 
   /**
@@ -2034,83 +1951,7 @@ describe('dynamic insurance options', () => {
    * plans quoting the same figure scored the same. Ticking a catalogue record
    * instead is what makes the difference count.
    */
-  /**
-   * The qualification the comparison can actually read.
-   *
-   * A note saying "basic procedures only" was invisible to the engine, so two
-   * plans quoting the same figure scored the same. Ticking an answer on the
-   * benefit's OWN setting is what makes the difference count.
-   */
-  it('ticks an answer on the benefit’s own setting', async () => {
-    const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption();
-    const fieldId = givenMultiSetting();
-    givenAnswer('answer_1', fieldId, 'Basic procedures only', 0);
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-    });
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    await user.click(
-      await screen.findByRole('button', {
-        name: 'Limitations for Aurora Wellness Programme',
-      }),
-    );
-    await user.click(await screen.findByLabelText(/Basic procedures only/));
-
-    await waitFor(() => expect(store.planOptions[0]?.tickedChoiceIds).toEqual(['answer_1']));
-
-    // The row now states the condition rather than showing an empty box.
-    await user.keyboard('{Escape}');
-    await waitFor(() =>
-      expect(
-        screen.getByRole('button', { name: 'Limitations for Aurora Wellness Programme' }),
-      ).toHaveTextContent('Basic procedures only'),
-    );
-  });
-
-  /**
-   * Cover that is a named tier rather than a figure.
-   *
-   * "Golden Care Network" is not a percentage, so it is picked from the
-   * benefit's own list — never typed — and the value stored is the answer's id
-   * so that reordering the list re-ranks the plans without rewriting what any
-   * of them says.
-   */
-  it('picks a ranked answer from the benefit’s own list', async () => {
-    const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenRankedOption();
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-    });
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    const select = await screen.findByLabelText('Medical Network value');
-    // Both answers are offered, in the employee's order.
-    expect(within(select).getByRole('option', { name: 'Golden Care Network' })).toBeInTheDocument();
-    expect(within(select).getByRole('option', { name: 'Orange Care Network' })).toBeInTheDocument();
-
-    await user.selectOptions(select, 'choice_gold');
-
-    // The ANSWER'S ID is stored, not its wording and not its position.
-    await waitFor(() => expect(store.values[0]?.value).toBe('choice_gold'));
-  });
 
   /**
    * A catalogue of thirty benefits is a scroll, not a list. The search filters
@@ -2149,131 +1990,50 @@ describe('dynamic insurance options', () => {
    * is never asked. Dragging one condition above another says which is harsher,
    * and that is what the comparison reads.
    */
-  /**
-   * The ranking IS the weighting.
-   *
-   * Nobody can answer "is in-network-only worth 0.30 or 0.35?", so the question
-   * is never asked. Dragging one answer above another says which is harsher,
-   * and that is what the comparison reads.
-   */
-  it('ranks a setting’s answers, and renames and deletes them from the same list', async () => {
+  it('ranks a setting’s answers, and removes them, from the benefit itself', async () => {
     const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption();
-    const fieldId = givenMultiSetting();
-    givenAnswer('answer_1', fieldId, 'Basic procedures only', 0);
-    givenAnswer('answer_2', fieldId, 'In-network only', 1);
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-    });
+    givenRankedOption('option_1', 'Medical Network');
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    renderApp(ROUTES.benefits.list);
+    await user.click(await screen.findByRole('button', { name: 'Edit Medical Network' }));
 
-    await user.click(
-      await screen.findByRole('button', {
-        name: 'Limitations for Aurora Wellness Programme',
-      }),
-    );
-    await user.click(await screen.findByRole('button', { name: 'Rank & edit' }));
-
-    // Both ends are named, so the order is never left as a guess.
-    expect(await screen.findByText(/mildest/)).toBeInTheDocument();
-    expect(screen.getByText(/harshest/)).toBeInTheDocument();
-
-    // Rename one — plans record WHICH answer they gave, so this is safe.
-    await user.click(screen.getByRole('button', { name: 'Edit In-network only' }));
-    const field = await screen.findByLabelText('Rename In-network only');
-    await user.clear(field);
-    await user.type(field, 'In-network only (no reimbursement)');
-    await user.tab();
-
+    /**
+     * The answers belong to the BENEFIT, not to any one plan: every plan that
+     * records this setting picks from the same list, which is why the list is
+     * managed here rather than on a variant.
+     */
+    // The dialog re-reads the benefit so the list reflects the latest order.
+    await screen.findByLabelText(/Benefit name/i);
     await waitFor(() =>
-      expect(store.choices.find((c) => c.id === 'answer_2')?.label).toBe(
-        'In-network only (no reimbursement)',
-      ),
+      expect(screen.getByRole('button', { name: 'Reorder Golden Care Network' })).toBeInTheDocument(),
     );
+    expect(screen.getByRole('button', { name: 'Reorder Orange Care Network' })).toBeInTheDocument();
 
-    // Delete one nothing records: no warning is needed.
-    await user.click(screen.getByRole('button', { name: 'Delete Basic procedures only' }));
-    await waitFor(() => expect(store.choices).toHaveLength(1));
+    await user.click(screen.getByRole('button', { name: 'Remove Orange Care Network' }));
+    await waitFor(() => expect(store.choices.find((c) => c.id === 'choice_orange')).toBeUndefined());
+    expect(store.choices.find((c) => c.id === 'choice_gold')).toBeDefined();
   });
 
-  it('warns before deleting an answer that plans still record', async () => {
+  it('adds an answer to a setting from the benefit itself', async () => {
     const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption();
-    const fieldId = givenMultiSetting();
-    givenAnswer('answer_1', fieldId, 'Basic procedures only', 0);
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-      tickedChoiceIds: ['answer_1'],
-    });
+    givenRankedOption('option_1', 'Medical Network');
 
-    // Removing it makes that benefit read as UNRESTRICTED, so the API refuses
-    // and the count is put to the employee. Declining leaves everything alone.
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    renderApp(ROUTES.benefits.list);
+    await user.click(await screen.findByRole('button', { name: 'Edit Medical Network' }));
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await user.type(await screen.findByLabelText('New answer'), 'Out-of-network only');
+    await user.keyboard('{Enter}');
 
-    await user.click(
-      await screen.findByRole('button', {
-        name: 'Limitations for Aurora Wellness Programme',
-      }),
+    // One list, offered to every plan that records this setting.
+    await waitFor(() =>
+      expect(store.choices.some((c) => c.label === 'Out-of-network only')).toBe(true),
     );
-    await user.click(await screen.findByRole('button', { name: 'Rank & edit' }));
-    await user.click(await screen.findByRole('button', { name: 'Delete Basic procedures only' }));
-
-    await waitFor(() => expect(confirm).toHaveBeenCalled());
-    expect(store.choices).toHaveLength(1);
-    confirm.mockRestore();
   });
 
-  it('adds an answer the setting does not offer yet, without leaving the row', async () => {
+
+  it('renames a benefit, and the variant that carries it follows', async () => {
     const user = userEvent.setup();
     givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption();
-    givenMultiSetting();
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-    });
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    await user.click(
-      await screen.findByRole('button', {
-        name: 'Limitations for Aurora Wellness Programme',
-      }),
-    );
-    await user.type(await screen.findByLabelText('New answer'), 'In-network only');
-    await user.click(screen.getByRole('button', { name: 'Add' }));
-
-    // Created AND ticked: an employee who typed it plainly meant it to apply.
-    await waitFor(() => expect(store.choices).toHaveLength(1));
-    await waitFor(() => expect(store.planOptions[0]?.tickedChoiceIds).toHaveLength(1));
-  });
-
-  it('renames a benefit, and the coverage row follows', async () => {
-    const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
     givenOption();
@@ -2285,23 +2045,21 @@ describe('dynamic insurance options', () => {
     });
 
     const catalogue = renderApp(ROUTES.benefits.list);
-
     await user.click(await screen.findByRole('button', { name: 'Edit Aurora Wellness Programme' }));
     const field = await screen.findByLabelText(/Benefit name/i);
     await user.clear(field);
     await user.type(field, 'Wellness Programme');
     await user.click(screen.getByRole('button', { name: /^Save$/ }));
-
     await waitFor(() => expect(store.options[0]?.name).toBe('Wellness Programme'));
 
     /**
-     * The benefit is ONE record, shared by every plan that points at it — so
-     * the variant already carrying it reads the new name without anybody
-     * touching the variant.
+     * The benefit is ONE record, shared by every plan pointing at it, so the
+     * variant reads the new name without anybody touching the variant.
      */
     catalogue.unmount();
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    expect(await screen.findByLabelText('Wellness Programme value')).toBeInTheDocument();
+    const additional = within(await screen.findByRole('region', { name: 'Additional benefits' }));
+    expect(await additional.findByText('Wellness Programme')).toBeInTheDocument();
   });
 
   it('renames a sub-benefit without touching its group', async () => {
@@ -2427,161 +2185,8 @@ describe('dynamic insurance options', () => {
   });
 
 
-  it('saves a percentage automatically, with no Save button to press', async () => {
-    const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption();
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-    });
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    const input = await screen.findByLabelText('Aurora Wellness Programme value');
-    expect(
-      screen.queryByRole('button', { name: 'Save Aurora Wellness Programme' }),
-    ).not.toBeInTheDocument();
-
-    await user.type(input, '80');
-    // Leaving the field flushes the debounce rather than waiting it out.
-    await user.tab();
-
-    await waitFor(() => expect(store.values).toHaveLength(1));
-    expect(store.values[0]?.optionFieldId).toBe('option_1_percentage');
-    expect(store.values[0]?.value).toBe(80);
-    expect(await screen.findByText(/Saved/)).toBeInTheDocument();
-  });
-
-  it('keeps an unsaved percentage on screen and offers a retry', async () => {
-    const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption();
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-    });
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    store.failNext = {
-      method: 'PUT',
-      // The inline box writes its own field: /plan-options/:id/values/:fieldId
-      path: /^\/plan-options\/.+\/values\/.+$/,
-      status: 503,
-      body: {
-        ok: false,
-        error: { code: 'DATABASE_UNAVAILABLE', message: 'The database is not reachable.' },
-      },
-    };
-
-    const input = await screen.findByLabelText('Aurora Wellness Programme value');
-    await user.type(input, '90');
-    await user.tab();
-
-    // The value the employee typed is still there, and saving can be retried.
-    const retry = await screen.findByRole('button', {
-      name: 'Retry saving Aurora Wellness Programme',
-    });
-    // A figure is entered through a text control so it can carry separators.
-    expect(input).toHaveValue('90');
-    expect(store.values).toHaveLength(0);
-
-    await user.click(retry);
-    await waitFor(() => expect(store.values).toHaveLength(1));
-    expect(store.values[0]?.value).toBe(90);
-  });
-
-  it('renders a different benefit with a completely different field shape', async () => {
-    const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-
-    store.options.push({
-      id: 'option_2',
-      name: 'Zenith Travel Assistance',
-      description: null,
-      sortOrder: 0,
-      isActive: true,
-      ...timestamps,
-      fields: [
-        {
-          id: 'f_available',
-          optionId: 'option_2',
-          label: 'Available',
-          key: 'available',
-          dataType: 'BOOLEAN',
-          unit: null,
-          helpText: null,
-          isRequired: false,
-          sortOrder: 0,
-          isActive: true,
-          ...timestamps,
-        },
-        {
-          id: 'f_provider',
-          optionId: 'option_2',
-          label: 'Provider',
-          key: 'provider',
-          dataType: 'TEXT',
-          unit: null,
-          helpText: null,
-          isRequired: false,
-          sortOrder: 1,
-          isActive: true,
-          ...timestamps,
-        },
-      ],
-    });
-    store.planOptions.push({
-      id: 'planOption_2',
-      planConfigurationId: configurationId,
-      optionId: 'option_2',
-      sortOrder: 0,
-    });
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    /**
-     * Boolean renders as a Yes/No select, text as a text box — driven by
-     * dataType, with no code knowing what either field means.
-     *
-     * Both are core fields, so both are visible at once and each saves itself;
-     * the accessible name carries the benefit so thirty 'Coverage' boxes on one
-     * screen stay tellable apart.
-     */
-    const available = await screen.findByLabelText('Zenith Travel Assistance Available value');
-    expect(available.tagName).toBe('SELECT');
-    expect(screen.getByLabelText('Zenith Travel Assistance Provider value').tagName).toBe('INPUT');
-
-    await user.selectOptions(available, 'true');
-    await user.type(
-      screen.getByLabelText('Zenith Travel Assistance Provider value'),
-      'Any network clinic',
-    );
-
-    /**
-     * No Save button for a BENEFIT: each box goes on its own as it is filled
-     * in. The rate table below has one, because a set of age bands is edited
-     * and saved as a set — but no benefit value ever waits for a button.
-     */
-    const benefits = within(screen.getByRole('region', { name: 'Additional benefits' }));
-    expect(benefits.queryByRole('button', { name: /^Save/ })).not.toBeInTheDocument();
-    await waitFor(() => expect(store.values).toHaveLength(2), { timeout: 4000 });
-    expect(store.values.find((v) => v.optionFieldId === 'f_available')?.value).toBe(true);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -2603,7 +2208,8 @@ describe('plan coverage', () => {
 
     await addBenefitOnVariant(user, 'Aurora Wellness Programme');
 
-    expect(await screen.findByLabelText('Aurora Wellness Programme value')).toBeInTheDocument();
+    const additional = within(screen.getByRole('region', { name: 'Additional benefits' }));
+    expect(await additional.findByText('Aurora Wellness Programme')).toBeInTheDocument();
     await waitFor(() => expect(store.planOptions).toHaveLength(1));
   });
 
@@ -2646,38 +2252,27 @@ describe('plan coverage', () => {
   });
 
 
-  it('keeps each configuration’s values separate', async () => {
+  it('keeps each variant’s figures separate', async () => {
     const user = userEvent.setup();
     givenCompany();
-    givenInsuranceType();
     givenPlan();
-    givenOption();
-    const individual = givenConfiguration('cfg_individual', 'plan_1', 'INDIVIDUAL');
-    const family = givenConfiguration('cfg_family', 'plan_1', 'FAMILY');
+    const first = givenConfiguration('cfg_1', 'plan_1');
+    const second = givenConfiguration('cfg_2', 'plan_1');
+    store.configurations[1]!.geographicalCoverage = 'INTERNATIONAL';
+    givenDentalCatalogueRecord();
 
-    store.planOptions.push(
-      { id: 'po_individual', planConfigurationId: individual, optionId: 'option_1', sortOrder: 0 },
-      { id: 'po_family', planConfigurationId: family, optionId: 'option_1', sortOrder: 0 },
-    );
-
-    const first = renderApp(ROUTES.configurations.detail('company_1', 'plan_1', individual));
-    await user.type(await screen.findByLabelText('Aurora Wellness Programme value'), '80');
-    await user.tab();
+    const one = renderApp(ROUTES.configurations.detail('company_1', 'plan_1', first));
+    await user.type(await screen.findByLabelText('Dental Limit'), '2500');
+    await user.click(screen.getByRole('button', { name: /Save changes/i }));
     await waitFor(() => expect(store.values).toHaveLength(1));
-    first.unmount();
+    one.unmount();
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', family));
-    await user.type(await screen.findByLabelText('Aurora Wellness Programme value'), '90');
-    await user.tab();
-    await waitFor(() => expect(store.values).toHaveLength(2));
-
-    const coverageFor = (planOptionId: string) =>
-      store.values.find(
-        (v) => v.planOptionId === planOptionId && v.optionFieldId === 'option_1_percentage',
-      )?.value;
-
-    expect(coverageFor('po_individual')).toBe(80);
-    expect(coverageFor('po_family')).toBe(90);
+    /**
+     * The second variant of the SAME plan carries none of it. Values belong to
+     * a variant, so one can never read as the other.
+     */
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', second));
+    expect(await screen.findByLabelText('Dental Limit')).toHaveValue('');
   });
 });
 
@@ -2723,31 +2318,28 @@ describe('global benefits', () => {
     expect(store.options).toHaveLength(1);
   });
 
-  it('lets two companies hold the same benefit at different percentages', async () => {
+  it('lets two companies quote the same core area differently', async () => {
     const user = userEvent.setup();
     const { a, b } = givenTwoCompanies();
-    givenOption('option_1', 'Outpatient Care');
-    store.planOptions.push(
-      { id: 'po_a', planConfigurationId: a, optionId: 'option_1', sortOrder: 0 },
-      { id: 'po_b', planConfigurationId: b, optionId: 'option_1', sortOrder: 0 },
-    );
+    givenDentalCatalogueRecord();
 
     const first = renderApp(ROUTES.configurations.detail('company_a', 'plan_a', a));
-    await user.type(await screen.findByLabelText('Outpatient Care value'), '80');
-    await user.tab();
+    await user.type(await screen.findByLabelText('Dental Limit'), '2500');
+    await user.click(screen.getByRole('button', { name: /Save changes/i }));
     await waitFor(() => expect(store.values).toHaveLength(1));
     first.unmount();
 
     renderApp(ROUTES.configurations.detail('company_b', 'plan_b', b));
-    await user.type(await screen.findByLabelText('Outpatient Care value'), '60');
-    await user.tab();
+    await user.type(await screen.findByLabelText('Dental Limit'), '5000');
+    await user.click(screen.getByRole('button', { name: /Save changes/i }));
     await waitFor(() => expect(store.values).toHaveLength(2));
 
-    // One benefit record, two independent coverage values.
-    expect(store.options).toHaveLength(1);
-    expect(store.planOptions.every((planOption) => planOption.optionId === 'option_1')).toBe(true);
-    expect(store.values.find((v) => v.planOptionId === 'po_a')?.value).toBe(80);
-    expect(store.values.find((v) => v.planOptionId === 'po_b')?.value).toBe(60);
+    /**
+     * One catalogue record, two figures. What differs between companies is
+     * what their plans PAY, never which benefits exist.
+     */
+    expect(store.options.filter((option) => option.name === DENTAL)).toHaveLength(1);
+    expect(store.values.map((value) => value.value).sort()).toEqual([2500, 5000]);
   });
 
   it('creates no second record when the same benefit is dropped on another plan', async () => {
@@ -2931,459 +2523,9 @@ const conditionsOffered = () =>
     .filter((label) => label.endsWith(`for ${PRE_EXISTING}`))
     .map((label) => label.replace(` for ${PRE_EXISTING}`, ''));
 
-describe('pre-existing and chronic conditions', () => {
-  it('takes a limit as a currency figure, grouped as it is typed', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan();
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    const limit = await screen.findByLabelText(`${PRE_EXISTING} Limit value`);
-    await user.type(limit, '25000');
-    await user.tab();
 
-    // Read back grouped, stored plain.
-    expect(limit).toHaveValue('25,000');
-    await waitFor(() => expect(valueOf('pre_limit')?.value).toBe(25000));
-  });
-
-  it('asks for the period as a dropdown of four answers, with no Other', async () => {
-    const configurationId = givenPreExistingOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    const period = await screen.findByLabelText(`${PRE_EXISTING} Period value`);
-    expect(period.tagName).toBe('SELECT');
-    expect(
-      within(period)
-        .getAllByRole('option')
-        .map((option) => option.textContent),
-    ).toEqual(['Not specified', 'Per year', 'Per policy year', 'Lifetime', 'Within annual limit']);
-    expect(screen.getByText('Period').textContent).toContain('*');
-  });
-
-  it('stores the chosen period as the answer’s id, never as typed words', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    await user.selectOptions(
-      await screen.findByLabelText(`${PRE_EXISTING} Period value`),
-      'choice_period_0',
-    );
-
-    // The id of "Per year" — so one answer reads the same on every plan.
-    await waitFor(() => expect(valueOf('pre_period')?.value).toBe('choice_period_0'));
-  });
-
-  it('offers not one free-text box and not one Other, anywhere', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan('SME');
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${PRE_EXISTING} Limit value`);
-
-    // Every condition open at once, so nothing hides behind a toggle.
-    for (const condition of conditionsOffered()) {
-      await user.click(screen.getByRole('checkbox', { name: `${condition} for ${PRE_EXISTING}` }));
-    }
-    await screen.findByLabelText(`${PRE_EXISTING} Co-payment value`);
-
-    /**
-     * Not one ANSWER is "Other". Scoped to the benefits: the variant's own
-     * coverage dropdown offers Other as a scope, which is a different thing.
-     */
-    const benefits = within(screen.getByRole('region', { name: 'Core benefits' }));
-    expect(benefits.queryByRole('option', { name: /^other$/i })).toBeNull();
-
-    // Not one setting is defined as free text — including behind a toggle.
-    expect((store.options[0]?.fields ?? []).filter((field) => field.dataType === 'TEXT')).toEqual(
-      [],
-    );
-
-    /**
-     * And nothing on screen accepts a sentence. A figure box is an
-     * `<input type="text">` so it can group thousands as it is typed, so a
-     * textbox is judged by what it accepts: a numeric keypad means a number.
-     * Only the note — deliberately free — may take words.
-     */
-    const acceptsProse = screen
-      .getAllByRole('textbox')
-      .filter((box) => box.getAttribute('inputmode') !== 'decimal')
-      .map((box) => box.getAttribute('aria-label') ?? '')
-      .filter((label) => label.startsWith(PRE_EXISTING) && !label.endsWith('note'));
-    expect(acceptsProse).toEqual([]);
-  });
-
-  it('hides co-payment until the document is said to mention it', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    const toggle = await screen.findByRole('checkbox', { name: `Co-payment for ${PRE_EXISTING}` });
-    expect(toggle).not.toBeChecked();
-    expect(screen.queryByLabelText(`${PRE_EXISTING} Co-payment value`)).toBeNull();
-
-    await user.click(toggle);
-
-    const percentage = await screen.findByLabelText(`${PRE_EXISTING} Co-payment value`);
-    await user.type(percentage, '20');
-    await user.tab();
-    await waitFor(() => expect(valueOf('pre_co_payment')?.value).toBe(20));
-
-    // Switching it off says the document never mentioned it — nothing remains.
-    await user.click(toggle);
-    await waitFor(() => expect(valueOf('pre_co_payment')).toBeUndefined());
-    expect(screen.queryByLabelText(`${PRE_EXISTING} Co-payment value`)).toBeNull();
-  });
-
-  it('hides the waiting period until enabled, then counts it in months', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    expect(screen.queryByLabelText(`${PRE_EXISTING} Waiting period value`)).toBeNull();
-
-    await user.click(
-      await screen.findByRole('checkbox', { name: `Waiting period for ${PRE_EXISTING}` }),
-    );
-
-    const months = await screen.findByLabelText(`${PRE_EXISTING} Waiting period value`);
-    await user.type(months, '10');
-    await user.tab();
-    await waitFor(() => expect(valueOf('pre_waiting_period')?.value).toBe(10));
-    expect(screen.getByText('months')).toBeInTheDocument();
-  });
-
-  it('records several specific conditions, each its own value', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    await user.click(
-      await screen.findByRole('checkbox', { name: `Specific conditions for ${PRE_EXISTING}` }),
-    );
-    await user.click(
-      await screen.findByRole('button', { name: `Specific conditions for ${PRE_EXISTING}` }),
-    );
-
-    // Six named conditions to pick from, and no box to type a seventh into.
-    expect(
-      store.choices.filter((choice) => choice.optionFieldId === 'pre_specific_conditions'),
-    ).toHaveLength(6);
-
-    await user.click(await screen.findByRole('checkbox', { name: 'Diabetes' }));
-    await user.click(screen.getByRole('checkbox', { name: 'Hypertension' }));
-    await user.click(screen.getByRole('checkbox', { name: 'Kidney disease' }));
-
-    // Three separate answers, not one sentence — a report can count them.
-    await waitFor(() =>
-      expect(
-        store.planOptions.find((item) => item.id === 'planOption_pre')?.tickedChoiceIds,
-      ).toEqual(['choice_condition_0', 'choice_condition_1', 'choice_condition_5']),
-    );
-  });
-
-  it('offers Limit applies to as a dropdown of five answers', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    await user.click(
-      await screen.findByRole('checkbox', { name: `Limit applies to for ${PRE_EXISTING}` }),
-    );
-
-    const applies = await screen.findByLabelText(`${PRE_EXISTING} Limit applies to value`);
-    expect(applies.tagName).toBe('SELECT');
-    expect(
-      within(applies)
-        .getAllByRole('option')
-        .map((option) => option.textContent),
-    ).toEqual([
-      'Not specified',
-      'Per member',
-      'Per family',
-      'Per condition',
-      'Per year',
-      'Per policy year',
-    ]);
-
-    await user.selectOptions(applies, 'choice_applies_1');
-    await waitFor(() => expect(valueOf('pre_limit_applies_to')?.value).toBe('choice_applies_1'));
-  });
-
-  it('leaves untouched fields EMPTY, and never turns them into zero', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    // Nothing entered: the benefit is on the plan and says nothing else.
-    expect(await screen.findByLabelText(`${PRE_EXISTING} Limit value`)).toHaveValue('');
-    expect(store.values).toHaveLength(0);
-
-    // Switching a condition on without a figure is a real answer: it applies,
-    // the amount was not stated. The row exists; its value stays null.
-    await user.click(
-      await screen.findByRole('checkbox', { name: `Co-payment for ${PRE_EXISTING}` }),
-    );
-    await waitFor(() => expect(valueOf('pre_co_payment')).toBeDefined());
-    expect(valueOf('pre_co_payment')?.value).toBeNull();
-    expect(await screen.findByLabelText(`${PRE_EXISTING} Co-payment value`)).toHaveValue('');
-
-    // And a stated zero is still recorded as zero.
-    await user.type(screen.getByLabelText(`${PRE_EXISTING} Limit value`), '0');
-    await user.tab();
-    await waitFor(() => expect(valueOf('pre_limit')?.value).toBe(0));
-  });
-
-  // -------------------------------------------------------------------------
-  // ONE benefit, asked differently of each customer type
-  // -------------------------------------------------------------------------
-
-  it('never asks an individual plan for a member ratio', async () => {
-    const configurationId = givenPreExistingOnAPlan('INDIVIDUAL');
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${PRE_EXISTING} Limit value`);
-
-    // Four conditions, and Member ratio is not among them — an individual
-    // policy has no group, so the question is not put at all.
-    expect(conditionsOffered()).toEqual([
-      'Co-payment',
-      'Waiting period',
-      'Specific conditions',
-      'Limit applies to',
-    ]);
-    expect(screen.queryByRole('checkbox', { name: /Member ratio/i })).toBeNull();
-    // Not hidden behind a toggle either: its boxes do not exist on this plan.
-    expect(screen.queryByLabelText(`${PRE_EXISTING} One in value`)).toBeNull();
-    expect(screen.queryByLabelText(`${PRE_EXISTING} Members value`)).toBeNull();
-  });
-
-  it.each([
-    ['FAMILY' as CustomerTypeId, '10'],
-    ['SME' as CustomerTypeId, '20'],
-  ])('asks a %s plan for a member ratio, as two numbers', async (customerType, oneIn) => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan(customerType);
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${PRE_EXISTING} Limit value`);
-
-    expect(conditionsOffered()).toEqual([
-      'Co-payment',
-      'Waiting period',
-      'Specific conditions',
-      'Limit applies to',
-      'Member ratio',
-    ]);
-
-    await user.click(screen.getByRole('checkbox', { name: `Member ratio for ${PRE_EXISTING}` }));
-
-    // "One in 10 members" — two figures a report can compare, not a sentence.
-    await user.type(await screen.findByLabelText(`${PRE_EXISTING} One in value`), oneIn);
-    await user.tab();
-    await user.type(screen.getByLabelText(`${PRE_EXISTING} Members value`), '1');
-    await user.tab();
-
-    await waitFor(() => expect(valueOf('pre_one_in')?.value).toBe(Number(oneIn)));
-    expect(valueOf('pre_members')?.value).toBe(1);
-
-    // The toggle is the yes/no, so the condition itself asks nothing further.
-    expect(screen.queryByLabelText(`${PRE_EXISTING} Member ratio value`)).toBeNull();
-  });
-
-  it('is one benefit, not one per customer type', async () => {
-    const first = renderApp(
-      ROUTES.configurations.detail('company_1', 'plan_1', givenPreExistingOnAPlan('INDIVIDUAL')),
-    );
-    await screen.findByLabelText(`${PRE_EXISTING} Limit value`);
-    expect(conditionsOffered()).toHaveLength(4);
-    first.unmount();
-
-    // The SME configuration of the SAME plan asks one question more, and every
-    // question they share is the same field — no second benefit exists.
-    const configurationId = givenConfiguration('cfg_sme', 'plan_1', 'SME');
-    store.planOptions.push({
-      id: 'planOption_pre',
-      planConfigurationId: configurationId,
-      optionId: 'option_pre',
-      sortOrder: 0,
-    });
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${PRE_EXISTING} Limit value`);
-    expect(conditionsOffered()).toHaveLength(5);
-
-    expect(store.options).toHaveLength(1);
-    expect(store.options[0]?.fields).toHaveLength(9);
-  });
-});
-
-describe('a multi-select shows its answers as answers', () => {
-  it('renders each ticked answer separately, never as one joined sentence', async () => {
-    const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption('option_1', 'Inpatient & Daycase');
-    const fieldId = givenMultiSetting('option_1', 'Included services');
-    ['Operating room', 'Surgeon fees', 'ICU', 'Room & board'].forEach((label, index) =>
-      givenAnswer(`svc_${index}`, fieldId, label, index),
-    );
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-      tickedChoiceIds: ['svc_0', 'svc_1', 'svc_2', 'svc_3'],
-    });
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    const control = await screen.findByRole('button', {
-      name: 'Included services for Inpatient & Daycase',
-    });
-
-    /**
-     * Four facts, four elements. Joined into "Operating room · Surgeon fees ·
-     * ICU · Room & board" they would read as one vague remark and truncate into
-     * nonsense — and what is stored is four separate answers.
-     */
-    const shown = within(control)
-      .getAllByText(/Operating room|Surgeon fees|ICU|Room & board/)
-      .map((chip) => chip.textContent);
-    expect(shown).toEqual(['Operating room', 'Surgeon fees', 'ICU', 'Room & board']);
-
-    // Each answer stays individually ticked and individually removable.
-    await user.click(control);
-    const services = await screen.findByRole('checkbox', { name: 'Surgeon fees' });
-    expect(services).toBeChecked();
-    await user.click(services);
-    await waitFor(() =>
-      expect(store.planOptions[0]?.tickedChoiceIds).toEqual(['svc_0', 'svc_2', 'svc_3']),
-    );
-  });
-
-  it('says nothing was recorded rather than inventing a summary', async () => {
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption('option_1', 'Inpatient & Daycase');
-    givenMultiSetting('option_1', 'Included services');
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-    });
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    // Unspecified stays unspecified — no "Includes: …" sentence is generated.
-    const control = await screen.findByRole('button', {
-      name: 'Included services for Inpatient & Daycase',
-    });
-    expect(control.textContent).toBe('+ Included services');
-  });
-});
-
-describe('a condition does not say its own name twice', () => {
-  it('labels an enabled condition once — on its checkbox, not again on its box', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    await user.click(
-      await screen.findByRole('checkbox', { name: `Limit applies to for ${PRE_EXISTING}` }),
-    );
-    await screen.findByLabelText(`${PRE_EXISTING} Limit applies to value`);
-
-    // The checkbox names the condition. The control under it needs no caption
-    // of its own — repeating it reads as two separate things.
-    expect(screen.getAllByText('Limit applies to')).toHaveLength(1);
-  });
-
-  it('still labels each box of a condition that asks for more than one', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan('FAMILY');
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await user.click(
-      await screen.findByRole('checkbox', { name: `Member ratio for ${PRE_EXISTING}` }),
-    );
-
-    // "One in [ ] Members" — two boxes that must each say which is which.
-    expect(await screen.findByText('One in')).toBeInTheDocument();
-    expect(screen.getByText('Members')).toBeInTheDocument();
-    expect(screen.getAllByText('Member ratio')).toHaveLength(1);
-  });
-});
-
-describe('a dropdown inside a condition is not cut off', () => {
-  it('stops clipping the reveal once it has finished opening', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    const toggle = await screen.findByRole('checkbox', {
-      name: `Specific conditions for ${PRE_EXISTING}`,
-    });
-    await user.click(toggle);
-
-    const control = await screen.findByRole('button', {
-      name: `Specific conditions for ${PRE_EXISTING}`,
-    });
-
-    /**
-     * The reveal clips its content while it grows, or the row spills out at
-     * half height. A dropdown opens BELOW its control, so a clip that outlived
-     * the animation cut the panel off and the answers could not be reached.
-     */
-    const clip = control.closest('.overflow-hidden, .overflow-visible');
-    await waitFor(() => expect(clip).toHaveClass('overflow-visible'));
-
-    // And the answers are reachable and tickable.
-    await user.click(control);
-    await user.click(await screen.findByRole('checkbox', { name: 'Kidney disease' }));
-    await waitFor(() =>
-      expect(
-        store.planOptions.find((item) => item.id === 'planOption_pre')?.tickedChoiceIds,
-      ).toEqual(['choice_condition_5']),
-    );
-  });
-
-  it('clips again when the condition is switched off', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenPreExistingOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    const toggle = await screen.findByRole('checkbox', {
-      name: `Specific conditions for ${PRE_EXISTING}`,
-    });
-
-    await user.click(toggle);
-    const control = await screen.findByRole('button', {
-      name: `Specific conditions for ${PRE_EXISTING}`,
-    });
-    const clip = control.closest('.overflow-hidden, .overflow-visible');
-    await waitFor(() => expect(clip).toHaveClass('overflow-visible'));
-
-    // Collapsing must clip immediately, so nothing shows through a closed row.
-    await user.click(toggle);
-    await waitFor(() => expect(clip).toHaveClass('overflow-hidden'));
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Maternity — the same benefit, asked differently of each customer type
@@ -3489,175 +2631,7 @@ const maternityConditions = () =>
     .filter((label) => label.endsWith(`for ${MATERNITY}`))
     .map((label) => label.replace(` for ${MATERNITY}`, ''));
 
-describe('maternity', () => {
-  it('asks an Individual plan for everything EXCEPT a member ratio', async () => {
-    const configurationId = givenMaternityOnAPlan('INDIVIDUAL');
 
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
-    expect(screen.getByLabelText(`${MATERNITY} Coverage value`)).toBeInTheDocument();
-
-    expect(maternityConditions()).toEqual([
-      'Co-payment',
-      'Delivery type',
-      'Waiting period',
-      'Pregnancy before policy',
-    ]);
-
-    // An individual policy has no group. Not disabled, not greyed — absent.
-    expect(screen.queryByRole('checkbox', { name: /Member ratio/i })).toBeNull();
-    expect(screen.queryByLabelText(`${MATERNITY} One in value`)).toBeNull();
-    expect(screen.queryByLabelText(`${MATERNITY} Members value`)).toBeNull();
-  });
-
-  it.each([['FAMILY' as CustomerTypeId], ['SME' as CustomerTypeId]])(
-    'asks a %s plan for a member ratio, as two numbers it enters itself',
-    async (customerType) => {
-      const user = userEvent.setup();
-      const configurationId = givenMaternityOnAPlan(customerType);
-
-      renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-      await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
-
-      expect(maternityConditions()).toEqual([
-        'Co-payment',
-        'Delivery type',
-        'Waiting period',
-        'Pregnancy before policy',
-        'Member ratio',
-      ]);
-
-      await user.click(screen.getByRole('checkbox', { name: `Member ratio for ${MATERNITY}` }));
-
-      // "One in 20 members" — whatever this document says, not a fixed ratio.
-      const oneIn = await screen.findByLabelText(`${MATERNITY} One in value`);
-      await user.type(oneIn, '20');
-      await user.tab();
-      await waitFor(() =>
-        expect(store.values.find((v) => v.optionFieldId === 'mat_one_in')?.value).toBe(20),
-      );
-    },
-  );
-
-  it('offers the delivery kinds as answers, and no figure as an answer', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenMaternityOnAPlan('INDIVIDUAL');
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
-
-    await user.click(screen.getByRole('checkbox', { name: `Delivery type for ${MATERNITY}` }));
-    await user.click(await screen.findByRole('button', { name: `Delivery type for ${MATERNITY}` }));
-
-    expect(
-      (await screen.findAllByRole('checkbox'))
-        .map((box) => box.getAttribute('aria-label') ?? box.parentElement?.textContent ?? '')
-        .filter((label) => /delivery|Caesarean/i.test(label) && !label.includes('for ')),
-    ).toEqual(['Normal delivery', 'Caesarean section']);
-
-    // Not one amount, percentage or duration is offered as a pickable answer.
-    const numeric = (store.options[0]?.fields ?? []).filter((f) =>
-      ['CURRENCY', 'PERCENTAGE', 'NUMBER'].includes(f.dataType),
-    );
-    // Limit, Coverage, Co-payment, Waiting period, One in, Members.
-    expect(numeric.map((f) => f.label)).toHaveLength(6);
-    for (const f of numeric) {
-      expect(store.choices.filter((c) => c.optionFieldId === f.id)).toEqual([]);
-    }
-  });
-
-  it('leaves an untouched maternity limit empty, and keeps a stated zero', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenMaternityOnAPlan('INDIVIDUAL');
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    const limit = await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
-    expect(limit).toHaveValue('');
-    expect(store.values).toHaveLength(0);
-
-    await user.type(limit, '0');
-    await user.tab();
-    await waitFor(() =>
-      expect(store.values.find((v) => v.optionFieldId === 'mat_limit')?.value).toBe(0),
-    );
-  });
-});
-
-describe('maternity: pregnancy before the policy started', () => {
-  it('is off by default, and ticking it IS the yes', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenMaternityOnAPlan('INDIVIDUAL');
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
-
-    const toggle = screen.getByRole('checkbox', {
-      name: `Pregnancy before policy for ${MATERNITY}`,
-    });
-    expect(toggle).not.toBeChecked();
-    expect(screen.queryByLabelText(`${MATERNITY} Pregnancy before policy value`)).toBeNull();
-
-    await user.click(toggle);
-
-    /**
-     * TICKING IT IS THE ANSWER — the row exists, so the cover applies.
-     *
-     * A Yes/No underneath would ask the same question twice, and leave a
-     * ticked box reading "Not set", which says nothing at all.
-     */
-    await waitFor(() => expect(toggle).toBeChecked());
-    await waitFor(() =>
-      expect(
-        store.values.find((v) => v.optionFieldId === 'mat_pregnancy_before_policy'),
-      ).toBeDefined(),
-    );
-    expect(screen.queryByLabelText(`${MATERNITY} Pregnancy before policy value`)).toBeNull();
-    // Nothing to pick and nothing to type — the checkbox said it all.
-    // Scoped to the benefit: the variant's own network dropdown legitimately
-    // offers "Not specified", which answers a different question.
-    expect(
-      within(screen.getByRole('region', { name: 'Core benefits' })).queryByRole('option', {
-        name: 'Not specified',
-      }),
-    ).toBeNull();
-
-    // Switching it off says the document never mentioned it — nothing remains.
-    await user.click(toggle);
-    await waitFor(() =>
-      expect(
-        store.values.find((v) => v.optionFieldId === 'mat_pregnancy_before_policy'),
-      ).toBeUndefined(),
-    );
-  });
-
-  it('is asked of every customer type, unlike the member ratio', async () => {
-    const individual = renderApp(
-      ROUTES.configurations.detail('company_1', 'plan_1', givenMaternityOnAPlan('INDIVIDUAL')),
-    );
-    await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
-    expect(maternityConditions()).toContain('Pregnancy before policy');
-    expect(maternityConditions()).not.toContain('Member ratio');
-    individual.unmount();
-
-    // The SME configuration of the SAME plan, holding the SAME benefit.
-    const sme = givenConfiguration('cfg_sme', 'plan_1', 'SME');
-    store.planOptions.push({
-      id: 'planOption_mat',
-      planConfigurationId: sme,
-      optionId: 'option_mat',
-      sortOrder: 0,
-    });
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', sme));
-    await screen.findByLabelText(`${MATERNITY} Maternity Limit value`);
-    expect(maternityConditions()).toContain('Pregnancy before policy');
-    expect(maternityConditions()).toContain('Member ratio');
-
-    // One benefit, asked differently — not a second maternity benefit.
-    expect(store.options).toHaveLength(1);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Optical — every customer type, no member ratio
@@ -3756,96 +2730,6 @@ const opticalConditions = () =>
     .filter((label) => label.endsWith(`for ${OPTICAL}`))
     .map((label) => label.replace(` for ${OPTICAL}`, ''));
 
-describe('optical', () => {
-  it.each([
-    ['INDIVIDUAL' as CustomerTypeId],
-    ['FAMILY' as CustomerTypeId],
-    ['SME' as CustomerTypeId],
-  ])('asks a %s plan the same six conditions, and never a member ratio', async (customerType) => {
-    const configurationId = givenOpticalOnAPlan(customerType);
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-    expect(screen.getByLabelText(`${OPTICAL} Coverage value`)).toBeInTheDocument();
-
-    // Optical is a rule about a person, not about a group — every buyer is
-    // asked the same thing, and no ratio question exists here at all.
-    expect(opticalConditions()).toEqual([
-      'Co-payment',
-      'Eye test',
-      'Glasses',
-      'Contact lenses',
-      'Network',
-      'Provider restriction',
-    ]);
-    expect(screen.queryByRole('checkbox', { name: /Member ratio/i })).toBeNull();
-  });
-
-  it.each([['Eye test'], ['Glasses'], ['Contact lenses']])(
-    'reveals a frequency dropdown for %s, defaulting to nothing',
-    async (condition) => {
-      const user = userEvent.setup();
-      const configurationId = givenOpticalOnAPlan();
-
-      renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-      await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-
-      expect(screen.queryByLabelText(`${OPTICAL} ${condition} value`)).toBeNull();
-      await user.click(screen.getByRole('checkbox', { name: `${condition} for ${OPTICAL}` }));
-
-      const control = await screen.findByLabelText(`${OPTICAL} ${condition} value`);
-      expect(control.tagName).toBe('SELECT');
-      expect(
-        within(control)
-          .getAllByRole('option')
-          .map((option) => option.textContent),
-      ).toEqual(['Not specified', ...FREQUENCY]);
-      // No frequency is assumed — the document decides.
-      expect(control).toHaveValue('');
-    },
-  );
-
-  it('records the network scope as a chosen answer, never as typed words', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenOpticalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-
-    await user.click(screen.getByRole('checkbox', { name: `Network for ${OPTICAL}` }));
-    const network = await screen.findByLabelText(`${OPTICAL} Network value`);
-    await user.selectOptions(network, 'opt_net_0');
-
-    await waitFor(() =>
-      expect(store.values.find((v) => v.optionFieldId === 'opt_network')?.value).toBe('opt_net_0'),
-    );
-  });
-
-  it('offers no figure as a pickable answer, and keeps empty empty', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenOpticalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    const limit = await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-    expect(limit).toHaveValue('');
-    expect(store.values).toHaveLength(0);
-
-    // Not one amount or percentage is offered as an answer to pick.
-    for (const f of (store.options[0]?.fields ?? []).filter((field) =>
-      ['CURRENCY', 'PERCENTAGE', 'NUMBER'].includes(field.dataType),
-    )) {
-      expect(store.choices.filter((c) => c.optionFieldId === f.id)).toEqual([]);
-    }
-
-    // A stated zero is still a real answer.
-    await user.type(limit, '0');
-    await user.tab();
-    await waitFor(() =>
-      expect(store.values.find((v) => v.optionFieldId === 'opt_limit')?.value).toBe(0),
-    );
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Optical — provider restrictions the employee writes, ticks and ranks
@@ -3875,168 +2759,6 @@ const restrictionsDefined = () =>
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((choice) => choice.label);
 
-describe('optical: provider restrictions', () => {
-  it('shows nothing until the condition is ticked', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenOpticalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-
-    const toggle = screen.getByRole('checkbox', { name: `Provider restriction for ${OPTICAL}` });
-    expect(toggle).not.toBeChecked();
-    expect(
-      screen.queryByRole('button', { name: `Provider restriction for ${OPTICAL}` }),
-    ).toBeNull();
-
-    await user.click(toggle);
-
-    // Ticked: the editor appears, offering nothing until the employee writes it.
-    expect(
-      await screen.findByRole('button', { name: `Provider restriction for ${OPTICAL}` }),
-    ).toBeInTheDocument();
-    expect(restrictionsDefined()).toEqual([]);
-  });
-
-  it('lets the employee write as many restrictions as the document needs', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenOpticalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-    await openProviderRestrictions(user);
-
-    // Wording the employee chose, not a list anybody shipped.
-    await addRestriction(user, 'Approved optical providers');
-    await addRestriction(user, 'Network optical providers');
-    await addRestriction(user, 'Named optical providers');
-
-    expect(restrictionsDefined()).toEqual([
-      'Approved optical providers',
-      'Network optical providers',
-      'Named optical providers',
-    ]);
-  });
-
-  it('ticks one, then several, and leaves the rest available but unticked', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenOpticalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-    await openProviderRestrictions(user);
-
-    await addRestriction(user, 'Approved optical providers');
-    await addRestriction(user, 'Network optical providers');
-    await addRestriction(user, 'Named optical providers');
-
-    /**
-     * Writing one down ticks it: an employee who typed it plainly meant it to
-     * apply. So the second is untied here to prove ticking is separate from
-     * existing — it stays on the list, simply not claimed by this plan.
-     */
-    await user.click(screen.getByRole('checkbox', { name: 'Network optical providers' }));
-
-    await waitFor(() => expect(restrictionsOnThePlan()).toHaveLength(2));
-    const ticked = new Set(restrictionsOnThePlan());
-    const byLabel = Object.fromEntries(store.choices.map((choice) => [choice.label, choice.id]));
-    expect(ticked.has(byLabel['Approved optical providers']!)).toBe(true);
-    expect(ticked.has(byLabel['Named optical providers']!)).toBe(true);
-    // Available to any plan, claimed by this one: no.
-    expect(ticked.has(byLabel['Network optical providers']!)).toBe(false);
-    expect(restrictionsDefined()).toHaveLength(3);
-
-    // And an unticked one can be claimed later without being re-typed.
-    await user.click(screen.getByRole('checkbox', { name: 'Network optical providers' }));
-    await waitFor(() => expect(restrictionsOnThePlan()).toHaveLength(3));
-  });
-
-  it('ranks the restrictions by drag, without changing what is ticked', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenOpticalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-    await openProviderRestrictions(user);
-
-    await addRestriction(user, 'Approved optical providers');
-    await addRestriction(user, 'Named optical providers');
-    await waitFor(() => expect(restrictionsOnThePlan()).toHaveLength(2));
-    const tickedBefore = [...restrictionsOnThePlan()];
-
-    // Ranking is a separate job from ticking, so it has its own mode.
-    await user.click(screen.getByRole('button', { name: 'Rank & edit' }));
-    expect(
-      await screen.findByRole('button', { name: 'Reorder Approved optical providers' }),
-    ).toBeInTheDocument();
-
-    // jsdom reports zero-sized rects, so dnd-kit cannot resolve a pointer drop
-    // target. The endpoint the list calls on drop is exercised directly.
-    const ids = store.choices
-      .filter((c) => c.optionFieldId === 'opt_provider_restriction')
-      .map((c) => c.id);
-    await fetch(`/api/v1/option-fields/opt_provider_restriction/choices/reorder`, {
-      method: 'POST',
-      body: JSON.stringify({ orderedIds: [ids[1], ids[0]] }),
-    });
-
-    expect(restrictionsDefined()).toEqual([
-      'Named optical providers',
-      'Approved optical providers',
-    ]);
-    // Re-ranking says what each is worth. It says nothing about this plan.
-    expect(restrictionsOnThePlan().sort()).toEqual(tickedBefore.sort());
-  });
-
-  it('removes a restriction that was written by mistake', async () => {
-    const user = userEvent.setup();
-    // Deleting an answer a plan records changes what that plan says, so the
-    // API refuses and the employee is asked first.
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const configurationId = givenOpticalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-    await openProviderRestrictions(user);
-
-    await addRestriction(user, 'Approved optical providers');
-    await addRestriction(user, 'Naemd optical providers');
-
-    await user.click(screen.getByRole('button', { name: 'Rank & edit' }));
-
-    // Renaming corrects a typo everywhere at once.
-    await user.click(await screen.findByRole('button', { name: 'Edit Naemd optical providers' }));
-    const input = await screen.findByLabelText('Rename Naemd optical providers');
-    await user.clear(input);
-    await user.type(input, 'Named optical providers{Enter}');
-    await waitFor(() => expect(restrictionsDefined()).toContain('Named optical providers'));
-
-    await user.click(await screen.findByRole('button', { name: 'Delete Named optical providers' }));
-    await waitFor(() => expect(confirm).toHaveBeenCalled());
-    await waitFor(() => expect(restrictionsDefined()).toEqual(['Approved optical providers']));
-    // Gone from the list, and gone from the plan that claimed it.
-    expect(restrictionsOnThePlan()).toHaveLength(1);
-    confirm.mockRestore();
-  });
-
-  it('switching the condition off clears the plan’s claims but keeps the list', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenOpticalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${OPTICAL} Optical Limit value`);
-    await openProviderRestrictions(user);
-    await addRestriction(user, 'Approved optical providers');
-    await waitFor(() => expect(restrictionsOnThePlan()).toHaveLength(1));
-
-    await user.click(screen.getByRole('checkbox', { name: `Provider restriction for ${OPTICAL}` }));
-
-    // The document never mentioned it, so this plan claims nothing — but the
-    // wording stays on the list for every other plan that does.
-    await waitFor(() => expect(restrictionsOnThePlan()).toHaveLength(0));
-    expect(restrictionsDefined()).toEqual(['Approved optical providers']);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Dental — two figures the documents always state, five conditions they may
@@ -4045,6 +2767,41 @@ describe('optical: provider restrictions', () => {
 const DENTAL = 'Dental Details';
 
 /** Mirrors the definition held in Railway production, field for field. */
+/**
+ * Dental in the catalogue, with nothing attached to any variant yet.
+ *
+ * "Dental Details" is what a real company filed it as; the editor recognises
+ * it as the Dental core area through the shared aliases.
+ */
+function givenDentalCatalogueRecord() {
+  store.options.push({
+    id: 'option_den',
+    name: DENTAL,
+    description: null,
+    sortOrder: 0,
+    isUmbrella: false,
+    parentId: null,
+    isActive: true,
+    ...timestamps,
+    fields: [
+      {
+        id: 'den_limit',
+        optionId: 'option_den',
+        label: 'Dental Limit',
+        key: 'limit',
+        dataType: 'CURRENCY',
+        unit: null,
+        helpText: null,
+        isRequired: false,
+        isOptional: false,
+        sortOrder: 0,
+        isActive: true,
+        ...timestamps,
+      },
+    ],
+  });
+}
+
 function givenDentalOnAPlan(customerType: CustomerTypeId = 'INDIVIDUAL') {
   givenCompany();
   givenInsuranceType();
@@ -4134,219 +2891,45 @@ const dentalConditions = () =>
     .filter((label) => label.endsWith(`for ${DENTAL}`))
     .map((label) => label.replace(` for ${DENTAL}`, ''));
 
-describe('dental', () => {
-  it.each([
-    ['INDIVIDUAL' as CustomerTypeId],
-    ['FAMILY' as CustomerTypeId],
-    ['SME' as CustomerTypeId],
-  ])('asks a %s plan the same five conditions, and never a member ratio', async (customerType) => {
-    const configurationId = givenDentalOnAPlan(customerType);
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-    expect(screen.getByLabelText(`${DENTAL} Coverage value`)).toBeInTheDocument();
-
-    // Dental states a limit and a share of the cost; nothing about a group.
-    expect(dentalConditions()).toEqual([
-      'Co-payment',
-      'Dental Network',
-      'Included Dental Services',
-      'Waiting period',
-      'Frequency',
-    ]);
-    expect(screen.queryByRole('checkbox', { name: /Member ratio/i })).toBeNull();
-  });
-
-  it('takes the limit and the coverage as figures the employee types', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    const limit = await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-    await user.type(limit, '600');
-    await user.tab();
-    await user.type(screen.getByLabelText(`${DENTAL} Coverage value`), '80');
-    await user.tab();
-
-    await waitFor(() =>
-      expect(store.values.find((v) => v.optionFieldId === 'den_limit')?.value).toBe(600),
-    );
-    expect(store.values.find((v) => v.optionFieldId === 'den_coverage')?.value).toBe(80);
-
-    // Neither is picked from a list — no figure is an answer anywhere here.
-    for (const f of (store.options[0]?.fields ?? []).filter((field) =>
-      ['CURRENCY', 'PERCENTAGE', 'NUMBER'].includes(field.dataType),
-    )) {
-      expect(store.choices.filter((c) => c.optionFieldId === f.id)).toEqual([]);
-    }
-  });
-
-  it.each([
-    [
-      'Dental Network',
-      'den_net_0',
-      ['In-network only', 'In-network and out-of-network', 'Out-of-network only'],
-    ],
-    [
-      'Frequency',
-      'den_freq_0',
-      ['Once per year', 'Once every 2 years', 'Once every 3 years', 'Once per policy period'],
-    ],
-  ])('reveals %s only when ticked, as a dropdown', async (condition, firstId, answers) => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-
-    expect(screen.queryByLabelText(`${DENTAL} ${condition} value`)).toBeNull();
-    await user.click(screen.getByRole('checkbox', { name: `${condition} for ${DENTAL}` }));
-
-    const control = await screen.findByLabelText(`${DENTAL} ${condition} value`);
-    expect(control.tagName).toBe('SELECT');
-    expect(
-      within(control)
-        .getAllByRole('option')
-        .map((option) => option.textContent),
-    ).toEqual(['Not specified', ...answers]);
-    expect(control).toHaveValue('');
-
-    await user.selectOptions(control, firstId);
-    await waitFor(() => expect(store.values.find((v) => v.value === firstId)).toBeDefined());
-  });
-
-  it('takes the waiting period in months, and only when ticked', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-
-    expect(screen.queryByLabelText(`${DENTAL} Waiting period value`)).toBeNull();
-    await user.click(screen.getByRole('checkbox', { name: `Waiting period for ${DENTAL}` }));
-
-    await user.type(await screen.findByLabelText(`${DENTAL} Waiting period value`), '6');
-    await user.tab();
-    await waitFor(() =>
-      expect(store.values.find((v) => v.optionFieldId === 'den_waiting_period')?.value).toBe(6),
-    );
-    expect(screen.getByText('months')).toBeInTheDocument();
-  });
-
-  it('lets the employee write the dental services and tick several', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-
-    await user.click(
-      screen.getByRole('checkbox', { name: `Included Dental Services for ${DENTAL}` }),
-    );
-    await user.click(
-      await screen.findByRole('button', { name: `Included Dental Services for ${DENTAL}` }),
-    );
-
-    // Nothing is shipped: the services come from the document in hand.
-    expect(store.choices.filter((c) => c.optionFieldId === 'den_included_services')).toEqual([]);
-
-    for (const service of ['Fillings', 'Extractions', 'Root canal']) {
-      await user.type(await screen.findByLabelText('New answer'), service);
-      await user.click(screen.getByRole('button', { name: 'Add' }));
-      await waitFor(() => expect(store.choices.some((c) => c.label === service)).toBe(true));
-    }
-
-    // Written means ticked — an employee who typed it meant it to apply.
-    await waitFor(() =>
-      expect(
-        store.planOptions.find((item) => item.id === 'planOption_den')?.tickedChoiceIds,
-      ).toHaveLength(3),
-    );
-
-    // And one can be released without being un-written.
-    await user.click(screen.getByRole('checkbox', { name: 'Extractions' }));
-    await waitFor(() =>
-      expect(
-        store.planOptions.find((item) => item.id === 'planOption_den')?.tickedChoiceIds,
-      ).toHaveLength(2),
-    );
-    expect(store.choices.filter((c) => c.optionFieldId === 'den_included_services')).toHaveLength(
-      3,
-    );
-  });
-
-  it('keeps an untouched dental field empty, and a stated zero as zero', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    const limit = await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-    expect(limit).toHaveValue('');
-    expect(store.values).toHaveLength(0);
-
-    await user.type(limit, '0');
-    await user.tab();
-    await waitFor(() =>
-      expect(store.values.find((v) => v.optionFieldId === 'den_limit')?.value).toBe(0),
-    );
-  });
-});
 
 describe('empty means not specified, and zero means zero', () => {
-  it('says so in the box itself rather than looking unfilled', async () => {
+  it('leaves a figure nobody stated empty, and stores nothing for it', async () => {
     const configurationId = givenDentalOnAPlan();
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    // An empty figure names what empty means, so nobody reads it as a gap.
-    const coverage = await screen.findByLabelText(`${DENTAL} Coverage value`);
-    expect(coverage).toHaveValue('');
-    expect(coverage).toHaveAttribute('placeholder', 'Not specified');
-    expect(await screen.findByLabelText(`${DENTAL} Dental Limit value`)).toHaveAttribute(
-      'placeholder',
-      'Not specified',
-    );
+    /**
+     * Dental is quoted as a CEILING — fixed by the business, not chosen — so
+     * the area asks for one figure and names it.
+     */
+    const limit = await screen.findByLabelText('Dental Limit');
+    expect(limit).toHaveValue('');
 
-    // Nothing was stored just because the card was opened.
+    // Nothing was stored just because the variant was opened.
     expect(store.values).toHaveLength(0);
   });
 
-  it('never turns an untouched coverage into 0, and never loses a typed 0', async () => {
+  it('keeps a typed 0, because 0 is the plan declining the area', async () => {
     const user = userEvent.setup();
     const configurationId = givenDentalOnAPlan();
 
     renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    const coverage = await screen.findByLabelText(`${DENTAL} Coverage value`);
+    const limit = await screen.findByLabelText('Dental Limit');
 
-    // Focusing and leaving without typing must not invent a figure.
-    await user.click(coverage);
-    await user.tab();
-    expect(store.values.find((v) => v.optionFieldId === 'den_coverage')).toBeUndefined();
+    /**
+     * A document that says 0 said something. It is not a blank, and it is not
+     * the weakest cover either — it is the plan declining dental, and the
+     * screen says so beside the box.
+     */
+    await user.type(limit, '0');
+    expect(await screen.findByText('Not covered')).toBeInTheDocument();
 
-    // A document that says 0% said something, and it is not blank.
-    await user.type(coverage, '0');
-    await user.tab();
+    await user.click(screen.getByRole('button', { name: /Save changes/i }));
     await waitFor(() =>
-      expect(store.values.find((v) => v.optionFieldId === 'den_coverage')?.value).toBe(0),
+      expect(store.values.find((value) => value.optionFieldId === 'den_limit')?.value).toBe(0),
     );
-    expect(coverage).toHaveValue('0');
   });
 
-  it('names the blank choice on a dropdown instead of leaving it wordless', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-
-    await user.click(screen.getByRole('checkbox', { name: `Dental Network for ${DENTAL}` }));
-    const network = await screen.findByLabelText(`${DENTAL} Dental Network value`);
-
-    expect(within(network).getAllByRole('option')[0]?.textContent).toBe('Not specified');
-    expect(network).toHaveValue('');
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -4386,148 +2969,6 @@ function givenCoveredProcedures() {
 const procedureTicks = () =>
   store.planOptions.find((item) => item.id === 'planOption_den')?.tickedChoiceIds ?? [];
 
-describe('dental: covered procedures', () => {
-  it('offers exactly the procedures the documents name, and no Other', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-    givenCoveredProcedures();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-
-    // Hidden until the employee says the document mentions procedures at all.
-    expect(screen.queryByRole('button', { name: `Covered Procedures for ${DENTAL}` })).toBeNull();
-
-    await user.click(screen.getByRole('checkbox', { name: `Covered Procedures for ${DENTAL}` }));
-    await user.click(
-      await screen.findByRole('button', { name: `Covered Procedures for ${DENTAL}` }),
-    );
-
-    const offered = PROCEDURES.map(
-      (name) => screen.getByRole('checkbox', { name }).getAttribute('aria-label') ?? name,
-    );
-    expect(offered).toEqual(PROCEDURES);
-    // Nothing common-but-unmentioned, and no free-text escape hatch.
-    expect(screen.queryByRole('checkbox', { name: /^Other$/i })).toBeNull();
-    expect(
-      screen.queryByRole('checkbox', { name: /crown|whitening|implant|orthodont/i }),
-    ).toBeNull();
-  });
-
-  it('nothing is ticked by default — the employee reads the document', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-    givenCoveredProcedures();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-
-    await user.click(screen.getByRole('checkbox', { name: `Covered Procedures for ${DENTAL}` }));
-    await user.click(
-      await screen.findByRole('button', { name: `Covered Procedures for ${DENTAL}` }),
-    );
-
-    for (const name of PROCEDURES) {
-      expect(screen.getByRole('checkbox', { name })).not.toBeChecked();
-    }
-    expect(procedureTicks()).toEqual([]);
-  });
-
-  it('ticks one, then several, from the document in hand', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-    givenCoveredProcedures();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-    await user.click(screen.getByRole('checkbox', { name: `Covered Procedures for ${DENTAL}` }));
-    await user.click(
-      await screen.findByRole('button', { name: `Covered Procedures for ${DENTAL}` }),
-    );
-
-    await user.click(screen.getByRole('checkbox', { name: 'Fillings' }));
-    await waitFor(() => expect(procedureTicks()).toEqual(['proc_0']));
-
-    // "…fillings, simple/surgical extraction, root canal, X-rays" — all five.
-    for (const name of ['Simple extraction', 'Surgical extraction', 'Root canal', 'X-rays']) {
-      await user.click(screen.getByRole('checkbox', { name }));
-    }
-    await waitFor(() => expect(procedureTicks()).toHaveLength(5));
-
-    // And a selection can be taken back when the document is re-read.
-    await user.click(screen.getByRole('checkbox', { name: 'X-rays' }));
-    await waitFor(() => expect(procedureTicks()).toHaveLength(4));
-    expect(procedureTicks()).not.toContain('proc_4');
-  });
-
-  /**
-   * THE DISTINCTION THAT MATTERS.
-   *
-   * An unticked procedure says the document did not mention it. It does NOT say
-   * the procedure is excluded, and the two must never collapse into each other:
-   * one is silence, the other is a refusal, and only one of them is a promise
-   * anybody made.
-   */
-  it('records silence as silence — an unticked procedure is not an exclusion', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-    givenCoveredProcedures();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findByLabelText(`${DENTAL} Dental Limit value`);
-
-    // A document naming a limit and a co-payment but no procedures at all.
-    await user.type(screen.getByLabelText(`${DENTAL} Dental Limit value`), '1000');
-    await user.tab();
-    await user.click(screen.getByRole('checkbox', { name: `Covered Procedures for ${DENTAL}` }));
-    await waitFor(() =>
-      expect(store.values.find((v) => v.optionFieldId === 'den_covered_procedures')).toBeDefined(),
-    );
-
-    /**
-     * The condition is ON and nothing is ticked: "no procedures mentioned".
-     * Not zero, not excluded, not absent — a row exists saying the question was
-     * considered, and no answer claims anything either way.
-     */
-    expect(procedureTicks()).toEqual([]);
-    expect(
-      store.values.find((v) => v.optionFieldId === 'den_covered_procedures')?.value,
-    ).toBeNull();
-
-    // Switching the condition off is the different statement: the document
-    // never raised procedures, so the plan records nothing about them.
-    await user.click(screen.getByRole('checkbox', { name: `Covered Procedures for ${DENTAL}` }));
-    await waitFor(() =>
-      expect(
-        store.values.find((v) => v.optionFieldId === 'den_covered_procedures'),
-      ).toBeUndefined(),
-    );
-    expect(procedureTicks()).toEqual([]);
-  });
-
-  it('keeps the limit and co-payment as figures beside the procedures', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenDentalOnAPlan();
-    givenCoveredProcedures();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    // The worked example: 1,500 EGP, 10% co-payment, five procedures named.
-    await user.type(await screen.findByLabelText(`${DENTAL} Dental Limit value`), '1500');
-    await user.tab();
-    await user.click(screen.getByRole('checkbox', { name: `Co-payment for ${DENTAL}` }));
-    await user.type(await screen.findByLabelText(`${DENTAL} Co-payment value`), '10');
-    await user.tab();
-
-    await waitFor(() =>
-      expect(store.values.find((v) => v.optionFieldId === 'den_limit')?.value).toBe(1500),
-    );
-    expect(store.values.find((v) => v.optionFieldId === 'den_co_payment')?.value).toBe(10);
-    // Coverage was not stated by that document, so it stays empty.
-    expect(screen.getByLabelText(`${DENTAL} Coverage value`)).toHaveValue('');
-    expect(store.values.find((v) => v.optionFieldId === 'den_coverage')).toBeUndefined();
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Other Key Benefits — a name can be the whole benefit
@@ -4607,128 +3048,3 @@ function givenStatementOnAPlan(name = 'Covers Hepatitis') {
 const valueFor = (key: string) =>
   store.values.find((v) => v.optionFieldId === `option_stmt_${key}`);
 
-describe('other key benefits: a statement is a complete benefit', () => {
-  it('records "Covers Hepatitis" with nothing but its name', async () => {
-    const configurationId = givenStatementOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    // The name shows on the plan card and again in the panel it was dragged from.
-    expect((await screen.findAllByText('Covers Hepatitis')).length).toBeGreaterThan(0);
-
-    /**
-     * No figure is demanded anywhere: not beside the name, not below it. A
-     * document that says only "Covers Hepatitis" has been recorded in full.
-     */
-    expect(screen.queryByLabelText(/Covers Hepatitis .* value/)).toBeNull();
-    expect(store.values).toHaveLength(0);
-
-    // The five settings are offered, all switched off.
-    for (const setting of OPTIONAL_SETTINGS) {
-      expect(
-        screen.getByRole('checkbox', { name: `${setting} for Covers Hepatitis` }),
-      ).not.toBeChecked();
-    }
-  });
-
-  it('describes itself as a statement, not as a percentage', async () => {
-    givenStatementOnAPlan();
-
-    renderApp(ROUTES.benefits.list);
-    await screen.findAllByText('Covers Hepatitis');
-
-    // Calling it "Percentage" would name it after a figure it need never hold.
-    expect(screen.getAllByText('Statement of cover').length).toBeGreaterThan(0);
-  });
-
-  it('adds Coverage without Limit', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenStatementOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findAllByText('Covers Hepatitis');
-
-    await user.click(screen.getByRole('checkbox', { name: 'Coverage for Covers Hepatitis' }));
-    await user.type(await screen.findByLabelText('Covers Hepatitis Coverage value'), '80');
-    await user.tab();
-
-    await waitFor(() => expect(valueFor('coverage')?.value).toBe(80));
-    // Limit was never mentioned, so it is not there — and it is not zero.
-    expect(screen.queryByLabelText('Covers Hepatitis Limit value')).toBeNull();
-    expect(valueFor('limit')).toBeUndefined();
-  });
-
-  it('adds Limit without Coverage', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenStatementOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findAllByText('Covers Hepatitis');
-
-    await user.click(screen.getByRole('checkbox', { name: 'Limit for Covers Hepatitis' }));
-    await user.type(await screen.findByLabelText('Covers Hepatitis Limit value'), '10000');
-    await user.tab();
-
-    await waitFor(() => expect(valueFor('limit')?.value).toBe(10000));
-    expect(screen.queryByLabelText('Covers Hepatitis Coverage value')).toBeNull();
-    expect(valueFor('coverage')).toBeUndefined();
-  });
-
-  it('lets several settings coexist, and grows one at a time', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenStatementOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findAllByText('Covers Hepatitis');
-
-    await user.click(screen.getByRole('checkbox', { name: 'Coverage for Covers Hepatitis' }));
-    await user.type(await screen.findByLabelText('Covers Hepatitis Coverage value'), '80');
-    await user.tab();
-
-    await user.click(screen.getByRole('checkbox', { name: 'Limit for Covers Hepatitis' }));
-    await user.type(await screen.findByLabelText('Covers Hepatitis Limit value'), '10000');
-    await user.tab();
-
-    await user.click(screen.getByRole('checkbox', { name: 'Frequency for Covers Hepatitis' }));
-    const frequency = await screen.findByLabelText('Covers Hepatitis Frequency value');
-    await user.selectOptions(frequency, 'option_stmt_freq_0');
-
-    await waitFor(() => expect(valueFor('frequency')?.value).toBe('option_stmt_freq_0'));
-    expect(valueFor('coverage')?.value).toBe(80);
-    expect(valueFor('limit')?.value).toBe(10000);
-    // The two nobody mentioned are still absent.
-    expect(valueFor('co_payment')).toBeUndefined();
-    expect(valueFor('waiting_period')).toBeUndefined();
-  });
-
-  it('never turns a setting the document skipped into zero', async () => {
-    const user = userEvent.setup();
-    const configurationId = givenStatementOnAPlan();
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-    await screen.findAllByText('Covers Hepatitis');
-
-    // Switched on, but the document gave no figure: it applies, unquantified.
-    await user.click(screen.getByRole('checkbox', { name: 'Co-payment for Covers Hepatitis' }));
-    await waitFor(() => expect(valueFor('co_payment')).toBeDefined());
-    expect(valueFor('co_payment')?.value).toBeNull();
-    expect(await screen.findByLabelText('Covers Hepatitis Co-payment value')).toHaveValue('');
-
-    // Switched off again: the plan says nothing about it at all.
-    await user.click(screen.getByRole('checkbox', { name: 'Co-payment for Covers Hepatitis' }));
-    await waitFor(() => expect(valueFor('co_payment')).toBeUndefined());
-  });
-
-  it.each([
-    ['Covers 25 Congenital Defects'],
-    ['Covers Hepatitis'],
-    ['COVID-19 inpatient coverage included'],
-  ])('supports the document statement %s on its own', async (name) => {
-    const configurationId = givenStatementOnAPlan(name);
-
-    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
-
-    expect((await screen.findAllByText(name)).length).toBeGreaterThan(0);
-    expect(store.values).toHaveLength(0);
-    expect(screen.getByRole('checkbox', { name: `Coverage for ${name}` })).not.toBeChecked();
-  });
-});

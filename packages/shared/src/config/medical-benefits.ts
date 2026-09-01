@@ -86,6 +86,43 @@ export const CO_PAYMENT_FIELD = {
  */
 export const BENEFIT_DETAIL_SEPARATOR = '\n';
 
+/**
+ * WHAT A CORE BENEFIT IS WORTH, IN ONE FIGURE.
+ *
+ * A plan document states a core area one of two ways: a ceiling in money
+ * ("Dental up to 25,000") or a share of the bill ("Dental at 80%"). It does not
+ * state both, and offering both boxes invites an employee to invent whichever
+ * the document is silent about.
+ *
+ * So the employee picks which one this plan uses and fills in that figure.
+ * Everything else the document says — waiting periods, member ratios, named
+ * exclusions — is DETAIL: it qualifies the figure rather than competing with
+ * it, and it is read when somebody opens a plan rather than when plans are
+ * ranked against each other.
+ */
+export const CORE_VALUE_KINDS = {
+  LIMIT: {
+    id: 'LIMIT',
+    label: 'Limit',
+    dataType: 'CURRENCY',
+    key: 'limit',
+    fieldLabel: 'Limit',
+    unit: null,
+  },
+  COVERAGE: {
+    id: 'COVERAGE',
+    label: 'Coverage %',
+    dataType: 'PERCENTAGE',
+    key: 'coverage_percentage',
+    fieldLabel: 'Coverage',
+    unit: '%',
+  },
+} as const;
+
+export type CoreValueKindId = keyof typeof CORE_VALUE_KINDS;
+
+export const CORE_VALUE_KIND_IDS = ['LIMIT', 'COVERAGE'] as const;
+
 /** Placeholder on an optional benefit's detail box. */
 export const BENEFIT_DETAIL_PLACEHOLDER = 'Write any detail about this benefit…';
 
@@ -101,11 +138,24 @@ export const BENEFIT_INCLUDED_LABEL = 'Covered';
  * — and its pricing table carried only `chronic`. Splitting them invited two
  * answers to one question.
  */
+/**
+ * THE SIX AREAS A COMPARISON READS, each quoted ONE way.
+ *
+ * The way is fixed by the business, not chosen per plan: in-patient and
+ * out-patient are always a share of the bill, and maternity, dental, optical
+ * and chronic cover are always a ceiling. That is how the documents state them,
+ * and a comparison can only rank plans against each other when they are all
+ * answering the same question.
+ *
+ * A ZERO is not a small figure — it is the plan saying it does not cover this.
+ * Nothing else in the model needs to know that; the comparison and the plan's
+ * own detail both read it off the figure.
+ */
 export const CORE_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
   {
     name: 'In-patient',
     emoji: '🏥',
-    valueKind: 'TEXT',
+    valueKind: 'PERCENTAGE',
     coPayment: true,
     order: 1,
     aliases: [
@@ -119,7 +169,7 @@ export const CORE_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
   {
     name: 'Out-patient',
     emoji: '🩺',
-    valueKind: 'TEXT',
+    valueKind: 'PERCENTAGE',
     coPayment: true,
     order: 2,
     aliases: ['Outpatient', 'Outpatient Details', 'Out-patient Details'],
@@ -151,7 +201,7 @@ export const CORE_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
   {
     name: 'Chronic / Pre-existing Conditions',
     emoji: '🧬',
-    valueKind: 'TEXT',
+    valueKind: 'LIMIT',
     coPayment: true,
     order: 6,
     aliases: [

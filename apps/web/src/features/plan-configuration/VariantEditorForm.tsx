@@ -1,4 +1,7 @@
 import {
+  BENEFIT_DETAIL_SEPARATOR,
+  CORE_MEDICAL_BENEFITS,
+  CORE_VALUE_KINDS,
   DEFAULT_AGE_BANDS,
   GEOGRAPHICAL_COVERAGES,
   MAX_INSURABLE_AGE,
@@ -12,12 +15,14 @@ import {
   removeBracket,
   variantDisplayName,
   type CompanyMedicalNetworkDto,
+  type CoreValueKindId,
   type CustomerTypeId,
   type GeographicalCoverageId,
   type InsuranceOptionDto,
   type PlanConfigurationDto,
   type PlanOptionDto,
 } from '@aggregator/shared';
+import { useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import {
   Badge,
@@ -37,16 +42,20 @@ import {
   describeError,
   useToast,
 } from '@/components/ui';
+import { api } from '@/lib/api-client';
 import {
+  keys,
   useAddPlanOption,
   useRemovePlanOption,
-  useSavePlanConfiguration,
 } from '@/features/insurance-data/insurance-data.api';
 import { AddBenefitDialog } from './AddBenefitDialog';
-import { BenefitConditions } from './BenefitConditions';
-import { BenefitCoreFields, BenefitValue, isCondition } from './AttachedBenefitFields';
-import { PlanOptionNoteInline } from './PlanOptionValuesForm';
-import { appliesToCustomerType } from './settings';
+import {
+  AdditionalBenefitEntry,
+  CoreBenefitEntry,
+  emptyBenefitDraft,
+  locateValueField,
+  type BenefitDraft,
+} from './BenefitEntry';
 import { isResolved, optionalBenefitChoices, resolveCoreSections } from './core-benefits';
 
 interface BandDraft {
@@ -58,6 +67,19 @@ interface BandDraft {
 
 let nextKey = 0;
 const newKey = () => `band-${(nextKey += 1)}`;
+
+/**
+ * How a core area is quoted, fixed by the business rather than per plan.
+ *
+ * In-patient and out-patient are a share of the bill; maternity, dental,
+ * optical and chronic cover are a ceiling. Every plan answers the same
+ * question, which is the only way a comparison can rank them against each
+ * other.
+ */
+const coreValueKind = (label: string): CoreValueKindId =>
+  CORE_MEDICAL_BENEFITS.find((benefit) => benefit.name === label)?.valueKind === 'PERCENTAGE'
+    ? 'COVERAGE'
+    : 'LIMIT';
 
 const toBandDrafts = (variant: PlanConfigurationDto): BandDraft[] =>
   variant.priceBands.map((band) => ({
@@ -102,7 +124,7 @@ export function VariantEditorForm({
   networks: CompanyMedicalNetworkDto[];
 }) {
   const { notify } = useToast();
-  const save = useSavePlanConfiguration(variant.id);
+  const queryClient = useQueryClient();
   const addOption = useAddPlanOption(variant.id);
   const removeOption = useRemovePlanOption(variant.id);
 
@@ -159,17 +181,91 @@ export function VariantEditorForm({
     variant.annualLimit === null ? '' : String(variant.annualLimit),
   );
   const [currency, setCurrency] = useState(variant.currency ?? '');
-  const [deductible, setDeductible] = useState(
-    variant.deductible === null ? '' : String(variant.deductible),
-  );
-  const [coPayment, setCoPayment] = useState(
-    variant.coPayment === null ? '' : String(variant.coPayment),
-  );
   const [isActive, setIsActive] = useState(variant.isActive);
   const [bands, setBands] = useState<BandDraft[]>(() => toBandDrafts(variant));
 
+  /**
+   * What each benefit says, keyed by the record it belongs to.
+   *
+   * Seeded from what is already attached: a figure recorded in money means the
+   * plan quotes a ceiling, one recorded as a percentage means it quotes a
+   * share, and the remark it carries becomes its detail lines.
+   */
+  /**
+   * ONE DRAFT PER HEADING ON SCREEN, not per attached row.
+   *
+   * A core area may be a group whose figure lives on a member — "Dental" holds
+   * nothing and its ceiling is on "Dental Limit". The heading is what the
+   * employee edits, so the draft is keyed by the record the heading names and
+   * the figure is read from wherever in that family it actually sits.
+   *
+   * Keying by every attached row instead meant the group AND each of its
+   * members held a draft, and the members' empty ones overwrote the group's
+   * figure on the way out.
+   */
+  const [drafts, setDrafts] = useState<Record<string, BenefitDraft>>(() => {
+    const seeded: Record<string, BenefitDraft> = {};
+    const byOptionId = new Map(attached.map((planOption) => [planOption.optionId, planOption]));
+
+    const read = (
+      family: InsuranceOptionDto[],
+      headingId: string,
+      /** Fixed by the business for a core area; irrelevant to an additional one. */
+      kind: CoreValueKindId = 'LIMIT',
+    ) => {
+      const draft = emptyBenefitDraft(kind);
+      for (const record of family) {
+        const planOption = byOptionId.get(record.id);
+        if (!planOption) continue;
+        const money = planOption.values.find(
+          (value) => value.dataType === 'CURRENCY' && value.value !== null,
+        );
+        const share = planOption.values.find(
+          (value) => value.dataType === 'PERCENTAGE' && value.value !== null,
+        );
+        /**
+         * Read the figure the AREA is quoted in. A record may hold both a
+         * ceiling and a share from an older entry; the business decides which
+         * one this area means, so the other is left where it is.
+         */
+        const carried = kind === 'LIMIT' ? money : share;
+        if (carried) {
+          draft.value = String(carried.value);
+          break;
+        }
+      }
+      draft.details = (byOptionId.get(headingId)?.note ?? '')
+        .split(BENEFIT_DETAIL_SEPARATOR)
+        .filter((line) => line.trim() !== '');
+      seeded[headingId] = draft;
+    };
+
+    for (const section of sections) {
+      if (!isResolved(section)) continue;
+      read(
+        [section.attach, ...section.targets.map((target) => target.option)],
+        section.attach.id,
+        coreValueKind(section.label),
+      );
+    }
+    for (const planOption of attached) {
+      if (coreOptionIds.has(planOption.optionId)) continue;
+      if (planOption.parentOptionId !== null && byOptionId.has(planOption.parentOptionId)) continue;
+      const record = byId.get(planOption.optionId);
+      read(record ? [record] : [], planOption.optionId);
+    }
+    return seeded;
+  });
+
+  const draftFor = (optionId: string) => drafts[optionId] ?? emptyBenefitDraft();
+  const setDraft = (optionId: string, next: BenefitDraft) => {
+    setError(null);
+    setDrafts((current) => ({ ...current, [optionId]: next }));
+  };
+
   const [adding, setAdding] = useState(false);
   const [pendingAdd, setPendingAdd] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function reset() {
@@ -178,8 +274,6 @@ export function VariantEditorForm({
     setNetworkId(variant.medicalNetworkId ?? '');
     setAnnualLimit(variant.annualLimit === null ? '' : String(variant.annualLimit));
     setCurrency(variant.currency ?? '');
-    setDeductible(variant.deductible === null ? '' : String(variant.deductible));
-    setCoPayment(variant.coPayment === null ? '' : String(variant.coPayment));
     setIsActive(variant.isActive);
     setBands(toBandDrafts(variant));
   }
@@ -215,22 +309,6 @@ export function VariantEditorForm({
       onError: (removeError) => setError(describeError(removeError, 'the benefit')),
     });
   }
-
-  /**
-   * Every plan option one section covers: the records named, and anything
-   * attached UNDER them.
-   *
-   * Read off the attachments rather than the catalogue's nesting, because a
-   * member is a member by virtue of pointing at its group — waiting for the
-   * catalogue to say so as well is how an attached sub-benefit goes missing
-   * from the only screen that could edit it.
-   */
-  const rowsUnder = (optionIds: Set<string>) =>
-    attached.filter(
-      (planOption) =>
-        optionIds.has(planOption.optionId) ||
-        (planOption.parentOptionId !== null && optionIds.has(planOption.parentOptionId)),
-    );
 
   // --- age bands ------------------------------------------------------------
 
@@ -353,21 +431,31 @@ export function VariantEditorForm({
     setBands((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
   };
 
-  function submit() {
+  /**
+   * Save the whole variant, benefits FIRST.
+   *
+   * The terms are patched last on purpose: that request is what changes
+   * `updatedAt`, and the page re-seeds this form from the record whenever it
+   * does. Writing the benefits afterwards would race a remount that has already
+   * thrown the drafts away — which is exactly what it did.
+   */
+  async function submit() {
     const problem = bandProblem();
     if (problem) {
       setError(problem);
       return;
     }
 
-    save.mutate(
-      {
+    setError(null);
+    setSaving(true);
+    try {
+      await saveBenefits();
+
+      await api.patch(`/plan-configurations/${variant.id}`, {
         geographicalCoverage: coverage,
         medicalNetworkId: networkId === '' ? null : networkId,
         annualLimit: annualLimit.trim() === '' ? null : Number(annualLimit.replace(/,/g, '')),
         currency: currency.trim() === '' ? null : currency.trim().toUpperCase(),
-        deductible: deductible.trim() === '' ? null : Number(deductible.replace(/,/g, '')),
-        coPayment: coPayment.trim() === '' ? null : Number(coPayment.replace(/,/g, '')),
         isActive,
         /**
          * The rate table is replaced whole, so a band removed here is a band
@@ -378,12 +466,19 @@ export function VariantEditorForm({
           ageTo: Number(row.to),
           annualPrice: row.premium.trim() === '' ? null : Number(row.premium.replace(/,/g, '')),
         })),
-      },
-      {
-        onSuccess: () => notify('The variant was saved.'),
-        onError: (saveError) => setError(describeError(saveError, 'the variant')),
-      },
-    );
+      });
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: keys.planConfigurations }),
+        queryClient.invalidateQueries({ queryKey: keys.plans }),
+        queryClient.invalidateQueries({ queryKey: keys.insuranceOptions }),
+      ]);
+      notify('The variant was saved.');
+    } catch (saveError) {
+      setError(describeError(saveError, 'the variant'));
+    } finally {
+      setSaving(false);
+    }
   }
 
   /**
@@ -392,6 +487,90 @@ export function VariantEditorForm({
    * list of people, so neither is a partition and neither gets this.
    */
   const usesBrackets = customerType === 'SME';
+
+  /**
+   * Write what each benefit says: its one figure, and its detail lines.
+   *
+   * A benefit is ATTACHED only once the plan says something about it — an
+   * untouched core area stays off the variant rather than arriving as a row of
+   * blanks, because "the document was silent" and "nobody has looked yet" are
+   * different statements and the comparison reads them differently.
+   *
+   * A record that has never carried a figure of the chosen kind gets the field
+   * added to it. That is not a second benefit: it is the same record learning
+   * that some plans quote it as a ceiling and others as a share.
+   */
+  async function saveBenefits() {
+    const planOptionByOptionId = new Map(
+      attached.map((planOption) => [planOption.optionId, planOption]),
+    );
+
+    /**
+     * Only the records the screen gives a heading to. A group's members carry
+     * the figure but are never written on their own — doing so wrote an empty
+     * value straight over the one the heading had just set.
+     */
+    const edited = new Set<string>([
+      ...sections.flatMap((section) => (isResolved(section) ? [section.attach.id] : [])),
+      ...additional.map((planOption) => planOption.optionId),
+    ]);
+
+    for (const [optionId, draft] of Object.entries(drafts)) {
+      if (!edited.has(optionId)) continue;
+      const details = draft.details.map((line) => line.trim()).filter((line) => line !== '');
+      const figure = draft.value.trim();
+      if (figure === '' && details.length === 0 && !planOptionByOptionId.has(optionId)) continue;
+
+      const record = byId.get(optionId);
+      if (!record) continue;
+
+      const isCore = coreOptionIds.has(optionId);
+      const family = isCore ? [record, ...(record.children ?? [])] : [record];
+
+      let target = locateValueField(family, draft.kind);
+      if (isCore && !target && figure !== '') {
+        const kind = CORE_VALUE_KINDS[draft.kind];
+        const host = record.isUmbrella ? (record.children ?? [])[0] : record;
+        if (host) {
+          const updated = await api.post<InsuranceOptionDto>(
+            `/insurance-options/${host.id}/fields`,
+            {
+              label: kind.fieldLabel,
+              key: kind.key,
+              dataType: kind.dataType,
+              ...(kind.unit ? { unit: kind.unit } : {}),
+            },
+          );
+          target = locateValueField([updated], draft.kind);
+        }
+      }
+
+      if (!planOptionByOptionId.has(optionId)) {
+        const rows = await api.post<PlanOptionDto[]>(
+          `/plan-configurations/${variant.id}/options`,
+          { optionId },
+        );
+        for (const row of rows) planOptionByOptionId.set(row.optionId, row);
+      }
+      const planOption = planOptionByOptionId.get(optionId);
+      if (!planOption) continue;
+
+      if (target) {
+        const owner =
+          target.option.id === optionId ? planOption : planOptionByOptionId.get(target.option.id);
+        if (owner) {
+          await api.put(`/plan-options/${owner.id}/values/${target.field.id}`, {
+            // Blank is the document saying nothing — never a zero.
+            value: figure === '' ? null : Number(figure.replace(/,/g, '')),
+          });
+        }
+      }
+
+      await api.patch(`/plan-options/${planOption.id}/note`, {
+        note: details.length === 0 ? null : details.join(BENEFIT_DETAIL_SEPARATOR),
+      });
+    }
+  }
 
   const tier = planTierLabel(
     annualLimit.trim() === '' ? null : Number(annualLimit.replace(/,/g, '')),
@@ -412,7 +591,7 @@ export function VariantEditorForm({
           action={tier ? <Badge tone="brand">{tier}</Badge> : undefined}
         />
         <CardBody className="grid gap-4 sm:grid-cols-3">
-          <Field label="Coverage">
+          <Field label="Area covered">
             {(props) => (
               <Select
                 {...props}
@@ -478,24 +657,6 @@ export function VariantEditorForm({
             )}
           </Field>
 
-          {/* Blank means the document did not state one — never a zero. */}
-          <Field label="Deductible" hint={NOT_STATED}>
-            {(props) => (
-              <NumberInput
-                {...props}
-                suffix={currency}
-                value={deductible}
-                onChange={setDeductible}
-              />
-            )}
-          </Field>
-
-          <Field label="Co-payment" hint={NOT_STATED}>
-            {(props) => (
-              <NumberInput {...props} suffix="%" value={coPayment} onChange={setCoPayment} />
-            )}
-          </Field>
-
           <Field label="Status">
             {(props) => <StatusToggle id={props.id} value={isActive} onChange={setIsActive} />}
           </Field>
@@ -505,20 +666,27 @@ export function VariantEditorForm({
       <Card>
         <CardHeader
           title="Core benefits"
-          description="The six areas every plan is judged on. Each box saves itself; blank means the document did not say."
+          description="The six areas every plan is judged on. Always asked, because a comparison reads them."
         />
-        <CardBody className="divide-y divide-(--color-border)" role="region" aria-label="Core benefits">
+        <CardBody
+          className="divide-y divide-(--color-border)"
+          role="region"
+          aria-label="Core benefits"
+        >
           {sections.map((section) => (
             <div key={section.label} className="py-4 first:pt-0 last:pb-0">
               {isResolved(section) ? (
-                <BenefitRow
+                <CoreBenefitEntry
                   label={section.label}
-                  attached={rowsUnder(
-                    new Set([section.attach.id, ...section.targets.map((t) => t.option.id)]),
-                  )}
-                  customerType={customerType}
-                  adding={pendingAdd === section.attach.id}
-                  onAdd={() => attachBenefit(section.attach)}
+                  currency={variant.currency}
+                  draft={draftFor(section.attach.id)}
+                  onChange={(next) => setDraft(section.attach.id, next)}
+                  canQuote={
+                    locateValueField(
+                      [section.attach, ...section.targets.map((target) => target.option)],
+                      draftFor(section.attach.id).kind,
+                    ) !== null
+                  }
                   {...(section.attach.name === section.label
                     ? {}
                     : { note: `Recorded as “${section.attach.name}”` })}
@@ -541,7 +709,7 @@ export function VariantEditorForm({
       <Card>
         <CardHeader
           title="Additional benefits"
-          description="Only what this variant actually states. Nothing here is required."
+          description="Only what this variant states, and only in words. Nothing here is required."
           action={
             <Button size="sm" variant="secondary" onClick={() => setAdding(true)}>
               <IconAdd className="size-4" />
@@ -554,24 +722,16 @@ export function VariantEditorForm({
             <p className="text-content-muted text-sm">No additional benefits selected.</p>
           ) : (
             <ul className="divide-y divide-(--color-border)">
-              {additional.map((planOption) => {
-                const option = byId.get(planOption.optionId);
-                return (
-                  <li key={planOption.id} className="py-4 first:pt-0 last:pb-0">
-                    <BenefitRow
-                      label={planOption.optionName}
-                      attached={rowsUnder(new Set([planOption.optionId]))}
-                      customerType={customerType}
-                      adding={false}
-                      onAdd={() => {
-                        const option = byId.get(planOption.optionId);
-                        if (option) attachBenefit(option);
-                      }}
-                      onRemove={() => detachBenefit(planOption.id, planOption.optionName)}
-                    />
-                  </li>
-                );
-              })}
+              {additional.map((planOption) => (
+                <li key={planOption.id} className="py-4 first:pt-0 last:pb-0">
+                  <AdditionalBenefitEntry
+                    label={planOption.optionName}
+                    draft={draftFor(planOption.optionId)}
+                    onChange={(next) => setDraft(planOption.optionId, next)}
+                    onRemove={() => detachBenefit(planOption.id, planOption.optionName)}
+                  />
+                </li>
+              ))}
             </ul>
           )}
         </CardBody>
@@ -660,11 +820,11 @@ export function VariantEditorForm({
         <p className="text-content-subtle mr-auto text-xs">
           Benefit values save as you type. Cancel and Save apply to the terms and the rate table.
         </p>
-        <Button variant="secondary" onClick={reset} disabled={save.isPending}>
+        <Button variant="secondary" onClick={reset} disabled={saving}>
           Cancel
         </Button>
-        <Button onClick={submit} disabled={save.isPending}>
-          {save.isPending ? 'Saving…' : 'Save changes'}
+        <Button onClick={() => void submit()} disabled={saving}>
+          {saving ? 'Saving…' : 'Save changes'}
         </Button>
       </div>
 
@@ -681,111 +841,3 @@ export function VariantEditorForm({
   );
 }
 
-/** Says what a blank field means, so nobody types a 0 that isn't in the plan. */
-const NOT_STATED = 'Leave blank if the plan does not state one.';
-
-/**
- * ONE BENEFIT'S ROW: its heading, and whatever the catalogue says it carries.
- *
- * The fields are the board's own — conditional reveals, waiting periods that
- * appear once ticked, settings that apply to a family but not to an individual,
- * ranked answer lists. Rewriting them flat for a tidier layout would have
- * quietly thrown all of that away.
- *
- * A benefit the variant does not carry yet shows an Add rather than a row of
- * dead boxes, because a blank field and an absent benefit mean different
- * things — one says the document was silent, the other that nobody looked.
- */
-function BenefitRow({
-  label,
-  attached,
-  customerType,
-  onAdd,
-  onRemove,
-  adding,
-  note,
-}: {
-  label: string;
-  /** Every plan option this section covers: the group and its members. */
-  attached: PlanOptionDto[];
-  customerType: CustomerTypeId;
-  onAdd: () => void;
-  onRemove?: () => void;
-  adding: boolean;
-  note?: string;
-}) {
-  return (
-    <div>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-content font-semibold">{label}</p>
-          {/* Named when it differs, so it is clear WHICH record is being edited. */}
-          {note ? <p className="text-content-subtle mt-0.5 text-xs">{note}</p> : null}
-        </div>
-
-        {attached.length === 0 ? (
-          <Button size="sm" variant="secondary" onClick={onAdd} disabled={adding}>
-            <IconAdd className="size-4" />
-            {adding ? 'Adding…' : 'Add'}
-          </Button>
-        ) : onRemove ? (
-          <button
-            type="button"
-            aria-label={`Remove ${label}`}
-            onClick={onRemove}
-            className="text-content-muted hover:bg-surface-muted hover:text-danger rounded-(--radius-control) p-1.5"
-          >
-            <IconTrash className="size-4" />
-          </button>
-        ) : null}
-      </div>
-
-      {attached.length === 0 ? (
-        <p className="text-content-subtle mt-1 text-sm">
-          Not on this variant. Add it to record what the plan says.
-        </p>
-      ) : (
-        <div className="mt-2 space-y-3">
-          {attached.map((planOption) => (
-            <div key={planOption.id}>
-              {attached.length > 1 ? (
-                <p className="text-content-muted mb-1 flex items-center gap-1.5 text-sm font-medium">
-                  <IconLayers className="text-content-subtle size-3.5" />
-                  {planOption.optionName}
-                </p>
-              ) : null}
-              <BenefitValue planOption={planOption} pending={false} />
-              <BenefitCoreFields
-                planOption={planOption}
-                customerType={customerType}
-                disabled={false}
-              />
-              <BenefitConditions
-                planOptionId={planOption.id}
-                planConfigurationId={planOption.planConfigurationId}
-                optionName={planOption.optionName}
-                customerType={customerType}
-                conditions={planOption.values.filter(
-                  (value) => isCondition(value) && appliesToCustomerType(value, customerType),
-                )}
-                disabled={false}
-              />
-              {/*
-                The remark that qualifies the figures — "1 in 10 members",
-                "basic procedures only". It belongs to this variant, not to the
-                benefit: the same benefit is noted differently on the next plan.
-              */}
-              <PlanOptionNoteInline
-                planOptionId={planOption.id}
-                planConfigurationId={planOption.planConfigurationId}
-                optionName={planOption.optionName}
-                note={planOption.note}
-                disabled={false}
-              />
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}

@@ -16,6 +16,7 @@ import {
   type ComparisonResultDto,
 } from '@aggregator/shared';
 import { notFound } from '../../lib/errors.js';
+import { discoverComparisonColumns } from './comparison-columns.js';
 import type { Prisma } from '@prisma/client';
 import { toNumber } from '../../lib/decimal.js';
 import { getPrisma } from '../../lib/prisma.js';
@@ -286,31 +287,7 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
   recommendedConfigurationId: string | null;
   reasons: string[];
 } {
-  /**
-   * The benefits to compare, discovered from these plans themselves. One
-   * column per distinct benefit, ordered as the catalogue orders them so every
-   * plan's row lines up.
-   */
-  const discovered = new Map<string, { id: string; name: string; sortOrder: number }>();
-  for (const configuration of configurations) {
-    for (const planOption of configuration.options) {
-      /**
-       * A group of benefits is a heading, not cover: it holds no value, so a
-       * column for it would read "not covered" against every plan. Its
-       * sub-benefits are ordinary benefits and are compared on their own.
-       */
-      if (planOption.option.isUmbrella) continue;
-      if (discovered.has(planOption.optionId)) continue;
-      discovered.set(planOption.optionId, {
-        id: planOption.optionId,
-        name: planOption.option.name,
-        sortOrder: planOption.option.sortOrder,
-      });
-    }
-  }
-  const benefits = [...discovered.values()].sort(
-    (a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name),
-  );
+  const benefits = discoverComparisonColumns(configurations);
 
   const candidates: ComparisonCandidate[] = configurations.map((configuration) => {
     const attached = new Map(

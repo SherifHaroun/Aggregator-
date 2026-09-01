@@ -147,6 +147,9 @@ function displayBenefit(benefit: CandidateBenefit): string {
     return benefit.textValue?.trim() || (benefit.carried ? NOT_SPECIFIED_LABEL : NOT_COVERED_LABEL);
   }
 
+  // A zero says the plan declines this area, so it reads as such.
+  if (benefit.value === 0) return NOT_COVERED_LABEL;
+
   if (benefit.value === null) {
     if (!benefit.carried) return NOT_COVERED_LABEL;
     /**
@@ -231,8 +234,17 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
     const benefits: ComparisonBenefitCell[] = candidate.benefits.map((benefit) => {
       const direction = directionFor(benefit.dataType);
       const range = benefitRange.get(benefit.optionId)!;
-      const covered = benefit.carried;
-      const comparable = benefit.value !== null && direction !== 'NOT_COMPARABLE';
+      /**
+       * A ZERO IS NOT A SMALL FIGURE — it is the plan saying it does not cover
+       * this at all. "Dental 0" and "Dental 0%" are how a document declines an
+       * area, and scoring them as the weakest cover rather than as no cover
+       * would rank a plan that refuses dental above one that never mentioned
+       * it. Both provide nothing.
+       */
+      const declined = benefit.value === 0;
+      const covered = benefit.carried && !declined;
+      const comparable =
+        benefit.value !== null && !declined && direction !== 'NOT_COMPARABLE';
 
       /**
        * What the figure is worth BEFORE its conditions are read.

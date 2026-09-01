@@ -396,7 +396,19 @@ function route({
     }
     const option = store.options.find((item) => item.id === first);
     if (!option) return fail(404, 'NOT_FOUND', 'The record was not found.');
-    if (method === 'GET' && !second) return ok(option);
+    /**
+     * A field's answers travel with it, as they do from the list endpoint.
+     * Without them the edit dialog reads an empty answer list and offers no
+     * way to reorder or remove one — a gap in the double, not in the product.
+     */
+    if (method === 'GET' && !second)
+      return ok({
+        ...option,
+        fields: (option.fields ?? []).map((field) => ({
+          ...field,
+          choices: choicesFor(store, field.id),
+        })),
+      });
     if (method === 'DELETE' && !second) {
       /**
        * As the real API: a group goes with everything filed under it, and
