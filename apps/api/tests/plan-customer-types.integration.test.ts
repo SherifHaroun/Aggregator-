@@ -45,17 +45,12 @@ const TERMS = {
 describe.skipIf(!url)('one plan name, three customer types', () => {
   beforeAll(async () => {
     const company = await db().company.create({ data: { name: `${PREFIX}_company` } });
-    const insuranceType = await db().insuranceType.create({
-      data: { name: `${PREFIX}_type`, code: `${PREFIX}_type` },
-    });
     ids.company = company.id;
-    ids.insuranceType = insuranceType.id;
   });
 
   afterAll(async () => {
     if (!prisma) return;
     await prisma.plan.deleteMany({ where: { companyId: ids.company } });
-    await prisma.insuranceType.deleteMany({ where: { id: ids.insuranceType } });
     await prisma.company.deleteMany({ where: { id: ids.company } });
     await prisma.$disconnect();
   });
@@ -64,7 +59,6 @@ describe.skipIf(!url)('one plan name, three customer types', () => {
     for (const customerType of BUYERS) {
       const plan = await createPlan({
         companyId: ids.company,
-        insuranceTypeId: ids.insuranceType,
         customerType,
         name: PLAN_NAME,
         code: derivePlanCode(PLAN_NAME, customerType),
@@ -101,7 +95,6 @@ describe.skipIf(!url)('one plan name, three customer types', () => {
     await expect(
       createPlan({
         companyId: ids.company,
-        insuranceTypeId: ids.insuranceType,
         customerType: 'INDIVIDUAL',
         name: PLAN_NAME,
         // A code of the employee's own, so the unique index cannot be what
@@ -163,7 +156,6 @@ describe.skipIf(!url)('one plan name, three customer types', () => {
   it('deletes one without touching the others', async () => {
     const doomed = await createPlan({
       companyId: ids.company,
-      insuranceTypeId: ids.insuranceType,
       customerType: 'SME',
       name: `${PREFIX} Disposable`,
       code: derivePlanCode(`${PREFIX} Disposable`, 'SME'),
@@ -197,7 +189,6 @@ describe.skipIf(!url)('one plan name, three customer types', () => {
      */
     for (const customerType of BUYERS) {
       const result = await runComparison({
-        insuranceTypeId: ids.insuranceType,
         customerTypeId: customerType,
         geographicalCoverageId: TERMS[customerType].coverage,
         currency: 'EGP',
@@ -215,7 +206,6 @@ describe.skipIf(!url)('one plan name, three customer types', () => {
      * another buyer's plan that happens to cover it.
      */
     const crossed = await runComparison({
-      insuranceTypeId: ids.insuranceType,
       customerTypeId: 'INDIVIDUAL',
       geographicalCoverageId: 'INTERNATIONAL',
       currency: 'EGP',
@@ -228,7 +218,6 @@ describe.skipIf(!url)('one plan name, three customer types', () => {
   it('matches the age band, not merely the plan', async () => {
     // The bands run 18-64; a child falls outside every one of them.
     const child = await runComparison({
-      insuranceTypeId: ids.insuranceType,
       customerTypeId: 'INDIVIDUAL',
       geographicalCoverageId: 'LOCAL',
       currency: 'EGP',

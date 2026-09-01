@@ -14,6 +14,7 @@ import {
   GEOGRAPHICAL_COVERAGES,
   UNSPECIFIED_OPTION_LABEL,
   listEnabledOptions,
+  planTier,
   resolveAverageAgeForCustomerType,
 } from '@aggregator/shared';
 import type { CustomerTypeId, OptionFieldDto, PlanDto } from '@aggregator/shared';
@@ -392,25 +393,55 @@ describe('navigation', () => {
     await waitFor(() => expect(screen.getByLabelText(/^Age/)).toHaveValue(52));
   });
 
-  it('adds an insurance type from the insurance types screen', async () => {
-    const user = userEvent.setup();
-    givenInsuranceType('type_1', 'Medical');
-
-    renderApp(ROUTES.insuranceTypes.list);
+  it('shows the three plan tiers, with nothing to add', async () => {
+    renderApp(ROUTES.planTiers.list);
     expect(
-      await screen.findByRole('heading', { name: 'Insurance types', level: 1 }),
+      await screen.findByRole('heading', { name: 'Plan tiers', level: 1 }),
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /Add insurance type/i }));
+    for (const tier of ['Basic', 'Standard', 'Premium']) {
+      // The table renders a desktop row and a mobile card, so each label
+      // legitimately appears more than once.
+      expect((await screen.findAllByText(tier)).length).toBeGreaterThan(0);
+    }
 
-    const dialog = within(await screen.findByRole('dialog'));
-    await user.type(dialog.getByLabelText(/^Name/), 'Motor');
-    await user.click(dialog.getByRole('button', { name: /Add type/i }));
+    /**
+     * A reference, not a register. The tier is read off each variant's annual
+     * limit, so there is nothing stored to create, rename or delete — the old
+     * screen let an employee file a plan under a category that could then
+     * disagree with the plan's own figures.
+     */
+    // "Add Company" lives in the sidebar on every screen, so this asks about
+    // adding a TIER specifically.
+    expect(
+      screen.queryByRole('button', { name: /Add (insurance type|tier|plan tier)/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Add (insurance type|tier)/i })).not.toBeInTheDocument();
+  });
 
-    await waitFor(() => expect(store.insuranceTypes).toHaveLength(2));
-    expect(store.insuranceTypes[1]?.name).toBe('Motor');
-    // The new category appears in the list it was added from.
-    await waitFor(() => expect(screen.getAllByText('Motor').length).toBeGreaterThan(0));
+  it('sorts a variant into its tier by what the plan actually pays', async () => {
+    givenCompany();
+    givenPlan();
+    // 30,000 is Basic; 75,000 is Standard. Neither was chosen by anybody.
+    givenConfiguration('cfg_basic', 'plan_1');
+    store.configurations[0]!.annualLimit = 30000;
+    givenConfiguration('cfg_standard', 'plan_1');
+    store.configurations[1]!.annualLimit = 75000;
+    store.configurations[1]!.geographicalCoverage = 'INTERNATIONAL';
+
+    renderApp(ROUTES.planTiers.list);
+
+    const row = async (tier: string) => {
+      const cells = await screen.findAllByText(tier);
+      return cells.map((cell) => cell.closest('tr')).find((found) => found !== null)!;
+    };
+    const basic = await row('Basic');
+    const standard = await row('Standard');
+    const premium = await row('Premium');
+
+    expect(within(basic).getByText('1')).toBeInTheDocument();
+    expect(within(standard).getByText('1')).toBeInTheDocument();
+    expect(within(premium).getByText(/None yet/i)).toBeInTheDocument();
   });
 
   it('never lets a wheel scroll rewrite a number, on any numeric field', async () => {
@@ -587,7 +618,7 @@ describe('navigation', () => {
     expect(await screen.findByText('BEST ABOVE YOUR BUDGET')).toBeInTheDocument();
   });
 
-  it('counts plans, benefits, companies and types from the database', async () => {
+  it('counts plans, benefits and companies from the database', async () => {
     givenCompany('company_1', 'Northwind Assurance');
     givenCompany('company_2', 'Southwind Mutual');
     givenInsuranceType();
@@ -607,7 +638,9 @@ describe('navigation', () => {
       expect(tile('Available plans')).toMatch(/1/);
       expect(tile('Benefits')).toMatch(/2/);
       expect(tile('Insurance companies')).toMatch(/2/);
-      expect(tile('Insurance types')).toMatch(/1/);
+      // A fixed set of three, not a count that grows: the tiers are read off
+      // each variant's annual limit rather than created by anybody.
+      expect(tile('Plan tiers')).toMatch(/3/);
     });
   });
 
@@ -623,7 +656,7 @@ describe('navigation', () => {
     for (const [label, href] of [
       ['Companies', ROUTES.companies.list],
       ['Plans', ROUTES.plans.list],
-      ['Insurance types', ROUTES.insuranceTypes.list],
+      ['Plan tiers', ROUTES.planTiers.list],
     ] as const) {
       const tile = (await screen.findAllByRole('link', { name: new RegExp(label, 'i') })).find(
         (link) => link.getAttribute('href') === href,
@@ -652,23 +685,22 @@ describe('navigation', () => {
     expect(screen.getAllByText('Northwind Assurance').length).toBeGreaterThan(0);
   });
 
-  it('opens the insurance types list from the dashboard tile', async () => {
+  it('opens the plan tiers from the dashboard tile', async () => {
     const user = userEvent.setup();
     givenCompany();
-    givenInsuranceType('type_1', 'Aurora Medical Cover');
     givenPlan();
 
     renderApp(ROUTES.dashboard);
 
-    const tile = (await screen.findAllByRole('link', { name: /Insurance types/i })).find(
-      (link) => link.getAttribute('href') === ROUTES.insuranceTypes.list,
+    const tile = (await screen.findAllByRole('link', { name: /Plan tiers/i })).find(
+      (link) => link.getAttribute('href') === ROUTES.planTiers.list,
     );
     await user.click(tile!);
 
     expect(
-      await screen.findByRole('heading', { name: 'Insurance types', level: 1 }),
+      await screen.findByRole('heading', { name: 'Plan tiers', level: 1 }),
     ).toBeInTheDocument();
-    expect((await screen.findAllByText('Aurora Medical Cover')).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('Basic')).length).toBeGreaterThan(0);
   });
 
   it('has no top-level entry for insurance types, plans or options', async () => {
@@ -1124,7 +1156,7 @@ describe('company medical networks', () => {
 // ---------------------------------------------------------------------------
 
 describe('plans', () => {
-  it('files a medical plan under a Medical type it creates itself', async () => {
+  it('creates a plan without asking anybody to categorise it', async () => {
     const user = userEvent.setup();
     givenCompany();
 
@@ -1140,10 +1172,13 @@ describe('plans', () => {
     await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
     await waitFor(() => expect(store.plans).toHaveLength(1));
-    // The form is medical-specific, so the employee is never asked the
-    // category. Refiling a plan elsewhere remains possible when editing it.
-    expect(store.insuranceTypes).toHaveLength(1);
-    expect(store.insuranceTypes[0]?.name).toBe('Medical');
+    /**
+     * NOTHING was filed under a category. How good the plan is gets read off
+     * its variant's annual limit — 600,000 here, so Premium — which is why no
+     * category record is created and none is asked for.
+     */
+    expect(store.insuranceTypes).toHaveLength(0);
+    expect(planTier(store.configurations[0]?.annualLimit ?? null)).toBe('PREMIUM');
     /**
      * The code is derived so the employee never has to invent one, and it
      * carries the BUYER: a company's Individual and Family "Tier One" are two
@@ -1156,7 +1191,6 @@ describe('plans', () => {
       name: 'Tier One',
       code: 'TIER-ONE-INDIVIDUAL',
       customerType: 'INDIVIDUAL',
-      insuranceTypeId: store.insuranceTypes[0]?.id,
     });
     expect(store.plans[0]?.name).not.toContain('INDIVIDUAL');
   });
@@ -1481,11 +1515,9 @@ describe('figures', () => {
 });
 
 describe('editing a plan', () => {
-  it('files a plan under a different insurance type without touching its cover', async () => {
+  it('never asks an employee to categorise a plan', async () => {
     const user = userEvent.setup();
     givenCompany();
-    givenInsuranceType('type_1', 'Medium');
-    givenInsuranceType('type_2', 'High');
     givenPlan();
     const configurationId = givenConfiguration('cfg_1', 'plan_1');
     givenOption();
@@ -1498,17 +1530,40 @@ describe('editing a plan', () => {
 
     renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
     await user.click(await screen.findByRole('button', { name: /Edit plan/i }));
+    await screen.findByLabelText(/Plan name/i);
 
-    // The type is offered when editing, not only when creating.
-    const select = await screen.findByLabelText(/Insurance type/i);
-    expect(select).toHaveValue('type_1');
-    await user.selectOptions(select, 'type_2');
+    /**
+     * The category is gone from the form because it is gone from the model.
+     * Basic, Standard and Premium are read off the variant's annual limit, so
+     * filing a plan under a tier by hand could only ever produce a tier that
+     * disagreed with what the plan actually pays.
+     */
+    expect(screen.queryByLabelText(/Insurance type/i)).not.toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: /Save plan/i }));
 
-    await waitFor(() => expect(store.plans[0]?.insuranceTypeId).toBe('type_2'));
-    // Refiling carries nothing with it: the cover is exactly as it was.
+    // Saving carries nothing away with it: the cover is exactly as it was.
+    await waitFor(() => expect(store.plans).toHaveLength(1));
     expect(store.configurations).toHaveLength(1);
     expect(store.planOptions).toHaveLength(1);
+  });
+
+  it("re-reads a plan's tier when its ceiling moves, with nobody refiling it", async () => {
+    givenCompany();
+    givenPlan();
+    givenConfiguration('cfg_1', 'plan_1');
+
+    // Under 50,000 reads as Basic...
+    store.configurations[0]!.annualLimit = 30000;
+    expect(planTier(store.configurations[0]!.annualLimit)).toBe('BASIC');
+
+    // ...and raising the ceiling is the only act needed to change the tier.
+    store.configurations[0]!.annualLimit = 150000;
+    expect(planTier(store.configurations[0]!.annualLimit)).toBe('PREMIUM');
+
+    // A ceiling nobody stated is not the cheapest tier — it is no tier.
+    store.configurations[0]!.annualLimit = null;
+    expect(planTier(store.configurations[0]!.annualLimit)).toBeNull();
   });
 });
 

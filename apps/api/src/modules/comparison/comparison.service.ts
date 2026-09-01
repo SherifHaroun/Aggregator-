@@ -1,12 +1,14 @@
 import {
   CUSTOMER_TYPES,
   GEOGRAPHICAL_COVERAGES,
+  PLAN_TIERS,
   OPTION_FIELD_DATA_TYPES,
   explainRecommendation,
   optionLabel,
   rankValue,
   resolveAverageAgeForCustomerType,
   scoreCandidates,
+  tierLimitRange,
   type CandidateBenefit,
   type ComparisonCandidate,
   type ComparisonPlanResult,
@@ -54,9 +56,19 @@ function variantRequirements(input: ComparisonPriceRangePayload) {
     isActive: true,
     geographicalCoverage: input.geographicalCoverageId,
     currency: input.currency,
+    /**
+     * HOW GOOD THE PLAN HAS TO BE, asked as what it actually pays.
+     *
+     * Basic, Standard and Premium are a reading of the annual limit, so the
+     * query filters on the limit itself. Nothing stores a tier, which is what
+     * makes it impossible for one to be stale.
+     *
+     * A variant that never stated a ceiling is excluded when a tier is asked
+     * for: it cannot be shown to satisfy a bound nobody wrote down.
+     */
+    ...(input.planTierId ? { annualLimit: tierLimitRange(input.planTierId) } : {}),
     plan: {
       isActive: true,
-      insuranceTypeId: input.insuranceTypeId,
       /**
        * WHO the plan is sold to is a property of the plan, not of the variant.
        * A company's Individual, Family and SME books are separate products that
@@ -160,12 +172,6 @@ export async function getComparisonPriceRange(
 export async function runComparison(input: ComparisonRequestPayload): Promise<ComparisonResultDto> {
   const prisma = getPrisma();
 
-  const insuranceType = await prisma.insuranceType.findUnique({
-    where: { id: input.insuranceTypeId },
-    select: { id: true, name: true },
-  });
-  if (!insuranceType) throw notFound('Insurance type');
-
   const requirements = variantRequirements(input);
   const ceiling: Prisma.DecimalNullableFilter | { not: null } =
     input.budget === undefined ? { not: null } : { not: null, lte: input.budget };
@@ -204,8 +210,8 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
 
   return {
     criteria: {
-      insuranceTypeId: insuranceType.id,
-      insuranceTypeName: insuranceType.name,
+      planTierId: input.planTierId ?? null,
+      planTierLabel: input.planTierId ? PLAN_TIERS[input.planTierId].label : null,
       customerTypeId: input.customerTypeId,
       customerTypeLabel: optionLabel(CUSTOMER_TYPES, input.customerTypeId),
       geographicalCoverageId: input.geographicalCoverageId,

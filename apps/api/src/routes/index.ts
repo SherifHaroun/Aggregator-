@@ -16,7 +16,6 @@ import {
   insuranceOptionsRouter,
   optionFieldsRouter,
 } from '../modules/insurance-options/insurance-options.routes.js';
-import { insuranceTypesRouter } from '../modules/insurance-types/insurance-types.routes.js';
 import { planConfigurationsRouter } from '../modules/plan-configurations/plan-configurations.routes.js';
 import { planOptionsRouter } from '../modules/plan-options/plan-options.routes.js';
 import { plansRouter } from '../modules/plans/plans.routes.js';
@@ -38,7 +37,6 @@ apiRouter.use(requireWriteAccess);
 
 // Insurance data — every record is created by employees; nothing is seeded.
 apiRouter.use('/companies', companiesRouter);
-apiRouter.use('/insurance-types', insuranceTypesRouter);
 apiRouter.use('/insurance-options', insuranceOptionsRouter);
 apiRouter.use('/option-fields', optionFieldsRouter);
 apiRouter.use('/plans', plansRouter);

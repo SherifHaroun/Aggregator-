@@ -1,5 +1,6 @@
 import {
   CUSTOMER_TYPES,
+  PLAN_TIERS,
   GEOGRAPHICAL_COVERAGES,
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
@@ -9,6 +10,7 @@ import {
   usesAgeRange,
   usesFixedAverageAge,
   type CustomerTypeId,
+  type PlanTierId,
   type GeographicalCoverageId,
 } from '@aggregator/shared';
 import { useMemo, useState } from 'react';
@@ -33,7 +35,6 @@ import {
 import {
   useComparisonCurrencies,
   useComparisonPriceRange,
-  useInsuranceTypes,
 } from '@/features/insurance-data/insurance-data.api';
 
 /**
@@ -49,10 +50,14 @@ import {
  */
 export function NewComparisonPage() {
   const navigate = useNavigate();
-  const insuranceTypes = useInsuranceTypes({ isActive: true });
   const currencies = useComparisonCurrencies();
 
-  const [insuranceTypeId, setInsuranceTypeId] = useState<string | null>(null);
+  /**
+   * How good a plan has to be, read off its annual limit rather than a
+   * category anybody filed it under. Optional on purpose: a customer with no
+   * view on it should see every tier rather than be made to pick one.
+   */
+  const [planTierId, setPlanTierId] = useState<PlanTierId | null>(null);
   const [customerTypeId, setCustomerTypeId] = useState<CustomerTypeId | null>(null);
   const [coverageId, setCoverageId] = useState<GeographicalCoverageId | null>(null);
   /** What the customer typed. Ignored while the rules fix the age themselves. */
@@ -89,11 +94,6 @@ export function NewComparisonPage() {
   const age = ageIsFixed ? String(standardAge!.value) : typedAge;
   // One person is a range of one; the request always carries both ends.
   const ageTo = ageIsRange ? typedAgeTo : age;
-
-  const typeOptions = useMemo(
-    () => (insuranceTypes.data ?? []).map((type) => ({ id: type.id, label: type.name })),
-    [insuranceTypes.data],
-  );
 
   const availableCurrencies = currencies.data ?? [];
   const effectiveCurrency =
@@ -145,14 +145,13 @@ export function NewComparisonPage() {
    * question above it has an answer, which is why the budget sits last.
    */
   const priceRangeRequest =
-    insuranceTypeId !== null &&
     customerTypeId !== null &&
     coverageId !== null &&
     effectiveCurrency !== '' &&
     ageError === null &&
     ageToError === null
       ? {
-          insuranceTypeId,
+          ...(planTierId ? { planTierId } : {}),
           customerTypeId,
           geographicalCoverageId: coverageId,
           currency: effectiveCurrency,
@@ -164,7 +163,6 @@ export function NewComparisonPage() {
   const priceRange = useComparisonPriceRange(priceRangeRequest);
 
   const ready =
-    insuranceTypeId !== null &&
     customerTypeId !== null &&
     coverageId !== null &&
     effectiveCurrency !== '' &&
@@ -190,7 +188,7 @@ export function NewComparisonPage() {
       budgetMode === 'MANUAL' ? budgetNumber : (priceRange.data?.suggestedBudget ?? null);
 
     const params = new URLSearchParams({
-      insuranceTypeId: insuranceTypeId!,
+      ...(planTierId ? { planTierId } : {}),
       customerTypeId: customerTypeId!,
       geographicalCoverageId: coverageId!,
       currency: effectiveCurrency,
@@ -226,15 +224,27 @@ export function NewComparisonPage() {
           </div>
 
           <div className="mt-7 grid gap-x-8 gap-y-6 lg:grid-cols-2">
-            {/* The catalogue of types is open-ended, so it takes the full row. */}
+            {/*
+              HOW GOOD A PLAN HAS TO BE, read off its annual limit rather than
+              a category anybody filed it under.
+
+              Optional, and the only optional question on this form: a customer
+              who has not decided should see every tier rather than be made to
+              rule two of them out before they know what they cost. Picking one
+              again clears it.
+            */}
             <div className="lg:col-span-2">
               <ComparisonSegmented
-                name="insuranceType"
-                legend="What kind of insurance?"
-                options={typeOptions}
-                value={insuranceTypeId}
-                onChange={setInsuranceTypeId}
-                error={showErrors && insuranceTypeId === null ? 'Select an insurance type.' : null}
+                name="planTier"
+                legend="How much cover? (optional)"
+                options={listEnabledOptions(PLAN_TIERS).map((tier) => ({
+                  id: tier.id,
+                  label: tier.label,
+                  description: tier.description,
+                }))}
+                value={planTierId}
+                onChange={(id) => setPlanTierId((current) => (current === id ? null : (id as PlanTierId)))}
+                error={null}
               />
             </div>
 

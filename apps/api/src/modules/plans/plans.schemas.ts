@@ -8,7 +8,6 @@ import { z } from 'zod';
  */
 export const createPlanSchema = z.object({
   companyId: z.string().min(1),
-  insuranceTypeId: z.string().min(1),
   /**
    * Individual, Family and SME are separate products that merely share a name,
    * so this is required: a plan with no buyer could not be filed under any of
@@ -23,7 +22,7 @@ export const createPlanSchema = z.object({
 });
 
 /**
- * The insurance type and the customer type ARE changeable; the company is not.
+ * The customer type IS changeable; the company is not.
  *
  * Filing a plan under the wrong buyer is an ordinary mistake, and correcting it
  * moves the whole product — its variants, their benefits and their prices —

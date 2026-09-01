@@ -12,11 +12,11 @@ import {
   StatTile,
   describeError,
 } from '@/components/ui';
+import { PLAN_TIER_IDS } from '@aggregator/shared';
 import { ROUTES } from '@/config/routes';
 import {
   useCompanies,
   useInsuranceOptions,
-  useInsuranceTypes,
   usePlans,
 } from '@/features/insurance-data/insurance-data.api';
 
@@ -32,10 +32,9 @@ import {
 export function DashboardPage() {
   const companies = useCompanies();
   const plans = usePlans();
-  const insuranceTypes = useInsuranceTypes();
   const benefits = useInsuranceOptions();
 
-  const queries = [companies, plans, insuranceTypes, benefits];
+  const queries = [companies, plans, benefits];
   const loading = queries.some((query) => query.isLoading);
 
   /**
@@ -50,7 +49,6 @@ export function DashboardPage() {
   const total =
     (companies.data?.length ?? 0) +
     (plans.data?.length ?? 0) +
-    (insuranceTypes.data?.length ?? 0) +
     (benefits.data?.length ?? 0);
 
   const isEmpty = !loading && failure === undefined && allLoaded && total === 0;
@@ -100,12 +98,17 @@ export function DashboardPage() {
           icon={<IconBuilding className="size-5" />}
           to={ROUTES.companies.list}
         />
+        {/*
+          A fixed set, not a count that grows: Basic, Standard and Premium are
+          a reading of each variant's annual limit rather than records anybody
+          creates. The tile leads to what the three mean.
+        */}
         <StatTile
-          label="Insurance types"
-          value={insuranceTypes.data?.length}
+          label="Plan tiers"
+          value={PLAN_TIER_IDS.length}
           loading={loading || failure !== undefined}
           icon={<IconShield className="size-5" />}
-          to={ROUTES.insuranceTypes.list}
+          to={ROUTES.planTiers.list}
         />
       </div>
 

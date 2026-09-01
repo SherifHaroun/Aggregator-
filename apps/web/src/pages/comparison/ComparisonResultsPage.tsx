@@ -90,7 +90,7 @@ export function ComparisonResultsPage() {
         title="Comparison results"
         description={
           result
-            ? `${result.matchedCount} matching ${result.matchedCount === 1 ? 'plan' : 'plans'} for ${result.criteria.insuranceTypeName}.`
+            ? `${result.matchedCount} matching ${result.matchedCount === 1 ? 'plan' : 'plans'}${result.criteria.planTierLabel ? ` in ${result.criteria.planTierLabel}` : ''}.`
             : 'Comparing the plans that match your requirements.'
         }
         breadcrumbs={[{ label: 'New comparison', to: ROUTES.comparison.new }, { label: 'Results' }]}
@@ -105,7 +105,9 @@ export function ComparisonResultsPage() {
       {result ? (
         <Card className="mb-5">
           <CardBody className="flex flex-wrap items-center gap-2">
-            <Badge tone="brand">{result.criteria.insuranceTypeName}</Badge>
+            {result.criteria.planTierLabel ? (
+              <Badge tone="brand">{result.criteria.planTierLabel}</Badge>
+            ) : null}
             <Badge>{result.criteria.customerTypeLabel}</Badge>
             <Badge>{result.criteria.geographicalCoverageLabel}</Badge>
             <Badge>{result.criteria.currency}</Badge>

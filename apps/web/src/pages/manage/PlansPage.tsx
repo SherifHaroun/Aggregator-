@@ -14,11 +14,16 @@ import { ROUTES } from '@/config/routes';
 import { customerTypeLabel } from '@/features/insurance-data/labels';
 import {
   useCompanies,
-  useInsuranceTypes,
   usePlanConfigurations,
   usePlans,
 } from '@/features/insurance-data/insurance-data.api';
-import type { PlanDto } from '@aggregator/shared';
+import {
+  PLAN_TIERS,
+  planTier,
+  type PlanConfigurationDto,
+  type PlanDto,
+  type PlanTierId,
+} from '@aggregator/shared';
 
 /**
  * Every plan in the database, across all companies.
@@ -30,7 +35,6 @@ import type { PlanDto } from '@aggregator/shared';
 export function PlansPage() {
   const plans = usePlans();
   const companies = useCompanies();
-  const insuranceTypes = useInsuranceTypes();
   /** The plans list does not carry configurations, so they are counted here. */
   const configurations = usePlanConfigurations();
 
@@ -39,10 +43,16 @@ export function PlansPage() {
     [companies.data],
   );
 
-  const typeName = useMemo(
-    () => new Map((insuranceTypes.data ?? []).map((type) => [type.id, type.name])),
-    [insuranceTypes.data],
-  );
+  /** Each plan's variants, so a plan can be shown the tiers its ceilings read as. */
+  const configurationsByPlan = useMemo(() => {
+    const byPlan = new Map<string, PlanConfigurationDto[]>();
+    for (const configuration of configurations.data ?? []) {
+      const list = byPlan.get(configuration.planId) ?? [];
+      list.push(configuration);
+      byPlan.set(configuration.planId, list);
+    }
+    return byPlan;
+  }, [configurations.data]);
 
   const configurationCount = useMemo(() => {
     const counts = new Map<string, number>();
@@ -72,9 +82,24 @@ export function PlansPage() {
         ),
       },
       {
-        key: 'type',
-        header: 'Insurance type',
-        render: (plan) => typeName.get(plan.insuranceTypeId) ?? '—',
+        /**
+         * Read off each variant's annual limit rather than filed by hand. A
+         * plan sold at 30,000 locally and 150,000 internationally is genuinely
+         * Basic one way and Premium the other, so both are named.
+         */
+        key: 'tier',
+        header: 'Tier',
+        render: (plan) => {
+          const tiers = [
+            ...new Set(
+              (configurationsByPlan.get(plan.id) ?? [])
+                .map((variant) => planTier(variant.annualLimit))
+                .filter((tier): tier is PlanTierId => tier !== null)
+                .map((tier) => PLAN_TIERS[tier].label),
+            ),
+          ];
+          return tiers.length === 0 ? '—' : tiers.join(', ');
+        },
       },
       {
         key: 'customerType',
@@ -107,7 +132,7 @@ export function PlansPage() {
         ),
       },
     ],
-    [companyName, configurationCount, typeName],
+    [companyName, configurationCount, configurationsByPlan],
   );
 
   return (

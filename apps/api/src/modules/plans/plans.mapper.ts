@@ -23,7 +23,6 @@ export function toPlanDto(
   return {
     id: plan.id,
     companyId: plan.companyId,
-    insuranceTypeId: plan.insuranceTypeId,
     customerType: plan.customerType,
     name: plan.name,
     code: plan.code,

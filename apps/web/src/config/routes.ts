@@ -26,9 +26,9 @@ export const ROUTES = {
     list: '/plans',
     detail: (companyId: string, planId: string) => `/companies/${companyId}/plans/${planId}`,
   },
-  insuranceTypes: {
-    /** Read-only list of every insurance type. */
-    list: '/insurance-types',
+  planTiers: {
+    /** Read-only: what Basic, Standard and Premium mean. Nothing to manage. */
+    list: '/plan-tiers',
   },
   configurations: {
     detail: (companyId: string, planId: string, configurationId: string) =>

@@ -36,13 +36,9 @@ const db = () => {
 describe.skipIf(!url)('PlanConfiguration architecture', () => {
   beforeAll(async () => {
     const company = await db().company.create({ data: { name: `${PREFIX}_company` } });
-    const insuranceType = await db().insuranceType.create({
-      data: { name: `${PREFIX}_type`, code: `${PREFIX}_type` },
-    });
     const plan = await db().plan.create({
       data: {
         companyId: company.id,
-        insuranceTypeId: insuranceType.id,
         customerType: 'INDIVIDUAL',
         name: `${PREFIX}_plan`,
         code: `${PREFIX}_plan`,
@@ -64,7 +60,6 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
     });
 
     ids.company = company.id;
-    ids.insuranceType = insuranceType.id;
     ids.plan = plan.id;
     ids.option = option.id;
     ids.coverageField = option.fields.find((f) => f.key === 'coverage_percentage')!.id;
@@ -76,7 +71,6 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
     // Deleting the plans cascades variants -> price bands, options and values.
     await prisma.plan.deleteMany({ where: { companyId: ids.company } });
     await prisma.insuranceOption.deleteMany({ where: { id: ids.option } });
-    await prisma.insuranceType.deleteMany({ where: { id: ids.insuranceType } });
     await prisma.company.deleteMany({ where: { id: ids.company } });
     await prisma.$disconnect();
   });
@@ -93,7 +87,6 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
       await db().plan.create({
         data: {
           companyId: ids.company,
-          insuranceTypeId: ids.insuranceType,
           customerType,
           name: `${PREFIX}_plan`,
           code: `${PREFIX}_plan_${customerType.toLowerCase()}`,

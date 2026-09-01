@@ -54,7 +54,6 @@ async function givenTwoCompanies() {
 async function cleanup(): Promise<void> {
   if (!prisma) return;
   await prisma.plan.deleteMany({ where: { name: { startsWith: PREFIX } } });
-  await prisma.insuranceType.deleteMany({ where: { name: { startsWith: PREFIX } } });
   // Networks cascade with their company.
   await prisma.company.deleteMany({ where: { name: { startsWith: PREFIX } } });
 }
@@ -131,12 +130,8 @@ describe.skipIf(!url)('a company’s medical networks', () => {
  */
 async function givenPlanOn(companyId: string, medicalNetworkId: string | null) {
   const tag = `${PREFIX}_${unique()}`;
-  const insuranceType = await db().insuranceType.create({
-    data: { name: tag, code: tag },
-  });
   const plan = await createPlan({
     companyId,
-    insuranceTypeId: insuranceType.id,
     customerType: 'INDIVIDUAL',
     name: tag,
     code: tag,
@@ -193,10 +188,6 @@ function unique() {
       'Silver Care Network',
       'Basic Network',
     ]);
-
-    const insuranceType = await db().insuranceType.create({
-      data: { name: `${PREFIX}_type`, code: `${PREFIX}_type` },
-    });
     const { variantId } = await givenPlanOn(a, silver.id);
 
     // The company decides Basic outranks Silver after all.

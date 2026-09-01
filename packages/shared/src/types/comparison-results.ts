@@ -10,6 +10,7 @@ import type { ComparisonDirection, PlanAttributeId } from '../config/comparison-
 import type { CustomerTypeId } from '../config/customer-types.js';
 import type { GeographicalCoverageId } from '../config/geographical-coverage.js';
 import type { OptionFieldDataType } from '../config/option-field-types.js';
+import type { PlanTierId } from '../config/plan-tiers.js';
 import type { ResolvedAverageAge } from './comparison.js';
 
 /**
@@ -21,7 +22,12 @@ import type { ResolvedAverageAge } from './comparison.js';
  * after this code was written.
  */
 export interface ComparisonRequestInput {
-  insuranceTypeId: string;
+  /**
+   * How good a plan has to be, as a reading of its annual limit rather than a
+   * category anybody filed it under. Optional: a customer with no view on it
+   * sees every tier.
+   */
+  planTierId?: PlanTierId | null;
   customerTypeId: CustomerTypeId;
   geographicalCoverageId: GeographicalCoverageId;
   /** ISO 4217 code, e.g. "EGP". Configurations priced differently are excluded. */
@@ -157,8 +163,8 @@ export interface ComparisonPlanResult {
 
 /** The selections echoed back, resolved to labels. */
 export interface ResolvedComparisonRequest {
-  insuranceTypeId: string;
-  insuranceTypeName: string;
+  planTierId: PlanTierId | null;
+  planTierLabel: string | null;
   customerTypeId: CustomerTypeId;
   customerTypeLabel: string;
   geographicalCoverageId: GeographicalCoverageId;

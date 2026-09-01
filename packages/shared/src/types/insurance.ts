@@ -35,13 +35,6 @@ export interface CompanyDto extends RecordMeta {
   medicalNetworks?: CompanyMedicalNetworkDto[];
 }
 
-export interface InsuranceTypeDto extends RecordMeta {
-  name: string;
-  code: string;
-  description: string | null;
-  sortOrder: number;
-}
-
 /**
  * A benefit/feature an employee has defined, e.g. anything from outpatient care
  * to a benefit that does not exist yet.
@@ -176,7 +169,6 @@ export interface NetworkProviderDto {
  */
 export interface PlanDto extends RecordMeta {
   companyId: string;
-  insuranceTypeId: string;
   /**
    * WHO THIS PLAN IS SOLD TO.
    *

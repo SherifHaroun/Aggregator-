@@ -8,7 +8,7 @@ import { NewComparisonPage } from '@/pages/comparison/NewComparisonPage';
 import { AddCompanyPage } from '@/pages/manage/AddCompanyPage';
 import { CompaniesPage } from '@/pages/manage/CompaniesPage';
 import { CompanyDetailPage } from '@/pages/manage/CompanyDetailPage';
-import { InsuranceTypesPage } from '@/pages/manage/InsuranceTypesPage';
+import { PlanTiersPage } from '@/pages/manage/PlanTiersPage';
 import { PlanConfigurationDetailPage } from '@/pages/manage/PlanConfigurationDetailPage';
 import { PlanDetailPage } from '@/pages/manage/PlanDetailPage';
 import { PlansPage } from '@/pages/manage/PlansPage';
@@ -33,7 +33,7 @@ export const routes: RouteObject[] = [
       { path: ROUTE_PATTERNS.companyDetail, element: <CompanyDetailPage /> },
       { path: ROUTES.plans.list, element: <PlansPage /> },
       { path: ROUTE_PATTERNS.planDetail, element: <PlanDetailPage /> },
-      { path: ROUTES.insuranceTypes.list, element: <InsuranceTypesPage /> },
+      { path: ROUTES.planTiers.list, element: <PlanTiersPage /> },
       { path: ROUTE_PATTERNS.configurationDetail, element: <PlanConfigurationDetailPage /> },
 
       { path: ROUTES.comparison.new, element: <NewComparisonPage /> },

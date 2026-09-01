@@ -141,7 +141,6 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
     const plan = await tx.plan.create({
       data: {
         companyId: source.companyId,
-        insuranceTypeId: source.insuranceTypeId,
         /**
          * A copy is sold to the same buyer. Individual, Family and SME are
          * separate products, so a copy that quietly changed this would file the
@@ -292,12 +291,11 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
 export async function createPlan(input: CreatePlanInput): Promise<PlanDto> {
   const prisma = getPrisma();
 
-  const [company, insuranceType] = await Promise.all([
-    prisma.company.findUnique({ where: { id: input.companyId }, select: { id: true } }),
-    prisma.insuranceType.findUnique({ where: { id: input.insuranceTypeId }, select: { id: true } }),
-  ]);
+  const company = await prisma.company.findUnique({
+    where: { id: input.companyId },
+    select: { id: true },
+  });
   if (!company) throw notFound('Company');
-  if (!insuranceType) throw notFound('Insurance type');
 
   await assertPlanIsDistinct(input.companyId, input.customerType, input.name);
 
@@ -341,23 +339,14 @@ async function assertPlanIsDistinct(
 }
 
 /**
- * Edit the plan itself — its name, code, status, and the insurance type it is
- * filed under.
+ * Edit the plan itself — its name, code, status and the buyer it is sold to.
  *
- * Refiling a plan carries nothing with it and breaks nothing: benefits are
- * global, so the configurations and their values are untouched. Only which
- * comparison the plan answers changes.
+ * How good the plan is does not appear here. Basic, Standard and Premium are
+ * read off each variant's annual limit rather than filed by hand, so raising a
+ * ceiling changes the tier and nothing has to be remembered.
  */
 export async function updatePlan(id: string, input: UpdatePlanInput): Promise<PlanDto> {
   const prisma = getPrisma();
-
-  if (input.insuranceTypeId !== undefined) {
-    const insuranceType = await prisma.insuranceType.findUnique({
-      where: { id: input.insuranceTypeId },
-      select: { id: true },
-    });
-    if (!insuranceType) throw notFound('Insurance type');
-  }
 
   /**
    * Renaming, or moving a plan to another buyer, can collide with a plan that

@@ -46,13 +46,9 @@ let planId = '';
 /** A plan configuration to attach benefits to. Rebuilt for every test. */
 async function givenConfiguration(): Promise<string> {
   const company = await db().company.create({ data: { name: `${PREFIX}_company` } });
-  const insuranceType = await db().insuranceType.create({
-    data: { name: `${PREFIX}_type`, code: `${PREFIX}_type` },
-  });
   const plan = await db().plan.create({
     data: {
       companyId: company.id,
-      insuranceTypeId: insuranceType.id,
       customerType: 'INDIVIDUAL',
       name: `${PREFIX}_plan`,
       code: `${PREFIX}_plan`,
@@ -81,7 +77,6 @@ async function cleanup(): Promise<void> {
     where: { name: { startsWith: PREFIX }, parentId: { not: null } },
   });
   await prisma.insuranceOption.deleteMany({ where: { name: { startsWith: PREFIX } } });
-  await prisma.insuranceType.deleteMany({ where: { name: { startsWith: PREFIX } } });
   await prisma.company.deleteMany({ where: { name: { startsWith: PREFIX } } });
 }
 

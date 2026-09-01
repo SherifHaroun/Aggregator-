@@ -3,6 +3,7 @@ import {
   GEOGRAPHICAL_COVERAGE_IDS,
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
+  PLAN_TIER_IDS,
 } from '@aggregator/shared';
 import { z } from 'zod';
 
@@ -21,7 +22,12 @@ const comparisonAge = z
 
 export const comparisonRequestSchema = z
   .object({
-    insuranceTypeId: z.string().min(1),
+    /**
+     * How good the plan has to be, read off its annual limit rather than a
+     * category anybody filed it under. Optional: a customer with no view on it
+     * is shown every tier.
+     */
+    planTierId: z.enum(PLAN_TIER_IDS).optional(),
     customerTypeId: z.enum(CUSTOMER_TYPE_IDS),
     geographicalCoverageId: z.enum(GEOGRAPHICAL_COVERAGE_IDS),
     /** ISO 4217, as stored on the configuration. */

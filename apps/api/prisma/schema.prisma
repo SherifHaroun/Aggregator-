@@ -181,30 +181,6 @@ model NetworkProvider {
 //  INSURANCE TYPES
 // ============================================================================
 
-/// A category of insurance (medical, life, motor, ...) — a record, never a
-/// hardcoded enum, so employees can add new categories from the website.
-///
-/// It categorises plans. Benefits are NOT scoped by it: one global catalogue is
-/// offered to every plan, whatever its type — see `InsuranceOption`.
-model InsuranceType {
-  id          String  @id @default(cuid())
-  name        String  @unique
-  /// Stable machine key, e.g. derived from the name. Unique and immutable.
-  code        String  @unique
-  description String?
-  sortOrder   Int     @default(0)
-
-  isActive Boolean @default(true)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  plans Plan[]
-
-  @@index([isActive])
-  @@map("insurance_types")
-}
-
 // ============================================================================
 //  OPTIONS (the benefit catalogue)
 // ============================================================================
@@ -430,9 +406,6 @@ model Plan {
   companyId String
   company   Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
-  insuranceTypeId String
-  insuranceType   InsuranceType @relation(fields: [insuranceTypeId], references: [id], onDelete: Restrict)
-
   /// WHO THIS PLAN IS SOLD TO.
   ///
   /// On the plan, not below it: a company sells its Individual, Family and SME
@@ -466,7 +439,6 @@ model Plan {
   /// a collision.
   @@unique([companyId, customerType, code])
   @@index([companyId, isActive])
-  @@index([insuranceTypeId, isActive])
   /// The comparison's first cut: "every plan sold to this kind of buyer".
   @@index([companyId, customerType, isActive])
   @@map("plans")

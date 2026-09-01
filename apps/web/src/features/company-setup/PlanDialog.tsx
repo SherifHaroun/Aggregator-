@@ -10,8 +10,6 @@ import {
   useToast,
 } from '@/components/ui';
 import {
-  useInsuranceTypes,
-  useSaveInsuranceType,
   useSavePlan,
 } from '@/features/insurance-data/insurance-data.api';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
@@ -38,20 +36,15 @@ export function PlanDialog({
   onClose: () => void;
 }) {
   const { notify } = useToast();
-  const insuranceTypes = useInsuranceTypes({ isActive: true });
   const savePlan = useSavePlan(plan?.id);
-  const saveType = useSaveInsuranceType();
 
   const { values, setValue, fieldErrors, formError, applyError } = useRecordForm({
     name: plan?.name ?? '',
     code: plan?.code ?? '',
-    insuranceTypeId: plan?.insuranceTypeId ?? '',
-    newTypeName: '',
     isActive: plan?.isActive ?? true,
   });
 
-  const creatingType = values.insuranceTypeId === NEW_TYPE;
-  const pending = savePlan.isPending || saveType.isPending;
+  const pending = savePlan.isPending;
 
   /**
    * The API requires a code; the shared rule derives one so the employee need
@@ -60,29 +53,13 @@ export function PlanDialog({
    */
   const derivedCode = derivePlanCode(values.name, plan?.customerType ?? 'INDIVIDUAL');
 
-  async function submit() {
-    const blankToNull = (value: string) => (value.trim() === '' ? null : value.trim());
-
-    // A brand-new insurance type is created first, then the plan points at it.
-    let insuranceTypeId = values.insuranceTypeId;
-    if (creatingType) {
-      try {
-        const created = await saveType.mutateAsync({ name: values.newTypeName.trim() });
-        insuranceTypeId = created.id;
-      } catch (error) {
-        applyError(error, 'the insurance type');
-        return;
-      }
-    }
+  function submit() {
 
     savePlan.mutate(
       {
         name: values.name.trim(),
         code: values.code.trim() === '' ? derivedCode : values.code.trim(),
         isActive: values.isActive,
-        // The type can be corrected at any time; the company cannot change.
-        insuranceTypeId,
-        // Empty means the document does not say — never an invented network.
         ...(plan ? {} : { companyId }),
       },
       {
@@ -136,48 +113,13 @@ export function PlanDialog({
           )}
         </Field>
 
-        {/* Offered when editing too: a plan filed under the wrong type is
-            corrected here, and nothing it carries is affected. */}
-        <Field
-          label="Insurance type"
-          required
-          error={fieldErrors.insuranceTypeId}
-          hint={
-            plan
-              ? 'Decides which comparison this plan answers. Its benefits and prices are unaffected.'
-              : 'Groups plans and the benefits available to them.'
-          }
-        >
-          {(props) => (
-            <Select
-              {...props}
-              value={values.insuranceTypeId}
-              onChange={(event) => setValue('insuranceTypeId', event.target.value)}
-            >
-              <option value="">Select an insurance type</option>
-              {(insuranceTypes.data ?? []).map((type) => (
-                <option key={type.id} value={type.id}>
-                  {type.name}
-                </option>
-              ))}
-              <option value={NEW_TYPE}>+ Create a new insurance type…</option>
-            </Select>
-          )}
-        </Field>
+        {/*
+          HOW GOOD THE PLAN IS is not asked here, and cannot be.
 
-        {creatingType ? (
-          <Field label="New insurance type name" required error={fieldErrors.newTypeName}>
-            {(props) => (
-              <Input
-                {...props}
-                value={values.newTypeName}
-                onChange={(event) => setValue('newTypeName', event.target.value)}
-                placeholder="Name this category of insurance"
-              />
-            )}
-          </Field>
-        ) : null}
-
+          Basic, Standard and Premium are read off each variant's annual limit,
+          so a plan gets its tier from the ceilings it actually pays out —
+          nothing to pick, and nothing that can drift from the figures.
+        */}
         <Field
           label="Plan code"
           error={fieldErrors.code}

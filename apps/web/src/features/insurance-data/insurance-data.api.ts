@@ -15,7 +15,6 @@ import type {
   CompanyDto,
   CompanyMedicalNetworkDto,
   InsuranceOptionDto,
-  InsuranceTypeDto,
   OptionChoiceDto,
   Paginated,
   PlanConfigurationDto,
@@ -35,7 +34,6 @@ import { api, query } from '@/lib/api-client';
 /** Query key roots, so invalidation is consistent across features. */
 export const keys = {
   companies: ['companies'] as const,
-  insuranceTypes: ['insurance-types'] as const,
   insuranceOptions: ['insurance-options'] as const,
   plans: ['plans'] as const,
   planConfigurations: ['plan-configurations'] as const,
@@ -241,31 +239,6 @@ export function useReorderMedicalNetworks(companyId: string) {
 // ---------------------------------------------------------------------------
 // Insurance types
 // ---------------------------------------------------------------------------
-
-export function useInsuranceTypes(filters: { isActive?: boolean } = {}) {
-  return useQuery({
-    queryKey: [...keys.insuranceTypes, filters],
-    queryFn: () =>
-      api.get<Paginated<InsuranceTypeDto>>(
-        `/insurance-types${query({ pageSize: LIST_PAGE_SIZE, ...filters })}`,
-      ),
-    select: (page) => page.items,
-  });
-}
-
-export function useSaveInsuranceType(id?: string) {
-  return useInvalidatingMutation(keys.insuranceTypes, (input: Record<string, unknown>) =>
-    id
-      ? api.patch<InsuranceTypeDto>(`/insurance-types/${id}`, input)
-      : api.post<InsuranceTypeDto>('/insurance-types', input),
-  );
-}
-
-export function useDeleteInsuranceType() {
-  return useInvalidatingMutation(keys.insuranceTypes, (id: string) =>
-    api.delete<void>(`/insurance-types/${id}`),
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Insurance options (the employee-defined benefit catalogue)

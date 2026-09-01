@@ -303,14 +303,6 @@ export function PlanSetupForm({
 
     setSaving(true);
     try {
-      setProgress('Preparing…');
-      const types = await api.get<Paginated<{ id: string; name: string }>>(
-        `/insurance-types${query({ pageSize: 200, isActive: true })}`,
-      );
-      const medical =
-        types.items.find((type) => fold(type.name) === fold(MEDICAL_TYPE_NAME)) ??
-        (await api.post<{ id: string }>('/insurance-types', { name: MEDICAL_TYPE_NAME }));
-
       /**
        * Benefits are settled BEFORE the plan is created.
        *
@@ -358,7 +350,6 @@ export function PlanSetupForm({
       // --- the plan, once ---------------------------------------------------
       const plan = await api.post<PlanDto>('/plans', {
         companyId,
-        insuranceTypeId: medical.id,
         customerType,
         name: name.trim(),
         code: derivePlanCode(name, customerType),
@@ -443,7 +434,6 @@ export function PlanSetupForm({
         queryClient.invalidateQueries({ queryKey: keys.plans }),
         queryClient.invalidateQueries({ queryKey: keys.planConfigurations }),
         queryClient.invalidateQueries({ queryKey: keys.insuranceOptions }),
-        queryClient.invalidateQueries({ queryKey: keys.insuranceTypes }),
       ]);
 
       notify(
