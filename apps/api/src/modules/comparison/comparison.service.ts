@@ -5,10 +5,12 @@ import {
   OPTION_FIELD_DATA_TYPES,
   explainRecommendation,
   optionLabel,
+  quoteSmeWorkforce,
   rankValue,
   resolveAverageAgeForCustomerType,
   scoreCandidates,
   tierLimitRange,
+  totalSmeEmployees,
   type CandidateBenefit,
   type ComparisonCandidate,
   type ComparisonPlanResult,
@@ -185,6 +187,17 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
    */
   const withinBudget = bandRequirements(input, ceiling);
 
+  /**
+   * AN SME IS PRICED BY ITS WORKFORCE, not by the band it falls in.
+   *
+   * The employer said how many people are in each age bracket, so the premium
+   * is each headcount priced at what the plan charges at that age and added up
+   * — which means the whole rate table is needed, not the one band spanning
+   * the standard comparison age, and the budget can only be applied once the
+   * total exists.
+   */
+  if (input.smeEmployees) return runWorkforceComparison(input, input.smeEmployees);
+
   const [configurations, overBudget] = await Promise.all([
     prisma.planConfiguration.findMany({
       where: { ...requirements, priceBands: { some: withinBudget } },
@@ -222,6 +235,112 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
       ageTo: input.ageTo,
       budget: input.budget ?? null,
       averageAge: resolveAverageAgeForCustomerType(input.customerTypeId),
+      smeEmployeeCount: null,
+      benefits: affordable.benefits,
+    },
+    plans: affordable.plans,
+    recommendedConfigurationId: affordable.recommendedConfigurationId,
+    recommendationReasons: affordable.reasons,
+    matchedCount: affordable.plans.length,
+
+    overBudgetPlans: dearer.plans,
+    overBudgetBenefits: dearer.benefits,
+    overBudgetRecommendedConfigurationId: dearer.recommendedConfigurationId,
+    overBudgetRecommendationReasons: dearer.reasons,
+    overBudgetCount: dearer.plans.length,
+  };
+}
+
+/**
+ * A COMPARISON PRICED BY HEADCOUNT.
+ *
+ * Same plans, same benefits, same scoring — a different question asked of the
+ * rate table. Everywhere else a customer falls in one band and pays what it
+ * says; an SME's employees fall in several, so the premium is every occupied
+ * bracket priced at what the plan charges there and added up.
+ *
+ * Three consequences follow, and all three are why this cannot just be an
+ * argument to the query:
+ *
+ *  - The WHOLE rate table is needed, not the single band the customer falls
+ *    in, so `priceBands` is read in full.
+ *  - The BUDGET can only be applied afterwards. A plan is affordable when the
+ *    workforce costs less than the ceiling, not when one band does — filtering
+ *    in SQL would keep plans whose per-head price looks cheap and whose total
+ *    is anything but.
+ *  - A plan that cannot price a bracket somebody is IN cannot quote this
+ *    workforce at all, and is dropped rather than shown with a hole in it.
+ *
+ * The standard comparison age still decides which plans are ELIGIBLE, exactly
+ * as before. It ages the SME; the headcounts price it.
+ */
+async function runWorkforceComparison(
+  input: ComparisonRequestPayload,
+  employees: Record<string, number>,
+): Promise<ComparisonResultDto> {
+  const prisma = getPrisma();
+
+  const configurations = await prisma.planConfiguration.findMany({
+    where: {
+      ...variantRequirements(input),
+      // Eligibility is unchanged: the plan must be sold at the standard age.
+      priceBands: { some: bandRequirements(input) },
+    },
+    include: {
+      ...comparisonInclude(bandRequirements(input)),
+      /** The whole rate table: the workforce spans more than one band. */
+      priceBands: { orderBy: tightestBandFirst },
+    },
+  });
+
+  const quotes = new Map<string, number>();
+  const quotable: typeof configurations = [];
+  for (const configuration of configurations) {
+    const quote = quoteSmeWorkforce(
+      employees,
+      configuration.priceBands.map((band) => ({
+        ageFrom: band.ageFrom,
+        ageTo: band.ageTo,
+        annualPrice: toNumber(band.annualPrice),
+      })),
+    );
+    if (quote.total === null) continue;
+    quotes.set(configuration.id, quote.total);
+    quotable.push(configuration);
+  }
+
+  /** Affordable is decided on what the workforce costs, not on one head. */
+  const affordableConfigurations = quotable.filter(
+    (configuration) =>
+      input.budget === undefined || quotes.get(configuration.id)! <= input.budget,
+  );
+  const dearerConfigurations = quotable.filter(
+    (configuration) => input.budget !== undefined && quotes.get(configuration.id)! > input.budget,
+  );
+
+  const employeeCount = totalSmeEmployees(employees);
+  const withHeadcount = (result: ReturnType<typeof compareConfigurations>) => ({
+    ...result,
+    plans: result.plans.map((plan) => ({ ...plan, pricedEmployeeCount: employeeCount })),
+  });
+
+  const affordable = withHeadcount(compareConfigurations(affordableConfigurations, quotes));
+  const dearer = withHeadcount(compareConfigurations(dearerConfigurations, quotes));
+
+  return {
+    criteria: {
+      planTierId: input.planTierId ?? null,
+      planTierLabel: input.planTierId ? PLAN_TIERS[input.planTierId].label : null,
+      customerTypeId: input.customerTypeId,
+      customerTypeLabel: optionLabel(CUSTOMER_TYPES, input.customerTypeId),
+      geographicalCoverageId: input.geographicalCoverageId,
+      geographicalCoverageLabel: optionLabel(GEOGRAPHICAL_COVERAGES, input.geographicalCoverageId),
+      currency: input.currency,
+      ageFrom: input.ageFrom,
+      ageTo: input.ageTo,
+      budget: input.budget ?? null,
+      averageAge: resolveAverageAgeForCustomerType(input.customerTypeId),
+      smeEmployeeCount: employeeCount,
       benefits: affordable.benefits,
     },
     plans: affordable.plans,
@@ -281,7 +400,15 @@ type ConfigurationForComparison = Prisma.PlanConfigurationGetPayload<{
  * customer cannot afford from influencing the recommendation among the ones
  * they can.
  */
-function compareConfigurations(configurations: ConfigurationForComparison[]): {
+function compareConfigurations(
+  configurations: ConfigurationForComparison[],
+  /**
+   * What each variant costs THIS customer, when that is not simply the band
+   * they fall in — an SME's premium is its whole workforce priced head by head.
+   * Absent for everybody else, and the band's own price stands.
+   */
+  workforcePrices?: Map<string, number>,
+): {
   benefits: { id: string; name: string }[];
   plans: ComparisonPlanResult[];
   recommendedConfigurationId: string | null;
@@ -375,7 +502,8 @@ function compareConfigurations(configurations: ConfigurationForComparison[]): {
       medicalNetworkName: configuration.medicalNetwork?.name ?? null,
       roomType: configuration.roomType,
       currency: configuration.currency,
-      annualPrice: toNumber(configuration.priceBands[0]?.annualPrice),
+      annualPrice:
+        workforcePrices?.get(configuration.id) ?? toNumber(configuration.priceBands[0]?.annualPrice),
       annualLimit: toNumber(configuration.annualLimit),
       deductible: toNumber(configuration.deductible),
       coPayment: toNumber(configuration.coPayment),

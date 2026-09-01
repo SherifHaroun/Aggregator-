@@ -51,6 +51,15 @@ export interface ComparisonRequestInput {
    * budget resolves to when the filters match nothing to price against.
    */
   budget?: number;
+  /**
+   * HOW MANY EMPLOYEES ARE IN EACH AGE BRACKET, keyed by bracket id.
+   *
+   * An SME's answer to who is being insured: a business has a workforce rather
+   * than an age, so its premium is each bracket's headcount priced at what the
+   * plan charges at that age. Absent for every other customer type, and absent
+   * for an SME until the employer has entered one.
+   */
+  smeEmployees?: Record<string, number>;
 }
 
 /**
@@ -151,6 +160,15 @@ export interface ComparisonPlanResult {
   /** How many of the selected benefits this plan does not carry. */
   missingBenefitCount: number;
 
+  /**
+   * How many employees `annualPrice` covers, for cover priced per head.
+   *
+   * `null` for a single person or a family, where the premium is the premium.
+   * A figure here means the price is an ESTIMATE built from the workforce the
+   * employer described, and the screen says so.
+   */
+  pricedEmployeeCount: number | null;
+
   /** Another plan costs no more and covers at least as much on everything. */
   isDominated: boolean;
   /** Configuration ids that dominate this one. */
@@ -175,6 +193,11 @@ export interface ResolvedComparisonRequest {
   /** `null` when no ceiling was applied. */
   budget: number | null;
   averageAge: ResolvedAverageAge;
+  /**
+   * The workforce the SME prices were built from, or `null` when the cover is
+   * not priced per head. Shown as "based on N employees" beside the estimate.
+   */
+  smeEmployeeCount: number | null;
   /** The benefits found on the matching plans, in the order they are compared. */
   benefits: { id: string; name: string }[];
 }

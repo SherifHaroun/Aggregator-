@@ -4,6 +4,8 @@ import {
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
   PLAN_TIER_IDS,
+  describeSmeDistributionProblem,
+  isSmeAgeBracketId,
 } from '@aggregator/shared';
 import { z } from 'zod';
 
@@ -48,8 +50,37 @@ export const comparisonRequestSchema = z
       .min(0, 'A budget cannot be negative.')
       .max(9_999_999_999.99)
       .optional(),
+    /**
+     * HOW MANY EMPLOYEES ARE IN EACH AGE BRACKET — an SME's answer to "who is
+     * being insured", because a business has a workforce rather than an age.
+     *
+     * The bracket ids and the rules they are checked against both come from
+     * `@aggregator/shared`, so the API can never accept a bracket the screen
+     * does not draw, nor refuse one it does.
+     */
+    smeEmployees: z
+      .record(z.string(), z.number())
+      .refine((counts) => Object.keys(counts).every(isSmeAgeBracketId), {
+        message: 'That is not an age bracket.',
+      })
+      .superRefine((counts, ctx) => {
+        const problem = describeSmeDistributionProblem(counts);
+        if (problem) ctx.addIssue({ code: z.ZodIssueCode.custom, message: problem });
+      })
+      .optional(),
   })
   .superRefine((value, ctx) => {
+    /**
+     * Only an SME has a workforce. A distribution sent for an individual would
+     * be priced against nothing and silently ignored, so it is refused instead.
+     */
+    if (value.smeEmployees && value.customerTypeId !== 'SME') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['smeEmployees'],
+        message: 'Only an SME is priced by employee age bracket.',
+      });
+    }
     if (value.ageFrom > value.ageTo) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

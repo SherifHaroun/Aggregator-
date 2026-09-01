@@ -18,6 +18,25 @@ const price = (plan: { annualPrice: number | null; currency: string | null }) =>
     : `${plan.currency ? `${plan.currency} ` : ''}${formatNumber(plan.annualPrice)}`;
 
 /**
+ * WHAT THE FIGURE IS, in the customer's terms.
+ *
+ * A single person's premium is the premium. A business's is every employee it
+ * described priced at what the plan charges for their age — a real calculation
+ * from a real rate table, but built on the workforce entered for comparison, so
+ * it is an ESTIMATE and says so. Calling it the final price would be a quote,
+ * and nobody here has underwritten anything.
+ */
+function priceCaption(plan: ComparisonPlanResult): { heading: string | null; footnote: string } {
+  if (plan.pricedEmployeeCount === null) return { heading: null, footnote: 'per year' };
+  return {
+    heading: 'Estimated annual price',
+    footnote: `Based on ${formatNumber(plan.pricedEmployeeCount)} ${
+      plan.pricedEmployeeCount === 1 ? 'employee' : 'employees'
+    }`,
+  };
+}
+
+/**
  * The winner, with the reasons the engine produced for THAT set of plans.
  *
  * `label` names which set it won: the plans within the budget, or — shown
@@ -64,8 +83,11 @@ export function RecommendedPlanCard({
             </p>
           </div>
           <div className="text-right">
+            {priceCaption(plan).heading ? (
+              <p className="text-content-muted text-xs font-medium">{priceCaption(plan).heading}</p>
+            ) : null}
             <p className="text-content text-2xl font-bold tabular-nums">{price(plan)}</p>
-            <p className="text-content-subtle text-xs">per year</p>
+            <p className="text-content-subtle text-xs">{priceCaption(plan).footnote}</p>
           </div>
         </div>
 
@@ -197,7 +219,10 @@ export function ComparisonTable({
   }[] = [
     {
       key: 'premium',
-      label: 'Premium',
+      // Named for what it is: an SME's figure is built from its own workforce.
+      label: plans.some((plan) => plan.pricedEmployeeCount !== null)
+        ? 'Estimated annual price'
+        : 'Premium',
       cells: plans.map((plan) => ({
         key: plan.configurationId,
         display: price(plan),
@@ -232,7 +257,11 @@ export function ComparisonTable({
         muted: false,
       })),
     },
-    { key: 'benefits-heading', label: 'Core benefits', heading: true, cells: [] },
+    // A heading with nothing under it labels an absence. Dropped when these
+    // plans record no core benefit at all.
+    ...(benefits.length > 0
+      ? [{ key: 'benefits-heading', label: 'Core benefits', heading: true as const, cells: [] }]
+      : []),
     ...benefits.map((benefit, index) => ({
       key: benefit.id,
       label: benefit.name,
@@ -384,7 +413,13 @@ export function AlternativePlanCard({ plan }: { plan: ComparisonPlanResult }) {
             ) : null}
           </p>
         </div>
-        <p className="text-content shrink-0 text-lg font-bold tabular-nums">{price(plan)}</p>
+        <div className="shrink-0 text-right">
+          <p className="text-content text-lg font-bold tabular-nums">{price(plan)}</p>
+          {/* Named here too: a figure this size should never look like a quote. */}
+          {plan.pricedEmployeeCount === null ? null : (
+            <p className="text-content-subtle text-xs">estimated</p>
+          )}
+        </div>
       </div>
     </Card>
   );

@@ -84,6 +84,11 @@ export interface ComparisonCandidate {
   roomType: string | null;
   currency: string | null;
   annualPrice: number | null;
+  /**
+   * How many employees `annualPrice` covers, where the premium is priced per
+   * head. `null` wherever the premium is simply the premium.
+   */
+  pricedEmployeeCount?: number | null;
   annualLimit: number | null;
   deductible: number | null;
   coPayment: number | null;
@@ -468,6 +473,7 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
       roomType: entry.candidate.roomType,
       currency: entry.candidate.currency,
       annualPrice: entry.candidate.annualPrice,
+      pricedEmployeeCount: entry.candidate.pricedEmployeeCount ?? null,
       customerTypeLabel: entry.candidate.customerTypeLabel,
       geographicalCoverageLabel: entry.candidate.geographicalCoverageLabel,
       benefits: entry.benefits,

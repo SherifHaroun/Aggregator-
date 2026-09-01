@@ -401,15 +401,22 @@ describe('navigation', () => {
     await user.type(screen.getByLabelText(/^Age/), '52');
     expect(screen.getByLabelText(/^Age/)).toHaveValue(52);
 
-    // SME is quoted against the standard age, so the field is filled in and
-    // LOCKED — the figure is a business rule, not a preference.
+    /**
+     * A BUSINESS IS ASKED FOR ITS WORKFORCE, not for an age.
+     *
+     * SME cover is still compared against a standard age, but that is an
+     * assumption about how the cover is sold rather than anything the employer
+     * said — an employer shown "Average age 35" would reasonably read it as a
+     * claim about their own staff. So it is not on the form at all.
+     */
     await user.click(screen.getByRole('radio', { name: /SME/i }));
-    await waitFor(() => expect(screen.getByLabelText(/^Age/)).toHaveValue(35));
+    await waitFor(() => expect(screen.queryByLabelText(/^Age/)).not.toBeInTheDocument());
+    expect(screen.queryByText(/Average age/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('35')).not.toBeInTheDocument();
 
-    const age = screen.getByLabelText(/^Age/);
-    expect(age).toHaveAttribute('readonly');
-    await user.type(age, '9');
-    expect(age).toHaveValue(35);
+    // What it asks for instead: how many employees are in each age group.
+    expect(screen.getByText('Employee ages')).toBeInTheDocument();
+    expect(screen.getByText(/0 employees/)).toBeInTheDocument();
 
     // Switching back hands the customer their own figure again.
     await user.click(screen.getByRole('radio', { name: /Individual/i }));
@@ -591,8 +598,9 @@ describe('navigation', () => {
     givenPlan('plan_2', 'company_2');
     const cheap = givenConfiguration('cfg_cheap', 'plan_1');
     const dear = givenConfiguration('cfg_dear', 'plan_2');
-    store.configurations.find((c) => c.id === cheap)!.annualPrice = 600;
-    store.configurations.find((c) => c.id === dear)!.annualPrice = 1500;
+    // A price lives on a BAND, so that is where each variant's is set.
+    store.configurations.find((c) => c.id === cheap)!.priceBands[0]!.annualPrice = 600;
+    store.configurations.find((c) => c.id === dear)!.priceBands[0]!.annualPrice = 1500;
 
     const params = new URLSearchParams({
       insuranceTypeId: 'type_1',
@@ -620,7 +628,7 @@ describe('navigation', () => {
     givenInsuranceType();
     givenPlan();
     const only = givenConfiguration('cfg_1', 'plan_1');
-    store.configurations.find((c) => c.id === only)!.annualPrice = 1500;
+    store.configurations.find((c) => c.id === only)!.priceBands[0]!.annualPrice = 1500;
 
     const params = new URLSearchParams({
       insuranceTypeId: 'type_1',

@@ -14,7 +14,9 @@ import {
   benefitValueField,
   DEFAULT_BENEFIT_VALUE_KIND,
   derivePlanCode,
+  quoteSmeWorkforce,
   resolveAverageAgeForCustomerType,
+  totalSmeEmployees,
   type BenefitValueKind,
   type CompanyDto,
   type CompanyMedicalNetworkDto,
@@ -577,8 +579,9 @@ function route({
         companyName: company?.name ?? '',
         companyLogoUrl: null,
         currency: configuration.currency,
-        annualPrice: configuration.annualPrice,
-        customerTypeLabel: configuration.customerType,
+        annualPrice: prices.get(configuration.id) ?? null,
+        pricedEmployeeCount: employees ? totalSmeEmployees(employees) : null,
+        customerTypeLabel: plan?.customerType ?? '',
         geographicalCoverageLabel: configuration.geographicalCoverage,
         benefits: options.map((planOption) => {
           const option = store.options.find((item) => item.id === planOption.optionId);
@@ -609,9 +612,35 @@ function route({
       };
     };
 
-    const priced = store.configurations.filter((c) => typeof c.annualPrice === 'number');
-    const within = budget === undefined ? priced : priced.filter((c) => c.annualPrice! <= budget);
-    const above = budget === undefined ? [] : priced.filter((c) => c.annualPrice! > budget);
+    /**
+     * WHAT THIS CUSTOMER PAYS.
+     *
+     * A price lives on a BAND now, so it is read from the band spanning the
+     * ages asked for — and an SME is priced by its workforce instead: every
+     * occupied bracket at what the plan charges there, added up. The
+     * arithmetic comes from `@aggregator/shared`, the same module the screen
+     * draws its boxes from and the real API prices with.
+     */
+    const employees = body.smeEmployees as Record<string, number> | undefined;
+    const priceOf = (configuration: PlanConfigurationDto): number | null => {
+      const bands = configuration.priceBands ?? [];
+      if (employees) return quoteSmeWorkforce(employees, bands).total;
+      const band = bands.find(
+        (row) => row.ageFrom <= Number(body.ageFrom ?? 0) && row.ageTo >= Number(body.ageTo ?? 0),
+      );
+      return band?.annualPrice ?? null;
+    };
+
+    const prices = new Map<string, number>();
+    for (const configuration of store.configurations) {
+      const price = priceOf(configuration);
+      if (price !== null) prices.set(configuration.id, price);
+    }
+
+    const priced = store.configurations.filter((c) => prices.has(c.id));
+    const within =
+      budget === undefined ? priced : priced.filter((c) => prices.get(c.id)! <= budget);
+    const above = budget === undefined ? [] : priced.filter((c) => prices.get(c.id)! > budget);
     const namesOf = (configurations: PlanConfigurationDto[]) => {
       const ids = new Set(
         store.planOptions
@@ -634,6 +663,7 @@ function route({
         ageTo: Number(body.ageTo ?? 0),
         budget: budget ?? null,
         averageAge: { value: null, source: 'NOT_SPECIFIED', label: null },
+        smeEmployeeCount: employees ? totalSmeEmployees(employees) : null,
         benefits: namesOf(within),
       },
       plans: within.map((c, index) => toPlan(c, index === 0)),
@@ -646,6 +676,11 @@ function route({
       overBudgetRecommendationReasons: above.length ? ['Best value above the budget.'] : [],
       overBudgetCount: above.length,
     });
+  }
+
+  /** Every currency the stored variants are priced in, as the real API reads it. */
+  if (resource === 'comparison' && first === 'currencies' && method === 'GET') {
+    return ok([...new Set(store.configurations.map((configuration) => configuration.currency))].sort());
   }
 
   if (resource === 'comparison' && first === 'price-range' && method === 'POST') {

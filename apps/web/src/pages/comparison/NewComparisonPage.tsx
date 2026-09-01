@@ -4,12 +4,15 @@ import {
   GEOGRAPHICAL_COVERAGES,
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
-  SME_FIXED_AVERAGE_AGE_NOTICE,
+  describeSmeDistributionProblem,
+  emptySmeEmployeeCounts,
   listEnabledOptions,
   resolveAverageAgeForCustomerType,
+  totalSmeEmployees,
   usesAgeRange,
   usesFixedAverageAge,
   type CustomerTypeId,
+  type SmeEmployeeCounts,
   type PlanTierId,
   type GeographicalCoverageId,
 } from '@aggregator/shared';
@@ -20,7 +23,6 @@ import {
   Card,
   Field,
   IconChevronRight,
-  IconLock,
   IconShield,
   Input,
   Select,
@@ -30,6 +32,7 @@ import { cn } from '@/lib/cn';
 import {
   ComparisonBudgetChoice,
   ComparisonSegmented,
+  SmeEmployeeAges,
   type BudgetMode,
 } from '@/features/comparison';
 import {
@@ -64,16 +67,25 @@ export function NewComparisonPage() {
   const [typedAge, setTypedAge] = useState('');
   /** The eldest to cover, for the customer types insuring a group. */
   const [typedAgeTo, setTypedAgeTo] = useState('');
+  /**
+   * How many employees are in each age bracket — an SME's answer to who is
+   * being insured, and what its premium is worked out from.
+   */
+  const [employees, setEmployees] = useState<SmeEmployeeCounts>(emptySmeEmployeeCounts);
   const [budgetMode, setBudgetMode] = useState<BudgetMode>('AUTOMATIC');
   const [budget, setBudget] = useState('');
   const [currency, setCurrency] = useState('');
   const [showErrors, setShowErrors] = useState(false);
 
   /**
-   * Some cover is always quoted against a standard age rather than a real one
-   * — currently SME. For those the field is filled in and LOCKED: the figure
-   * is a business rule, not a preference, so offering it as an editable box
-   * would misrepresent what the comparison actually does.
+   * Some cover is quoted against a standard age rather than a real one —
+   * currently SME. That age is a business assumption about how the cover is
+   * sold, NOT something the customer chose, so it is never shown and never
+   * asked for: an employer offered a locked "Average age 35" would reasonably
+   * read it as a claim about their own staff.
+   *
+   * The workforce is described by headcount instead, which is the thing the
+   * broker actually has and the thing the premium is worked out from.
    *
    * Which types work that way is decided by `@aggregator/shared`, never by a
    * check for SME here.
@@ -110,6 +122,16 @@ export function NewComparisonPage() {
   const budgetNumber = budget.trim() === '' ? null : Number(budget);
 
   const outOfRange = `Enter a whole age between ${MIN_INSURABLE_AGE} and ${MAX_INSURABLE_AGE}.`;
+
+  /**
+   * The workforce, where there is one. A comparison of nobody prices nothing,
+   * so at least one employee is what makes the question answered.
+   */
+  const employeeCount = totalSmeEmployees(employees);
+  const employeesError = !ageIsFixed
+    ? null
+    : (describeSmeDistributionProblem(employees) ??
+      (employeeCount === 0 ? 'Enter how many employees are in each age group.' : null));
 
   const ageError = ageIsFixed
     ? null
@@ -149,7 +171,8 @@ export function NewComparisonPage() {
     coverageId !== null &&
     effectiveCurrency !== '' &&
     ageError === null &&
-    ageToError === null
+    ageToError === null &&
+    employeesError === null
       ? {
           ...(planTierId ? { planTierId } : {}),
           customerTypeId,
@@ -168,6 +191,7 @@ export function NewComparisonPage() {
     effectiveCurrency !== '' &&
     ageError === null &&
     ageToError === null &&
+    employeesError === null &&
     budgetError === null;
 
   function submit(event: React.FormEvent) {
@@ -196,6 +220,17 @@ export function NewComparisonPage() {
       ageTo: String(ageToNumber),
       ...(resolvedBudget === null ? {} : { budget: String(resolvedBudget) }),
     });
+
+    /**
+     * The workforce travels as one parameter per occupied bracket, so the URL
+     * stays readable and a comparison of twenty people is still a link that can
+     * be sent to somebody. Empty brackets are left out: nobody being 55–59 is
+     * the default, and writing eleven zeroes down says no more than omitting
+     * them.
+     */
+    for (const [bracketId, count] of Object.entries(employees)) {
+      if (count > 0) params.append('employees', `${bracketId}:${count}`);
+    }
     navigate(`${ROUTES.comparison.results}?${params.toString()}`);
   }
 
@@ -277,21 +312,29 @@ export function NewComparisonPage() {
               error={showErrors && coverageId === null ? 'Select a coverage area.' : null}
             />
 
+            {/*
+              A BUSINESS IS ASKED FOR ITS WORKFORCE, everybody else for an age.
+
+              The standard comparison age still applies to an SME — it is what
+              decides which plans are sold to them — but it is the system's
+              assumption rather than the employer's answer, so it is not on the
+              form at all. What the employer is asked for is the headcount per
+              age group, which is what actually prices the cover.
+            */}
+            {ageIsFixed ? (
+              <div className="lg:col-span-2">
+                <SmeEmployeeAges
+                  counts={employees}
+                  onChange={setEmployees}
+                  error={showErrors && employeesError ? employeesError : null}
+                />
+              </div>
+            ) : (
             <div className={cn(ageIsRange && 'grid gap-4 sm:grid-cols-2')}>
               <Field
                 label={ageIsRange ? 'Age from' : 'Age'}
                 required
                 error={showErrors && ageError ? ageError : undefined}
-                {...(ageIsFixed
-                  ? {
-                      hint: (
-                        <span className="flex items-center gap-1.5">
-                          <IconLock className="size-3.5 shrink-0" />
-                          {SME_FIXED_AVERAGE_AGE_NOTICE}
-                        </span>
-                      ),
-                    }
-                  : {})}
               >
                 {(props) => (
                   <Input
@@ -302,18 +345,7 @@ export function NewComparisonPage() {
                     max={MAX_INSURABLE_AGE}
                     step={1}
                     value={age}
-                    // Set by a business rule for this cover, so it is shown but
-                    // not offered for editing.
-                    readOnly={ageIsFixed}
-                    aria-readonly={ageIsFixed || undefined}
-                    className={cn(
-                      ageIsFixed &&
-                        'bg-surface-muted text-content-muted cursor-not-allowed hover:border-border-subtle focus:border-border-subtle focus:ring-0',
-                    )}
-                    onChange={(event) => {
-                      if (ageIsFixed) return;
-                      setTypedAge(event.target.value);
-                    }}
+                    onChange={(event) => setTypedAge(event.target.value)}
                     placeholder={ageIsRange ? '4' : '35'}
                   />
                 )}
@@ -343,6 +375,7 @@ export function NewComparisonPage() {
                 </Field>
               ) : null}
             </div>
+            )}
 
             <Field
               label="Currency"

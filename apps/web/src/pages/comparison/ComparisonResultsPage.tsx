@@ -5,6 +5,7 @@ import {
   GEOGRAPHICAL_COVERAGE_IDS,
   PLAN_TIER_IDS,
   formatNumber,
+  isSmeAgeBracketId,
   type ComparisonRequestInput,
   type CustomerTypeId,
   type GeographicalCoverageId,
@@ -71,8 +72,27 @@ export function ComparisonResultsPage() {
     const budget = rawBudget === null ? undefined : Number(rawBudget);
     if (budget !== undefined && !Number.isFinite(budget)) return null;
 
+    /**
+     * The workforce, one parameter per occupied bracket — `employees=30–34:6`.
+     * A bracket this system does not have is dropped rather than sent on: a
+     * link written by hand should not be able to price against an age group
+     * that does not exist.
+     */
+    const smeEmployees: Record<string, number> = {};
+    for (const entry of params.getAll('employees')) {
+      const separator = entry.lastIndexOf(':');
+      if (separator === -1) continue;
+      const bracketId = entry.slice(0, separator);
+      const count = Number(entry.slice(separator + 1));
+      if (!isSmeAgeBracketId(bracketId)) continue;
+      if (!Number.isInteger(count) || count < 0) continue;
+      smeEmployees[bracketId] = count;
+    }
+    const hasWorkforce = Object.keys(smeEmployees).length > 0;
+
     return {
       ...(planTierId === null ? {} : { planTierId }),
+      ...(hasWorkforce ? { smeEmployees } : {}),
       customerTypeId,
       geographicalCoverageId,
       currency,
@@ -132,10 +152,20 @@ export function ComparisonResultsPage() {
             <Badge>{result.criteria.customerTypeLabel}</Badge>
             <Badge>{result.criteria.geographicalCoverageLabel}</Badge>
             <Badge>{result.criteria.currency}</Badge>
+            {/*
+              A business is described by its workforce, not by an age. The
+              standard comparison age still decides which plans are sold to
+              them, but it is the system's assumption rather than anything the
+              employer said, so it is not reported back to them as a criterion.
+            */}
             <Badge>
-              {result.criteria.ageFrom === result.criteria.ageTo
-                ? `Age ${result.criteria.ageFrom}`
-                : `Ages ${result.criteria.ageFrom}–${result.criteria.ageTo}`}
+              {result.criteria.smeEmployeeCount !== null
+                ? `${formatNumber(result.criteria.smeEmployeeCount)} ${
+                    result.criteria.smeEmployeeCount === 1 ? 'employee' : 'employees'
+                  }`
+                : result.criteria.ageFrom === result.criteria.ageTo
+                  ? `Age ${result.criteria.ageFrom}`
+                  : `Ages ${result.criteria.ageFrom}–${result.criteria.ageTo}`}
             </Badge>
             <Badge>
               {result.criteria.budget === null
