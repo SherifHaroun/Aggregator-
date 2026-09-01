@@ -1,4 +1,5 @@
 import type { Paginated, PlanConfigurationDto } from '@aggregator/shared';
+import { describeBracketProblem } from '@aggregator/shared';
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
 import { getPrisma } from '../../lib/prisma.js';
@@ -34,21 +35,29 @@ const configurationDetailInclude = {
  * This is checked here as well as in the browser because the browser is not the
  * only thing that can call this endpoint.
  */
-function assertBandsDoNotOverlap(bands: { ageFrom: number; ageTo: number }[]): void {
-  // Youngest first, so an overlap is always with the row immediately before.
-  const ordered = [...bands].sort((a, b) => a.ageFrom - b.ageFrom || a.ageTo - b.ageTo);
+function assertBandsDoNotOverlap(
+  bands: { ageFrom: number; ageTo: number }[],
+  /**
+   * An SME is priced by employee BRACKET, and brackets are a partition of the
+   * workforce's ages: a gap between the first and the last is an employee
+   * nobody can be quoted for. An individual or a family plan may simply not be
+   * sold at an age, and the absence of a band says exactly that.
+   */
+  { requireContiguous = false }: { requireContiguous?: boolean } = {},
+): void {
+  const problem = describeBracketProblem(bands, { requireContiguous });
+  if (!problem) return;
+  // A backwards range is malformed input; a clash is a conflict with a sibling.
+  throw problem.includes('run backwards') ? badRequest(problem) : conflict(problem);
+}
 
-  for (const [index, band] of ordered.entries()) {
-    if (band.ageFrom > band.ageTo) {
-      throw badRequest(`Ages ${band.ageFrom}-${band.ageTo} run backwards.`);
-    }
-    const previous = ordered[index - 1];
-    if (previous && band.ageFrom <= previous.ageTo) {
-      throw conflict(
-        `Ages ${previous.ageFrom}-${previous.ageTo} and ${band.ageFrom}-${band.ageTo} overlap. Every age must fall into exactly one band.`,
-      );
-    }
-  }
+/** Whether this plan is priced by employee bracket. */
+async function usesEmployeeBrackets(planId: string): Promise<boolean> {
+  const plan = await getPrisma().plan.findUnique({
+    where: { id: planId },
+    select: { customerType: true },
+  });
+  return plan?.customerType === 'SME';
 }
 
 /**
@@ -126,7 +135,9 @@ export async function createPlanConfiguration(
   await assertVariantIsDistinct(input.planId, input);
 
   const { priceBands = [], ...variant } = input;
-  assertBandsDoNotOverlap(priceBands);
+  assertBandsDoNotOverlap(priceBands, {
+    requireContiguous: await usesEmployeeBrackets(input.planId),
+  });
 
   const configuration = await prisma.planConfiguration.create({
     data: { ...variant, priceBands: { create: priceBands } },
@@ -240,7 +251,9 @@ export async function duplicatePlanConfiguration(
     ageTo: band.ageTo,
     annualPrice: band.annualPrice === null ? null : Number(band.annualPrice),
   }));
-  assertBandsDoNotOverlap(bands);
+  assertBandsDoNotOverlap(bands, {
+    requireContiguous: await usesEmployeeBrackets(source.planId),
+  });
 
   /** Inherited unless the caller states otherwise — including a deliberate `null`. */
   const inherit = <TKey extends keyof DuplicatePlanConfigurationInput>(key: TKey) =>
@@ -342,7 +355,16 @@ export async function updatePlanConfiguration(
    * meaning on its own, and an employee who removes the 65+ line means the plan
    * is no longer sold at 65 — which is exactly the absence of a row.
    */
-  if (priceBands !== undefined) assertBandsDoNotOverlap(priceBands);
+  if (priceBands !== undefined) {
+    const owner = await getPrisma().planConfiguration.findUnique({
+      where: { id },
+      select: { planId: true },
+    });
+    if (!owner) throw notFound('Plan configuration');
+    assertBandsDoNotOverlap(priceBands, {
+      requireContiguous: await usesEmployeeBrackets(owner.planId),
+    });
+  }
 
   /**
    * Anything that identifies the variant is checked against where it is ABOUT

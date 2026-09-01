@@ -4,8 +4,12 @@ import {
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
   UNSPECIFIED_OPTION_LABEL,
+  describeBracketProblem,
   listEnabledOptions,
+  nextBracket,
   planTierLabel,
+  rebalanceBrackets,
+  removeBracket,
   variantDisplayName,
   type CompanyMedicalNetworkDto,
   type CustomerTypeId,
@@ -233,10 +237,21 @@ export function VariantEditorForm({
   function addBand() {
     setError(null);
     setBands((rows) => {
-      const last = rows[rows.length - 1];
-      const suggestion = last
-        ? { from: Number(last.to) + 1, to: Number(last.to) + 5 }
-        : (DEFAULT_AGE_BANDS[0] ?? { from: MIN_INSURABLE_AGE, to: MIN_INSURABLE_AGE });
+      /**
+       * An SME table is a partition, so a new bracket continues where the last
+       * one ended. Anywhere else the bands are just rows and the same guess is
+       * as good a starting point as any.
+       */
+      const suggestion =
+        rows.length === 0
+          ? (DEFAULT_AGE_BANDS[0] ?? { from: MIN_INSURABLE_AGE, to: MIN_INSURABLE_AGE })
+          : (() => {
+              const bracket = nextBracket(
+                rows.map((row) => ({ ageFrom: Number(row.from), ageTo: Number(row.to) })),
+              );
+              return { from: bracket.ageFrom, to: bracket.ageTo };
+            })();
+
       const from = Math.min(suggestion.from, MAX_INSURABLE_AGE);
       return [
         ...rows,
@@ -247,6 +262,55 @@ export function VariantEditorForm({
           premium: '',
         },
       ];
+    });
+  }
+
+  /**
+   * WHAT AN SME'S BRACKETS DO WHEN ONE BOUNDARY MOVES.
+   *
+   * They stay a partition. Changing 21-25 to 21-27 makes the next start at 28;
+   * pulling 26-30 back to 28-30 pushes the one before to end at 27. Each
+   * premium stays with its own bracket — the row is re-bounded, not replaced.
+   *
+   * Done when the box is LEFT rather than on every keystroke, so typing "2" on
+   * the way to "28" does not drag the neighbours through 3 and 4 first.
+   */
+  function rebalanceFrom(key: string) {
+    if (!usesBrackets) return;
+    setBands((rows) => {
+      const index = rows.findIndex((row) => row.key === key);
+      if (index === -1) return rows;
+      if (rows.some((row) => row.from.trim() === '' || row.to.trim() === '')) return rows;
+
+      const rebalanced = rebalanceBrackets(
+        rows.map((row) => ({ ageFrom: Number(row.from), ageTo: Number(row.to), row })),
+        index,
+      );
+      return rebalanced.map((bracket) => ({
+        ...bracket.row,
+        from: String(bracket.ageFrom),
+        to: String(bracket.ageTo),
+      }));
+    });
+  }
+
+  function dropBand(key: string) {
+    setError(null);
+    setBands((rows) => {
+      const index = rows.findIndex((row) => row.key === key);
+      if (index === -1) return rows;
+      if (!usesBrackets) return rows.filter((row) => row.key !== key);
+
+      /** The bracket after it takes over the years it covered, so no gap opens. */
+      const closed = removeBracket(
+        rows.map((row) => ({ ageFrom: Number(row.from), ageTo: Number(row.to), row })),
+        index,
+      );
+      return closed.map((bracket) => ({
+        ...bracket.row,
+        from: String(bracket.ageFrom),
+        to: String(bracket.ageTo),
+      }));
     });
   }
 
@@ -272,14 +336,16 @@ export function VariantEditorForm({
       if (from > to) return `Ages ${from}–${to} run backwards.`;
     }
 
-    const ordered = [...bands].sort((a, b) => Number(a.from) - Number(b.from));
-    for (const [index, row] of ordered.entries()) {
-      const previous = ordered[index - 1];
-      if (previous && Number(row.from) <= Number(previous.to)) {
-        return `Ages ${previous.from}–${previous.to} and ${row.from}–${row.to} overlap. Every age must fall into exactly one band.`;
-      }
-    }
-    return null;
+    /**
+     * An SME's brackets must also leave no GAP: they price a workforce, so an
+     * age between the first and the last that nobody priced is an employee
+     * nobody can be quoted for. Elsewhere a plan may simply not be sold at an
+     * age, and the absence of a band says exactly that.
+     */
+    return describeBracketProblem(
+      bands.map((row) => ({ ageFrom: Number(row.from), ageTo: Number(row.to) })),
+      { requireContiguous: usesBrackets },
+    );
   }
 
   const updateBand = (key: string, patch: Partial<BandDraft>) => {
@@ -319,6 +385,13 @@ export function VariantEditorForm({
       },
     );
   }
+
+  /**
+   * SME is priced by employee bracket — a partition of the ages, where every
+   * one falls into exactly one row. An individual has one age and a family is a
+   * list of people, so neither is a partition and neither gets this.
+   */
+  const usesBrackets = customerType === 'SME';
 
   const tier = planTierLabel(
     annualLimit.trim() === '' ? null : Number(annualLimit.replace(/,/g, '')),
@@ -506,8 +579,12 @@ export function VariantEditorForm({
 
       <Card>
         <CardHeader
-          title="Age pricing"
-          description="One premium per age band. The cover above is the same for all of them."
+          title={usesBrackets ? 'Employee age brackets' : 'Age pricing'}
+          description={
+            usesBrackets
+              ? 'One premium per bracket, running without gaps. Change a boundary and its neighbour follows.'
+              : 'One premium per age band. The cover above is the same for all of them.'
+          }
           action={
             <Button size="sm" variant="secondary" onClick={addBand}>
               <IconAdd className="size-4" />
@@ -534,6 +611,7 @@ export function VariantEditorForm({
                       value={row.from}
                       aria-label="Age from"
                       onChange={(event) => updateBand(row.key, { from: event.target.value })}
+                      onBlur={() => rebalanceFrom(row.key)}
                     />
                   </label>
                   <label className="w-20">
@@ -546,6 +624,7 @@ export function VariantEditorForm({
                       value={row.to}
                       aria-label="Age to"
                       onChange={(event) => updateBand(row.key, { to: event.target.value })}
+                      onBlur={() => rebalanceFrom(row.key)}
                     />
                   </label>
                   <div className="min-w-0 flex-1">
@@ -565,10 +644,7 @@ export function VariantEditorForm({
                   <button
                     type="button"
                     aria-label={`Remove ages ${row.from} to ${row.to}`}
-                    onClick={() => {
-                      setError(null);
-                      setBands((rows) => rows.filter((item) => item.key !== row.key));
-                    }}
+                    onClick={() => dropBand(row.key)}
                     className="text-content-muted hover:bg-surface-muted hover:text-danger mb-1 rounded-(--radius-control) p-2"
                   >
                     <IconTrash className="size-4" />
