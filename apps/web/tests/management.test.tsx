@@ -1311,7 +1311,7 @@ describe('plan configurations', () => {
     givenPlan();
 
     renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
-    await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
+    await user.click((await screen.findAllByRole('button', { name: /Add variant/i }))[0]!);
 
     const group = await screen.findByRole('group', { name: /Geographical coverage/i });
     const labels = within(group)
@@ -1337,7 +1337,7 @@ describe('plan configurations', () => {
     givenPlan();
 
     renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
-    await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
+    await user.click((await screen.findAllByRole('button', { name: /Add variant/i }))[0]!);
 
     await screen.findByRole('group', { name: /Geographical coverage/i });
     /**
@@ -1367,7 +1367,7 @@ describe('plan configurations', () => {
     givenPlan();
 
     renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
-    await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
+    await user.click((await screen.findAllByRole('button', { name: /Add variant/i }))[0]!);
 
     const where = await screen.findByRole('group', { name: /Geographical coverage/i });
     await user.click(within(where).getAllByRole('radio')[0]!);
@@ -1438,7 +1438,7 @@ describe('figures', () => {
     givenPlan();
 
     renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
-    await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
+    await user.click((await screen.findAllByRole('button', { name: /Add variant/i }))[0]!);
 
     const where = await screen.findByRole('group', { name: /Geographical coverage/i });
     await user.click(within(where).getAllByRole('radio')[0]!);

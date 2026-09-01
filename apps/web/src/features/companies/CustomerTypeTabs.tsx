@@ -26,7 +26,7 @@ export function CustomerTypeTabs({
 }) {
   return (
     <div>
-      <p className="text-muted mb-2 text-xs font-semibold tracking-wide uppercase">Customer type</p>
+      <p className="text-content-muted mb-2 text-xs font-semibold tracking-wide uppercase">Customer type</p>
       <div
         role="tablist"
         aria-label="Customer type"
@@ -45,13 +45,13 @@ export function CustomerTypeTabs({
               className={[
                 'rounded-(--radius-control) px-4 py-2 text-sm font-medium transition',
                 selected
-                  ? 'bg-surface text-strong shadow-sm'
-                  : 'text-muted hover:text-strong cursor-pointer',
+                  ? 'bg-surface text-content shadow-sm'
+                  : 'text-content-muted hover:text-content cursor-pointer',
               ].join(' ')}
             >
               {option.label}
               {count !== undefined ? (
-                <span className={selected ? 'text-muted ml-2' : 'ml-2 opacity-70'}>{count}</span>
+                <span className={selected ? 'text-content-muted ml-2' : 'ml-2 opacity-70'}>{count}</span>
               ) : null}
             </button>
           );

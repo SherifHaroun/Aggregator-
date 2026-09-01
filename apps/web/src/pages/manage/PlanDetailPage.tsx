@@ -41,7 +41,7 @@ import {
 } from '@/features/insurance-data/labels';
 
 /**
- * A plan and its configurations. Configurations are created individually —
+ * A plan and its variants. Each variant is created on its own —
  * never generated automatically — so only the combinations this product is
  * actually sold for exist.
  */
@@ -138,13 +138,13 @@ export function PlanDetailPage() {
 
             <Card>
               <CardHeader
-                title="Configurations"
-                description="One per customer type and coverage area."
+                title="Variants"
+                description="One per coverage scope, network and ceiling. Open one to edit its benefits and prices."
                 icon={<IconUsers className="size-5" />}
                 action={
                   <Button size="sm" onClick={() => setEditingConfiguration(null)}>
                     <IconAdd className="size-4" />
-                    Add configuration
+                    Add variant
                   </Button>
                 }
               />
@@ -153,12 +153,12 @@ export function PlanDetailPage() {
                   <EmptyState
                     variant="plain"
                     icon={<IconGlobe className="size-6" />}
-                    title="No configurations yet"
+                    title="No variants yet"
                     description="Add one for each customer type and coverage area this plan is actually sold for."
                     action={
                       <Button onClick={() => setEditingConfiguration(null)}>
                         <IconAdd className="size-4" />
-                        Add configuration
+                        Add variant
                       </Button>
                     }
                   />
@@ -207,17 +207,17 @@ export function PlanDetailPage() {
         open={pendingDelete !== null}
         onClose={() => setPendingDelete(null)}
         busy={deleteConfiguration.isPending}
-        title="Delete this configuration?"
-        description="This permanently removes the configuration with its benefits and their values. Other configurations of this plan are not affected."
+        title="Delete this variant?"
+        description="This permanently removes the variant with its benefits, their values and its whole rate table. Other variants of this plan are not affected."
         onConfirm={() => {
           if (!pendingDelete) return;
           deleteConfiguration.mutate(pendingDelete.id, {
             onSuccess: () => {
-              notify('The configuration was deleted.');
+              notify('The variant was deleted.');
               setPendingDelete(null);
             },
             onError: (error) => {
-              notify(describeError(error, 'the configuration'), 'error');
+              notify(describeError(error, 'the variant'), 'error');
               setPendingDelete(null);
             },
           });
@@ -300,7 +300,7 @@ function ConfigurationCard({
           to={ROUTES.configurations.detail(companyId, planId, configuration.id)}
           className="text-brand-strong bg-brand-soft hover:bg-brand hover:text-content-inverted ml-1 inline-flex items-center gap-1 rounded-(--radius-control) px-3 py-2 text-sm font-semibold transition-colors"
         >
-          Benefits
+          Open
           <IconChevronRight className="size-4" />
         </Link>
       </div>
