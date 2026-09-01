@@ -67,11 +67,39 @@ describe('Plan vs PlanConfiguration', () => {
     }
   });
 
-  it('puts pricing on the configuration', () => {
+  it('puts the terms on the variant and the premium on its bands', () => {
     const configuration = fieldNames('PlanConfiguration');
-    for (const field of ['annualPrice', 'annualLimit', 'deductible', 'coPayment', 'currency']) {
+    for (const field of ['annualLimit', 'deductible', 'coPayment', 'currency']) {
       expect(configuration).toContain(field);
     }
+    /**
+     * The premium is NOT one of them. Age is the only thing that varies
+     * between a variant's prices, so a single figure here would force one
+     * variant per age band — which is what put ten copies of thirty benefits
+     * in the database.
+     */
+    expect(configuration).not.toContain('annualPrice');
+    expect(fieldNames('PlanPriceBand')).toContain('annualPrice');
+  });
+
+  it('hangs the rate table off the variant, one row per age band', () => {
+    const bands = model('PlanConfiguration').fields.find((field) => field.name === 'priceBands');
+    expect(bands?.isList).toBe(true);
+    expect(bands?.type).toBe('PlanPriceBand');
+
+    // Both bounds are required: a band nobody's age falls into cannot match.
+    for (const name of ['ageFrom', 'ageTo']) {
+      const field = model('PlanPriceBand').fields.find((item) => item.name === name);
+      expect(field?.type).toBe('Int');
+      expect(field?.isRequired).toBe(true);
+    }
+    // A band with no premium is "not sold at this age", so the price is not.
+    expect(
+      model('PlanPriceBand').fields.find((field) => field.name === 'annualPrice')?.isRequired,
+    ).toBe(false);
+    expect(uniqueSets('PlanPriceBand')).toContain(
+      ['variantId', 'ageFrom', 'ageTo'].sort().join('+'),
+    );
   });
 
   it('lets one plan hold many configurations', () => {
@@ -81,23 +109,26 @@ describe('Plan vs PlanConfiguration', () => {
   });
 
   it('is unique on everything that makes one variant different from another', () => {
-    // A variant is the plan plus what changes its price — who it is for, where
-    // it covers, the network, the room and the ceiling — then the age band. All
-    // of it, because the same plan really is sold on two networks at two prices.
+    /**
+     * A variant is the plan plus what changes its terms: where it covers, the
+     * network, the room and the ceiling. The same plan really is sold on two
+     * networks at two prices, so all of it counts.
+     *
+     * Age is NOT part of it any more — that is what the price bands are for —
+     * and neither is the buyer, which belongs to the plan.
+     */
     expect(uniqueSets('PlanConfiguration')).toContain(
-      [
-        'planId',
-        'customerType',
-        'geographicalCoverage',
-        'medicalNetworkId',
-        'roomType',
-        'annualLimit',
-        'ageFrom',
-        'ageTo',
-      ]
+      ['planId', 'geographicalCoverage', 'medicalNetworkId', 'roomType', 'annualLimit']
         .sort()
         .join('+'),
     );
+  });
+
+  it('puts the customer type on the plan, never on the variant', () => {
+    // A company's Individual, Family and SME books are separate products that
+    // merely share a name, so the buyer identifies the PLAN.
+    expect(fieldNames('Plan')).toContain('customerType');
+    expect(fieldNames('PlanConfiguration')).not.toContain('customerType');
   });
 
   it('puts the medical network on the variant, never on the plan', () => {
@@ -122,15 +153,12 @@ describe('Plan vs PlanConfiguration', () => {
     expect(model_.find((f) => f.name === 'detail')?.isRequired).toBe(false);
   });
 
-  it('requires an age band on the configuration', () => {
-    // The admin side of the age match. The customer's own age stays a single
-    // number they type on the comparison screen, never stored here.
-    const fields = model('PlanConfiguration').fields;
+  it('holds no age on the variant itself', () => {
+    // The admin side of the age match moved down to the bands. The customer's
+    // own age stays a single number they type on the comparison screen.
+    const fields = fieldNames('PlanConfiguration');
     for (const name of ['ageFrom', 'ageTo']) {
-      const field = fields.find((item) => item.name === name);
-      expect(field, `${name} should exist`).toBeDefined();
-      expect(field?.type).toBe('Int');
-      expect(field?.isRequired).toBe(true);
+      expect(fields).not.toContain(name);
     }
   });
 });
@@ -234,7 +262,7 @@ describe('migrations', () => {
       .map((name) => readFileSync(join(migrationsDir, name, 'migration.sql'), 'utf8'))
       .join('\n');
     expect(sql).toMatch(/CREATE UNIQUE INDEX .*plan_configurations.*/);
-    expect(sql).toMatch(/"planId", "customerType", "geographicalCoverage"/);
+    expect(sql).toMatch(/"planId", "geographicalCoverage"/);
   });
 
   /**

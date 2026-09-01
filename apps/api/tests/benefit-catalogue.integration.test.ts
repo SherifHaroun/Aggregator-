@@ -53,6 +53,7 @@ async function givenConfiguration(): Promise<string> {
     data: {
       companyId: company.id,
       insuranceTypeId: insuranceType.id,
+      customerType: 'INDIVIDUAL',
       name: `${PREFIX}_plan`,
       code: `${PREFIX}_plan`,
     },
@@ -60,12 +61,8 @@ async function givenConfiguration(): Promise<string> {
   const configuration = await db().planConfiguration.create({
     data: {
       planId: plan.id,
-      customerType: 'INDIVIDUAL',
       geographicalCoverage: 'LOCAL',
-      ageFrom: 18,
-      ageTo: 60,
       currency: 'EGP',
-      annualPrice: 7287,
     },
   });
   planId = plan.id;
@@ -366,16 +363,13 @@ describe.skipIf(!url)('managing the benefit catalogue', () => {
     await setPlanOptionValue(attached!.id, attached!.values[0]!.optionFieldId, 80);
     await setPlanOptionNote(attached!.id, 'basic procedures only');
 
-    // A second band the copy will deliberately leave behind.
+    // A second VARIANT the copy will deliberately leave behind. It differs by
+    // coverage, which is what makes it a different variant at all.
     const older = await db().planConfiguration.create({
       data: {
         planId,
-        customerType: 'INDIVIDUAL',
-        geographicalCoverage: 'LOCAL',
-        ageFrom: 61,
-        ageTo: 75,
+        geographicalCoverage: 'INTERNATIONAL',
         currency: 'EGP',
-        annualPrice: 40000,
       },
     });
 
@@ -386,7 +380,7 @@ describe.skipIf(!url)('managing the benefit catalogue', () => {
 
     expect(copy.id).not.toBe(planId);
     expect(copy.configurations).toHaveLength(1);
-    expect(copy.configurations?.[0]?.ageFrom).toBe(18);
+    expect(copy.configurations?.[0]?.geographicalCoverage).toBe('LOCAL');
 
     // The benefit, its figure and its remark all came across.
     const copiedOption = copy.configurations?.[0]?.options?.[0];
@@ -394,7 +388,7 @@ describe.skipIf(!url)('managing the benefit catalogue', () => {
     expect(copiedOption?.values[0]?.value).toBe(80);
     expect(copiedOption?.note).toBe('basic procedures only');
 
-    // ...and the plan it came from still has both of its bands.
+    // ...and the plan it came from still has both of its variants.
     expect(await db().planConfiguration.count({ where: { planId } })).toBe(2);
 
     await db().planConfiguration.deleteMany({ where: { id: older.id } });

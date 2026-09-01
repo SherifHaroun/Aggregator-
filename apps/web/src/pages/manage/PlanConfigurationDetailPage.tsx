@@ -125,7 +125,7 @@ export function PlanConfigurationDetailPage() {
                 </div>
 
                 {/* Resolved from the centralized business rule, never stored. */}
-                {plan.data?.averageAge.label ? (
+                {plan.data?.averageAge?.label ? (
                   <div className="border-brand-border bg-brand-soft flex items-center gap-2 rounded-(--radius-control) border px-3 py-2 sm:col-span-2 lg:col-span-4">
                     <IconUsers className="text-brand size-4 shrink-0" />
                     <p className="text-content text-sm font-semibold">

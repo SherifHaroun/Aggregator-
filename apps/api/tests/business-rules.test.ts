@@ -21,9 +21,9 @@ import {
   usesAgeRange,
   usesFixedAverageAge,
 } from '@aggregator/shared';
-import type { OptionField, PlanConfiguration } from '@prisma/client';
+import type { OptionField, Plan } from '@prisma/client';
 import { describe, expect, it } from 'vitest';
-import { toPlanConfigurationDto } from '../src/modules/plan-configurations/plan-configurations.mapper.js';
+import { toPlanDto } from '../src/modules/plans/plans.mapper.js';
 import { buildValueColumns, readValue } from '../src/modules/plan-options/plan-option-values.js';
 
 describe('SME average age stays centralized', () => {
@@ -58,34 +58,37 @@ describe('SME average age stays centralized', () => {
   });
 });
 
-/** Minimal stand-in for a persisted configuration row. */
-function configurationRow(overrides: Partial<PlanConfiguration> = {}): PlanConfiguration {
+/** Minimal stand-in for a persisted plan row. */
+function planRow(overrides: Partial<Plan> = {}): Plan {
   return {
-    id: 'cfg',
-    planId: 'plan',
+    id: 'plan',
+    companyId: 'company',
+    insuranceTypeId: 'type',
     customerType: 'SME',
-    geographicalCoverage: 'LOCAL',
-    currency: null,
-    annualPrice: null,
-    annualLimit: null,
-    deductible: null,
-    coPayment: null,
+    name: 'Gold+',
+    code: 'gold-plus',
+    description: null,
     isActive: true,
     createdAt: new Date(0),
     updatedAt: new Date(0),
     ...overrides,
-  } as PlanConfiguration;
+  } as Plan;
 }
 
-describe('configuration responses carry the resolved age', () => {
+/**
+ * The resolved age follows the CUSTOMER TYPE, which is the plan's. Every
+ * variant of an SME plan is sold to the same average life, so asking each
+ * variant separately could only ever give the same answer.
+ */
+describe('plan responses carry the resolved age', () => {
   it('derives the SME average age instead of storing it', () => {
-    const dto = toPlanConfigurationDto(configurationRow({ customerType: 'SME' }));
+    const dto = toPlanDto(planRow({ customerType: 'SME' }));
     expect(dto.averageAge.value).toBe(SME_FIXED_AVERAGE_AGE);
     expect(dto.averageAge.label).toBe(`Average age: ${SME_FIXED_AVERAGE_AGE}`);
   });
 
-  it('reports no age for an individual configuration', () => {
-    const dto = toPlanConfigurationDto(configurationRow({ customerType: 'INDIVIDUAL' }));
+  it('reports no age for an individual plan', () => {
+    const dto = toPlanDto(planRow({ customerType: 'INDIVIDUAL' }));
     expect(dto.averageAge.value).toBeNull();
   });
 });

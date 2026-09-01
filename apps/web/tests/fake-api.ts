@@ -670,9 +670,14 @@ function route({
         id: id('plan'),
         companyId,
         insuranceTypeId: String(body.insuranceTypeId ?? ''),
+        customerType: (body.customerType ?? 'INDIVIDUAL') as PlanDto['customerType'],
         name: String(body.name ?? ''),
         code: String(body.code ?? ''),
         description: (body.description as string | null) ?? null,
+        // Derived from the customer type, exactly as the real mapper does.
+        averageAge: resolveAverageAgeForCustomerType(
+          (body.customerType ?? 'INDIVIDUAL') as PlanDto['customerType'],
+        ),
         ...meta(),
       };
       store.plans.push(plan);
@@ -772,19 +777,24 @@ function route({
       );
     }
     if (method === 'POST' && !first) {
-      // The age band is required and has to run forwards, as the real API says.
-      const ageFrom = body.ageFrom as number | null | undefined;
-      const ageTo = body.ageTo as number | null | undefined;
-      if (typeof ageFrom !== 'number' || typeof ageTo !== 'number') {
+      /**
+       * Every band has to run forwards and be named once, as the real API says.
+       * The variant itself carries no age at all — the bands underneath do.
+       */
+      const bands = (body.priceBands ?? []) as { ageFrom: number; ageTo: number }[];
+      const backwards = bands.find((band) => band.ageFrom > band.ageTo);
+      if (backwards) {
         return fail(422, 'VALIDATION_ERROR', 'The request payload is invalid.', {
-          ...(typeof ageFrom !== 'number' ? { ageFrom: ['Required'] } : {}),
-          ...(typeof ageTo !== 'number' ? { ageTo: ['Required'] } : {}),
+          priceBands: [`Ages ${backwards.ageFrom}-${backwards.ageTo} run backwards.`],
         });
       }
-      if (ageFrom > ageTo) {
-        return fail(422, 'VALIDATION_ERROR', 'The request payload is invalid.', {
-          ageFrom: ['Age From cannot be greater than Age To.'],
-        });
+      const seen = new Set<string>();
+      for (const band of bands) {
+        const key = `${band.ageFrom}-${band.ageTo}`;
+        if (seen.has(key)) {
+          return fail(409, 'DUPLICATE', `This variant lists ages ${key} twice.`);
+        }
+        seen.add(key);
       }
 
       const networkId = (body.medicalNetworkId as string | null | undefined) ?? null;
@@ -801,13 +811,10 @@ function route({
       const duplicate = store.configurations.some(
         (configuration) =>
           configuration.planId === body.planId &&
-          configuration.customerType === body.customerType &&
           configuration.geographicalCoverage === body.geographicalCoverage &&
           configuration.medicalNetworkId === networkId &&
           configuration.roomType === room &&
-          configuration.annualLimit === limit &&
-          configuration.ageFrom === ageFrom &&
-          configuration.ageTo === ageTo,
+          configuration.annualLimit === limit,
       );
       if (duplicate) {
         return fail(409, 'DUPLICATE', 'This plan already has that variant.');
@@ -815,21 +822,20 @@ function route({
       const configuration: PlanConfigurationDto = {
         id: id('configuration'),
         planId: String(body.planId ?? ''),
-        customerType: body.customerType as PlanConfigurationDto['customerType'],
         geographicalCoverage:
           body.geographicalCoverage as PlanConfigurationDto['geographicalCoverage'],
         medicalNetworkId: networkId,
         roomType: room,
-        ageFrom: body.ageFrom as number,
-        ageTo: body.ageTo as number,
+        // The whole rate table arrives with the variant, never band by band.
+        priceBands: ((body.priceBands ?? []) as PlanPriceBandDto[]).map((band) => ({
+          ...band,
+          id: id('band'),
+          annualPrice: band.annualPrice ?? null,
+        })),
         currency: (body.currency as string | null) ?? null,
-        annualPrice: (body.annualPrice as number | null) ?? null,
         annualLimit: (body.annualLimit as number | null) ?? null,
         deductible: (body.deductible as number | null) ?? null,
         coPayment: (body.coPayment as number | null) ?? null,
-        averageAge: resolveAverageAgeForCustomerType(
-          body.customerType as PlanConfigurationDto['customerType'],
-        ),
         ...meta(),
       };
       store.configurations.push(configuration);
@@ -1082,7 +1088,8 @@ function hydrateConfiguration(
 ): PlanConfigurationDto {
   return {
     ...configuration,
-    averageAge: resolveAverageAgeForCustomerType(configuration.customerType),
+    // A variant always carries a rate table, even an empty one.
+    priceBands: configuration.priceBands ?? [],
     options: store.planOptions
       .filter((planOption) => planOption.planConfigurationId === configuration.id)
       .sort((a, b) => a.sortOrder - b.sortOrder)

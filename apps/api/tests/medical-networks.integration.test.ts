@@ -137,15 +137,13 @@ async function givenPlanOn(companyId: string, medicalNetworkId: string | null) {
   const plan = await createPlan({
     companyId,
     insuranceTypeId: insuranceType.id,
+    customerType: 'INDIVIDUAL',
     name: tag,
     code: tag,
   });
   const variant = await createPlanConfiguration({
     planId: plan.id,
-    customerType: 'INDIVIDUAL',
     geographicalCoverage: 'LOCAL',
-    ageFrom: 18,
-    ageTo: 60,
     medicalNetworkId,
   });
   return { planId: plan.id, variantId: variant.id };
@@ -174,12 +172,8 @@ function unique() {
     const { planId } = await givenPlanOn(a, full.id);
     const second = await createPlanConfiguration({
       planId,
-      customerType: 'INDIVIDUAL',
       geographicalCoverage: 'LOCAL',
-      ageFrom: 18,
-      ageTo: 60,
       medicalNetworkId: limited.id,
-      annualPrice: 7150,
     });
 
     expect(second.medicalNetworkId).toBe(limited.id);

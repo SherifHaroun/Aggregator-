@@ -19,18 +19,15 @@ const planDetailInclude = {
       /** So each variant names its network without a second request. */
       medicalNetwork: true,
       plan: { select: { name: true } },
+      /** The rate table, youngest band first, as a plan document writes it. */
+      priceBands: { orderBy: { ageFrom: 'asc' as const } },
     },
     /**
-     * Youngest band first within each customer type and coverage area — the
-     * order the premium table in a plan document reads, and the order every
-     * screen showing these configurations wants.
+     * By coverage area, which is what separates one variant of a plan from
+     * another. Age no longer belongs here: it separates the price bands INSIDE
+     * a variant, and they carry their own order.
      */
-    orderBy: [
-      { customerType: 'asc' as const },
-      { geographicalCoverage: 'asc' as const },
-      { ageFrom: 'asc' as const },
-      { ageTo: 'asc' as const },
-    ],
+    orderBy: [{ geographicalCoverage: 'asc' as const }, { createdAt: 'asc' as const }],
   },
 };
 

@@ -20,6 +20,7 @@
 import { SME_FIXED_AVERAGE_AGE } from '@aggregator/shared';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createPlanConfiguration } from '../src/modules/plan-configurations/plan-configurations.service.js';
 
 const url = process.env['TEST_DATABASE_URL'];
 const prisma = url ? new PrismaClient({ datasources: { db: { url } } }) : null;
@@ -42,6 +43,7 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
       data: {
         companyId: company.id,
         insuranceTypeId: insuranceType.id,
+        customerType: 'INDIVIDUAL',
         name: `${PREFIX}_plan`,
         code: `${PREFIX}_plan`,
       },
@@ -71,7 +73,8 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
   afterAll(async () => {
     if (!prisma) return;
     // Deleting the plan cascades configurations -> plan options -> values.
-    await prisma.plan.deleteMany({ where: { id: ids.plan } });
+    // Deleting the plans cascades variants -> price bands, options and values.
+    await prisma.plan.deleteMany({ where: { companyId: ids.company } });
     await prisma.insuranceOption.deleteMany({ where: { id: ids.option } });
     await prisma.insuranceType.deleteMany({ where: { id: ids.insuranceType } });
     await prisma.company.deleteMany({ where: { id: ids.company } });
@@ -79,89 +82,139 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
   });
 
   // (1) and (2)
-  it('lets one plan hold all six customer-type / coverage configurations', async () => {
-    const combinations = [
-      { customerType: 'INDIVIDUAL', geographicalCoverage: 'LOCAL' },
-      { customerType: 'INDIVIDUAL', geographicalCoverage: 'INTERNATIONAL' },
-      { customerType: 'FAMILY', geographicalCoverage: 'LOCAL' },
-      { customerType: 'FAMILY', geographicalCoverage: 'INTERNATIONAL' },
-      { customerType: 'SME', geographicalCoverage: 'LOCAL' },
-      { customerType: 'SME', geographicalCoverage: 'INTERNATIONAL' },
-    ] as const;
-
-    for (const [index, combination] of combinations.entries()) {
-      await db().planConfiguration.create({
+  it('keeps a company three customer types in separate plans of the same name', async () => {
+    /**
+     * Individual, Family and SME are separate PRODUCTS that merely share a
+     * name. They are three plan records, never one plan with three sections,
+     * because somebody managing the family book should not be able to reach
+     * the individual one — and the comparison filters on this column.
+     */
+    for (const customerType of ['FAMILY', 'SME'] as const) {
+      await db().plan.create({
         data: {
-          planId: ids.plan,
-          ...combination,
-          ageFrom: 18,
-          ageTo: 60,
-          currency: 'EGP',
-          annualPrice: 1000 * (index + 1),
+          companyId: ids.company,
+          insuranceTypeId: ids.insuranceType,
+          customerType,
+          name: `${PREFIX}_plan`,
+          code: `${PREFIX}_plan_${customerType.toLowerCase()}`,
         },
       });
     }
 
-    const stored = await db().planConfiguration.count({ where: { planId: ids.plan } });
-    expect(stored).toBe(6);
-
-    // ...and they are configurations of ONE plan, not six plans.
-    expect(await db().plan.count({ where: { name: `${PREFIX}_plan` } })).toBe(1);
+    const sameName = await db().plan.findMany({
+      where: { companyId: ids.company, name: `${PREFIX}_plan` },
+    });
+    expect(sameName).toHaveLength(3);
+    // One record per buyer, and each names exactly one.
+    expect(new Set(sameName.map((plan) => plan.customerType)).size).toBe(3);
   });
 
-  // (3)
-  it('allows different prices per configuration', async () => {
-    const [individual, family] = await Promise.all([
-      db().planConfiguration.findFirstOrThrow({
-        where: { planId: ids.plan, customerType: 'INDIVIDUAL', geographicalCoverage: 'LOCAL' },
+  it('lets one plan hold a variant per coverage scope', async () => {
+    for (const geographicalCoverage of ['LOCAL', 'INTERNATIONAL'] as const) {
+      await db().planConfiguration.create({
+        data: { planId: ids.plan, geographicalCoverage, currency: 'EGP' },
+      });
+    }
+
+    const variants = await db().planConfiguration.count({ where: { planId: ids.plan } });
+    expect(variants).toBe(2);
+    // ...and they are variants of ONE plan, not two plans.
+    expect(await db().plan.count({ where: { id: ids.plan } })).toBe(1);
+  });
+
+  // (3) The point of the whole model.
+  it('prices a variant band by band without duplicating its benefits', async () => {
+    const variant = await db().planConfiguration.findFirstOrThrow({
+      where: { planId: ids.plan, geographicalCoverage: 'LOCAL' },
+    });
+
+    await db().planOption.create({
+      data: {
+        planConfigurationId: variant.id,
+        optionId: ids.option,
+        values: { create: [{ optionFieldId: ids.coverageField, numberValue: 80 }] },
+      },
+    });
+
+    await db().planPriceBand.createMany({
+      data: [
+        { variantId: variant.id, ageFrom: 0, ageTo: 17, annualPrice: 3681 },
+        { variantId: variant.id, ageFrom: 18, ageTo: 24, annualPrice: 5701 },
+        { variantId: variant.id, ageFrom: 25, ageTo: 29, annualPrice: 7132 },
+        // Named but not priced: the plan is not sold at this age.
+        { variantId: variant.id, ageFrom: 65, ageTo: 75, annualPrice: null },
+      ],
+    });
+
+    const bands = await db().planPriceBand.count({ where: { variantId: variant.id } });
+    const attachments = await db().planOption.count({
+      where: { planConfigurationId: variant.id },
+    });
+
+    expect(bands).toBe(4);
+    // FOUR prices, ONE benefit. Under the old model this was four copies.
+    expect(attachments).toBe(1);
+    expect(
+      await db().planOptionValue.count({
+        where: { planOption: { planConfigurationId: variant.id } },
       }),
-      db().planConfiguration.findFirstOrThrow({
-        where: { planId: ids.plan, customerType: 'FAMILY', geographicalCoverage: 'LOCAL' },
-      }),
-    ]);
-    expect(individual.annualPrice?.toNumber()).not.toBe(family.annualPrice?.toNumber());
+    ).toBe(1);
+  });
+
+  it('matches a customer to the band their age falls into', async () => {
+    const variant = await db().planConfiguration.findFirstOrThrow({
+      where: { planId: ids.plan, geographicalCoverage: 'LOCAL' },
+    });
+
+    // The band is found numerically, never by reading a label.
+    const forTwentySix = await db().planPriceBand.findMany({
+      where: { variantId: variant.id, ageFrom: { lte: 26 }, ageTo: { gte: 26 } },
+    });
+    expect(forTwentySix).toHaveLength(1);
+    expect(forTwentySix[0]?.annualPrice?.toNumber()).toBe(7132);
+
+    // A band with no premium is not sellable — an absence, not a free plan.
+    const sellableAtSeventy = await db().planPriceBand.count({
+      where: {
+        variantId: variant.id,
+        ageFrom: { lte: 70 },
+        ageTo: { gte: 70 },
+        annualPrice: { not: null },
+      },
+    });
+    expect(sellableAtSeventy).toBe(0);
   });
 
   // (4), (5) and (6)
-  it('keeps option values isolated per configuration', async () => {
-    const configurations = await db().planConfiguration.findMany({
-      where: { planId: ids.plan, geographicalCoverage: 'LOCAL' },
-      orderBy: { customerType: 'asc' },
+  it('keeps option values isolated per variant', async () => {
+    const international = await db().planConfiguration.findFirstOrThrow({
+      where: { planId: ids.plan, geographicalCoverage: 'INTERNATIONAL' },
+    });
+    await db().planOption.create({
+      data: {
+        planConfigurationId: international.id,
+        optionId: ids.option,
+        values: { create: [{ optionFieldId: ids.coverageField, numberValue: 90 }] },
+      },
     });
 
-    // The SAME option attached to three configurations with different values.
-    const coverageByCustomerType: Record<string, number> = {
-      INDIVIDUAL: 80,
-      FAMILY: 90,
-      SME: 85,
-    };
+    const byCoverage = await db().planConfiguration.findMany({
+      where: { planId: ids.plan },
+      include: { options: { include: { values: true } } },
+      orderBy: { geographicalCoverage: 'asc' },
+    });
 
-    for (const configuration of configurations) {
-      await db().planOption.create({
-        data: {
-          planConfigurationId: configuration.id,
-          optionId: ids.option,
-          values: {
-            create: [
-              {
-                optionFieldId: ids.coverageField,
-                numberValue: coverageByCustomerType[configuration.customerType],
-              },
-            ],
-          },
-        },
-      });
-    }
-
-    for (const configuration of configurations) {
-      const values = await db().planOptionValue.findMany({
-        where: { planOption: { planConfigurationId: configuration.id } },
-      });
-      expect(values).toHaveLength(1);
-      expect(values[0]?.numberValue?.toNumber()).toBe(
-        coverageByCustomerType[configuration.customerType],
-      );
-    }
+    const values = byCoverage.map((variant) =>
+      variant.options[0]?.values[0]?.numberValue?.toNumber(),
+    );
+    /**
+     * The same benefit, two variants, two values. Neither can reach the other.
+     *
+     * LOCAL first because PostgreSQL orders an enum by the order its values
+     * were DECLARED, not alphabetically — `GeographicalCoverage` starts at
+     * LOCAL.
+     */
+    expect(values).toEqual([80, 90]);
   });
 
   // (7)
@@ -181,7 +234,7 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
     });
 
     const configuration = await db().planConfiguration.findFirstOrThrow({
-      where: { planId: ids.plan, customerType: 'SME', geographicalCoverage: 'LOCAL' },
+      where: { planId: ids.plan, geographicalCoverage: 'LOCAL' },
     });
 
     const planOption = await db().planOption.create({
@@ -202,74 +255,69 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
     });
 
     expect(planOption.values).toHaveLength(3);
-    await db()
-      .insuranceOption.delete({ where: { id: invented.id } })
-      .catch(async () => {
-        await db().planOption.delete({ where: { id: planOption.id } });
-        await db().insuranceOption.delete({ where: { id: invented.id } });
-      });
-  });
-
-  it('lets one plan price two age bands for the same customer type and coverage', async () => {
-    // 18-40 and 41-60 are separate configurations of the same product.
-    const older = await db().planConfiguration.create({
-      data: {
-        planId: ids.plan,
-        customerType: 'INDIVIDUAL',
-        geographicalCoverage: 'LOCAL',
-        ageFrom: 61,
-        ageTo: 75,
-        currency: 'EGP',
-        annualPrice: 9000,
-      },
-    });
-
-    expect(older.ageFrom).toBe(61);
-    expect(older.ageTo).toBe(75);
-
-    // The band a given age falls into is found numerically, not by text.
-    const forThirtyFive = await db().planConfiguration.findMany({
-      where: { planId: ids.plan, ageFrom: { lte: 35 }, ageTo: { gte: 35 } },
-    });
-    expect(forThirtyFive.every((c) => c.ageFrom <= 35 && c.ageTo >= 35)).toBe(true);
-    expect(forThirtyFive.map((c) => c.id)).not.toContain(older.id);
-
-    await db().planConfiguration.delete({ where: { id: older.id } });
+    await db().planOption.delete({ where: { id: planOption.id } });
+    await db().insuranceOption.delete({ where: { id: invented.id } });
   });
 
   // (8)
-  it('rejects a duplicate plan + customer type + coverage + age band', async () => {
+  it('rejects a second variant with the same coverage, network, room and ceiling', async () => {
+    /**
+     * Checked through the SERVICE, because the index alone cannot do it.
+     *
+     * PostgreSQL treats NULLs as distinct, so two variants that both leave the
+     * network, room and ceiling unstated slip past a unique index every time.
+     * They are the same offering entered twice, and the employee should be
+     * told so rather than finding two identical rows later — which is why
+     * `assertVariantIsDistinct` exists and why this asserts on it.
+     */
     await expect(
-      db().planConfiguration.create({
-        data: {
-          planId: ids.plan,
-          customerType: 'INDIVIDUAL',
-          geographicalCoverage: 'LOCAL',
-          ageFrom: 18,
-          ageTo: 60,
-          annualPrice: 1,
-        },
+      createPlanConfiguration({
+        planId: ids.plan,
+        geographicalCoverage: 'LOCAL',
+        currency: 'EGP',
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('rejects the same age band twice within one variant', async () => {
+    const variant = await db().planConfiguration.findFirstOrThrow({
+      where: { planId: ids.plan, geographicalCoverage: 'LOCAL' },
+    });
+    await expect(
+      db().planPriceBand.create({
+        data: { variantId: variant.id, ageFrom: 18, ageTo: 24, annualPrice: 9999 },
       }),
     ).rejects.toMatchObject({ code: 'P2002' });
   });
 
   // (9)
-  it('stores no age column — SME uses the centralized rule', async () => {
-    const configuration = await db().planConfiguration.findFirstOrThrow({
-      where: { planId: ids.plan, customerType: 'SME', geographicalCoverage: 'LOCAL' },
-    });
-    expect(Object.keys(configuration)).not.toContain('averageAge');
+  it('stores no age column on the plan — SME uses the centralized rule', async () => {
+    const plan = await db().plan.findFirstOrThrow({ where: { id: ids.plan } });
+    expect(Object.keys(plan)).not.toContain('averageAge');
     expect(SME_FIXED_AVERAGE_AGE).toBe(35);
   });
 
   // The query the comparison engine will run.
-  it('finds every matching configuration across companies and plans', async () => {
+  it('finds every matching variant across companies and plans', async () => {
+    /**
+     * Coverage is the variant's; the buyer is the PLAN's; the age is a band
+     * underneath. All three narrow in one query, which is what the comparison
+     * runs before it looks at a single benefit.
+     */
     const matches = await db().planConfiguration.findMany({
-      where: { customerType: 'INDIVIDUAL', geographicalCoverage: 'LOCAL', isActive: true },
+      where: {
+        geographicalCoverage: 'LOCAL',
+        isActive: true,
+        plan: { customerType: 'INDIVIDUAL', isActive: true },
+        priceBands: {
+          some: { ageFrom: { lte: 26 }, ageTo: { gte: 26 }, annualPrice: { not: null } },
+        },
+      },
       include: { plan: { include: { company: true } } },
     });
     expect(matches.length).toBeGreaterThanOrEqual(1);
     expect(matches[0]?.plan.company.id).toBeTruthy();
+    expect(matches[0]?.plan.customerType).toBe('INDIVIDUAL');
   });
 });
 

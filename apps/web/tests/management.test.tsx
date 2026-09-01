@@ -14,8 +14,9 @@ import {
   GEOGRAPHICAL_COVERAGES,
   UNSPECIFIED_OPTION_LABEL,
   listEnabledOptions,
+  resolveAverageAgeForCustomerType,
 } from '@aggregator/shared';
-import type { CustomerTypeId, OptionFieldDto } from '@aggregator/shared';
+import type { CustomerTypeId, OptionFieldDto, PlanDto } from '@aggregator/shared';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -68,14 +69,21 @@ function givenInsuranceType(id = 'type_1', name = 'Test Insurance Type') {
   return id;
 }
 
-function givenPlan(id = 'plan_1', companyId = 'company_1', typeId = 'type_1') {
+function givenPlan(
+  id = 'plan_1',
+  companyId = 'company_1',
+  typeId = 'type_1',
+  customerType: PlanDto['customerType'] = 'INDIVIDUAL',
+) {
   store.plans.push({
     id,
     companyId,
     insuranceTypeId: typeId,
+    customerType,
     name: 'Tier One',
     code: 'TIER-ONE',
     description: null,
+    averageAge: resolveAverageAgeForCustomerType(customerType),
     isActive: true,
     ...timestamps,
   });
@@ -267,21 +275,31 @@ function givenOptionWithAlternative(id = 'option_1', name = 'Dental') {
 function givenConfiguration(
   id: string,
   planId: string,
-  customerType: 'INDIVIDUAL' | 'FAMILY' | 'SME' = 'INDIVIDUAL',
+  customerType: CustomerTypeId = 'INDIVIDUAL',
 ) {
+  /**
+   * Who the plan is for lives on the PLAN now, so a variant created for a
+   * FAMILY is a variant of a family plan. Setting it here keeps the callers
+   * reading the way they did while the record it lands on is the right one.
+   */
+  const plan = store.plans.find((item) => item.id === planId);
+  if (plan) {
+    plan.customerType = customerType;
+    plan.averageAge = resolveAverageAgeForCustomerType(customerType);
+  }
+
   store.configurations.push({
     id,
     planId,
-    customerType,
     geographicalCoverage: 'LOCAL',
-    ageFrom: 18,
-    ageTo: 60,
+    medicalNetworkId: null,
+    roomType: null,
+    // One variant, priced across a band — never one variant per band.
+    priceBands: [{ id: `${id}_band`, ageFrom: 18, ageTo: 60, annualPrice: 7500 }],
     currency: 'EGP',
-    annualPrice: 7500,
     annualLimit: null,
     deductible: null,
     coPayment: null,
-    averageAge: { value: null, source: 'NOT_SPECIFIED', label: null },
     isActive: true,
     ...timestamps,
   });
@@ -705,10 +723,50 @@ describe('empty states', () => {
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });
 
-  it('prompts for the first plan on a new company', async () => {
+  it('prompts for the first plan of the section being viewed', async () => {
     givenCompany();
     renderApp(ROUTES.companies.detail('company_1'));
-    expect(await screen.findByText('No plans yet')).toBeInTheDocument();
+    // Individual opens first, and the prompt names it: a company's three books
+    // are separate products, so "no plans" is always about one of them.
+    expect(await screen.findByText('No individual plans yet')).toBeInTheDocument();
+  });
+
+  it('offers Individual, Family and SME as the way into a company', async () => {
+    givenCompany();
+    renderApp(ROUTES.companies.detail('company_1'));
+
+    const tabs = await screen.findByRole('tablist', { name: /Customer type/i });
+    const labels = within(tabs)
+      .getAllByRole('tab')
+      .map((tab) => tab.textContent ?? '');
+
+    expect(labels).toHaveLength(3);
+    for (const expected of ['Individual', 'Family', 'SME']) {
+      expect(labels.some((label) => label.includes(expected))).toBe(true);
+    }
+  });
+
+  it('shows only the plans of the section that is open', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan('plan_individual', 'company_1', 'type_1', 'INDIVIDUAL');
+    store.plans.push({
+      ...store.plans[0]!,
+      id: 'plan_family',
+      customerType: 'FAMILY',
+      name: 'Tier One',
+      code: 'TIER-ONE-FAMILY',
+    });
+
+    renderApp(ROUTES.companies.detail('company_1'));
+
+    // The same displayed name under two customer types: one record each, and
+    // only one of them is ever on screen.
+    expect(await screen.findAllByText('Tier One')).toHaveLength(1);
+
+    await user.click(screen.getByRole('tab', { name: /SME/i }));
+    expect(await screen.findByText('No sme plans yet')).toBeInTheDocument();
   });
 });
 
@@ -736,7 +794,7 @@ describe('adding a company', () => {
     expect(screen.getAllByRole('textbox')).toHaveLength(1);
   });
 
-  it('creates the company and continues straight into plan setup', async () => {
+  it('creates the company and stops there', async () => {
     const user = userEvent.setup();
     renderApp(ROUTES.companies.new);
 
@@ -746,9 +804,14 @@ describe('adding a company', () => {
     await waitFor(() => expect(store.companies).toHaveLength(1));
     expect(store.companies[0]).toMatchObject({ name: 'Northwind Assurance', isActive: true });
 
-    // It lands on the company's own setup step, not back on a list.
-    expect(await screen.findByText(/Set up plans for Northwind Assurance/i)).toBeInTheDocument();
-    expect(screen.getByText(/Step 2 of 2/i)).toBeInTheDocument();
+    /**
+     * Creating a company creates a COMPANY. It used to march straight on into
+     * adding a plan, which assumed the reason for the company was the plan —
+     * but its networks are usually entered first, and a company is worth
+     * recording before its products are known.
+     */
+    expect(await screen.findByRole('tablist', { name: /Customer type/i })).toBeInTheDocument();
+    expect(screen.queryByText(/Step 2 of 2/i)).not.toBeInTheDocument();
   });
 
   it('shows the API validation message on the offending field', async () => {
@@ -1104,15 +1167,20 @@ describe('plans', () => {
 
     await waitFor(() => expect(store.configurations).toHaveLength(1));
 
-    // The product carries no pricing; its configuration does.
+    // The product carries no pricing; its variant does — and the premium sits
+    // on a BAND of that variant, because age is the only thing that moves it.
     expect(store.plans[0]).not.toHaveProperty('annualPrice');
+    expect(store.configurations[0]).not.toHaveProperty('annualPrice');
     expect(store.configurations[0]).toMatchObject({
       planId: store.plans[0]?.id,
-      customerType: 'INDIVIDUAL',
       geographicalCoverage: 'LOCAL',
-      annualPrice: 7500,
       annualLimit: 600000,
     });
+    // Who the plan is for is the PLAN's.
+    expect(store.plans[0]?.customerType).toBe('INDIVIDUAL');
+    expect(store.configurations[0]?.priceBands).toMatchObject([
+      { ageFrom: 1, ageTo: 17, annualPrice: 7500 },
+    ]);
   });
 
   /**
@@ -1173,7 +1241,7 @@ describe('plans', () => {
     ).toEqual([600000, 1000000]);
   });
 
-  it('enters benefits once and carries them onto every age band priced', async () => {
+  it('enters benefits ONCE for a variant priced across many bands', async () => {
     const user = userEvent.setup();
     givenCompany();
 
@@ -1191,18 +1259,26 @@ describe('plans', () => {
     await user.type(dialog.getByLabelText('Variant 1 premium, ages 25 to 29'), '7132');
     await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
-    await waitFor(() => expect(store.configurations).toHaveLength(3));
+    await waitFor(() => expect(store.configurations).toHaveLength(1));
 
-    // A band with no premium is simply not sold, so no configuration is made.
-    expect(store.configurations.map((item) => item.annualPrice)).toEqual([3681, 5701, 7132]);
+    /**
+     * ONE variant. Three prices. One benefit.
+     *
+     * This is the whole point of the model: the legacy data showed all 69 age
+     * rows of each product carried an identical benefit set and only the
+     * premium moved, so the cover is stored once and the prices hang off it.
+     * The old form made three configurations here, each with its own copy.
+     */
+    const variant = store.configurations[0]!;
+    expect(variant.priceBands.map((band) => band.annualPrice)).toEqual([3681, 5701, 7132]);
 
-    // The benefit is attached to each of them, valued the same.
-    for (const configuration of store.configurations) {
-      const attached = store.planOptions.filter(
-        (item) => item.planConfigurationId === configuration.id,
-      );
-      expect(attached).toHaveLength(1);
-    }
+    // A band with no premium is simply not sold, so no row is made for it.
+    expect(variant.priceBands).toHaveLength(3);
+
+    const attached = store.planOptions.filter(
+      (item) => item.planConfigurationId === variant.id,
+    );
+    expect(attached).toHaveLength(1);
   });
 });
 
@@ -1212,18 +1288,15 @@ describe('plans', () => {
 
 describe('plan configurations', () => {
   it('offers exactly Individual, Family and SME — no Couple', async () => {
-    const user = userEvent.setup();
     givenCompany();
-    givenInsuranceType();
-    givenPlan();
+    renderApp(ROUTES.companies.detail('company_1'));
 
-    renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
-    await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
-
-    const group = await screen.findByRole('group', { name: /Who is this for/i });
-    const labels = within(group)
-      .getAllByRole('radio')
-      .map((radio) => radio.closest('label')?.textContent ?? '');
+    // The buyer is chosen on the COMPANY now, as the section a plan is filed
+    // under, so this is where the list has to be exactly the three.
+    const tabs = await screen.findByRole('tablist', { name: /Customer type/i });
+    const labels = within(tabs)
+      .getAllByRole('tab')
+      .map((tab) => tab.textContent ?? '');
 
     expect(labels.some((l) => l.includes('Individual'))).toBe(true);
     expect(labels.some((l) => l.includes('Family'))).toBe(true);
@@ -1257,7 +1330,7 @@ describe('plan configurations', () => {
     }
   });
 
-  it('shows the fixed SME average age instead of an age input', async () => {
+  it('never asks a variant who it is for — that belongs to the plan', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
@@ -1266,17 +1339,28 @@ describe('plan configurations', () => {
     renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
     await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
 
-    const group = await screen.findByRole('group', { name: /Who is this for/i });
-    const sme = within(group)
-      .getAllByRole('radio')
-      .find((radio) => (radio.closest('label')?.textContent ?? '').includes('SME'))!;
-    await user.click(sme);
+    await screen.findByRole('group', { name: /Geographical coverage/i });
+    /**
+     * A company's Individual, Family and SME books are separate products, so
+     * the buyer is chosen once when the plan is filed under a section — asking
+     * again per variant would let one plan's variants disagree about it.
+     */
+    expect(screen.queryByRole('group', { name: /Who is this for/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the fixed SME average age on the plan, not on a variant', async () => {
+    givenCompany();
+    givenInsuranceType();
+    givenPlan('plan_1', 'company_1', 'type_1', 'SME');
+    const configurationId = givenConfiguration('cfg_1', 'plan_1', 'SME');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
     expect(await screen.findByText('Average age: 35')).toBeInTheDocument();
     expect(screen.queryByLabelText(/average age/i)).not.toBeInTheDocument();
   });
 
-  it('creates a configuration with its own price', async () => {
+  it('creates a variant with its terms, and no age of its own', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
@@ -1285,75 +1369,60 @@ describe('plan configurations', () => {
     renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
     await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
 
-    const who = await screen.findByRole('group', { name: /Who is this for/i });
-    await user.click(within(who).getAllByRole('radio')[0]!);
-    const where = screen.getByRole('group', { name: /Geographical coverage/i });
+    const where = await screen.findByRole('group', { name: /Geographical coverage/i });
     await user.click(within(where).getAllByRole('radio')[0]!);
 
-    await user.type(screen.getByLabelText(/Age from/i), '18');
-    await user.type(screen.getByLabelText(/Age to/i), '40');
     await user.type(screen.getByLabelText(/Currency/i), 'EGP');
-    await user.type(screen.getByLabelText(/Annual price/i), '7500');
-    await user.click(screen.getByRole('button', { name: /Save configuration/i }));
+    await user.type(screen.getByLabelText(/Annual limit/i), '600000');
+    await user.click(screen.getByRole('button', { name: /Save variant/i }));
 
     await waitFor(() => expect(store.configurations).toHaveLength(1));
     expect(store.configurations[0]).toMatchObject({
-      customerType: 'INDIVIDUAL',
       geographicalCoverage: 'LOCAL',
-      ageFrom: 18,
-      ageTo: 40,
-      annualPrice: 7500,
+      currency: 'EGP',
+      annualLimit: 600000,
     });
+    // The age band and the premium are not the variant's to hold.
+    expect(store.configurations[0]).not.toHaveProperty('ageFrom');
+    expect(store.configurations[0]).not.toHaveProperty('annualPrice');
   });
 
-  it('refuses to save a configuration without an age band', async () => {
+  it('refuses an age band that runs backwards, in the rate table', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
     givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
 
-    renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
-    await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    const who = await screen.findByRole('group', { name: /Who is this for/i });
-    await user.click(within(who).getAllByRole('radio')[0]!);
-    await user.click(
-      within(screen.getByRole('group', { name: /Geographical coverage/i })).getAllByRole(
-        'radio',
-      )[0]!,
-    );
+    const from = await screen.findByLabelText('Age from');
+    await user.clear(from);
+    await user.type(from, '70');
+    await user.click(screen.getByRole('button', { name: /Save prices/i }));
 
-    // Age To only — Age From is missing.
-    await user.type(screen.getByLabelText(/Age to/i), '40');
-    await user.click(screen.getByRole('button', { name: /Save configuration/i }));
-
-    expect(await screen.findByText('Age From is required.')).toBeInTheDocument();
-    expect(store.configurations).toHaveLength(0);
+    expect(await screen.findByText(/Ages 50–60 run backwards|run backwards/i)).toBeInTheDocument();
   });
 
-  it('refuses an age band that runs backwards', async () => {
+  it('refuses the same age band twice', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
     givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
 
-    renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
-    await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    const who = await screen.findByRole('group', { name: /Who is this for/i });
-    await user.click(within(who).getAllByRole('radio')[0]!);
-    await user.click(
-      within(screen.getByRole('group', { name: /Geographical coverage/i })).getAllByRole(
-        'radio',
-      )[0]!,
-    );
+    await user.click(await screen.findByRole('button', { name: /Add age band/i }));
+    const froms = screen.getAllByLabelText('Age from');
+    const tos = screen.getAllByLabelText('Age to');
+    await user.clear(froms[1]!);
+    await user.type(froms[1]!, '18');
+    await user.clear(tos[1]!);
+    await user.type(tos[1]!, '60');
 
-    await user.type(screen.getByLabelText(/Age from/i), '50');
-    await user.type(screen.getByLabelText(/Age to/i), '30');
-    await user.click(screen.getByRole('button', { name: /Save configuration/i }));
-
-    expect(await screen.findByText('Age From cannot be greater than Age To.')).toBeInTheDocument();
-    expect(store.configurations).toHaveLength(0);
+    await user.click(screen.getByRole('button', { name: /Save prices/i }));
+    expect(await screen.findByText(/listed twice/i)).toBeInTheDocument();
   });
 });
 
@@ -1371,20 +1440,15 @@ describe('figures', () => {
     renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
     await user.click((await screen.findAllByRole('button', { name: /Add configuration/i }))[0]!);
 
-    const who = await screen.findByRole('group', { name: /Who is this for/i });
-    await user.click(within(who).getAllByRole('radio')[0]!);
-    const where = screen.getByRole('group', { name: /Geographical coverage/i });
+    const where = await screen.findByRole('group', { name: /Geographical coverage/i });
     await user.click(within(where).getAllByRole('radio')[0]!);
-
-    await user.type(screen.getByLabelText(/Age from/i), '18');
-    await user.type(screen.getByLabelText(/Age to/i), '40');
 
     const limit = screen.getByLabelText(/Annual limit/i);
     await user.type(limit, '100000');
     // Read back the way the plan document writes it.
     expect(limit).toHaveValue('100,000');
 
-    await user.click(screen.getByRole('button', { name: /Save configuration/i }));
+    await user.click(screen.getByRole('button', { name: /Save variant/i }));
 
     await waitFor(() => expect(store.configurations).toHaveLength(1));
     // What is stored is a number, never the separators.
@@ -1513,7 +1577,7 @@ describe('copying a plan', () => {
     // One configuration came across, with its benefit, value and note.
     const copied = store.configurations.filter((item) => item.planId === copy.id);
     expect(copied).toHaveLength(1);
-    expect(copied[0]?.ageFrom).toBe(18);
+    expect(copied[0]?.priceBands?.[0]?.ageFrom).toBe(18);
 
     const attachments = store.planOptions.filter(
       (item) => item.planConfigurationId === copied[0]!.id,
@@ -1531,8 +1595,14 @@ describe('copying a plan', () => {
 // The same cover at another age
 // ---------------------------------------------------------------------------
 
-describe('add different age', () => {
-  it('copies a configuration to a new band with its benefits and their values', async () => {
+describe('another age', () => {
+  /**
+   * This used to be a COPY: a whole second configuration carrying a duplicate
+   * of every benefit, because the age band was part of the row. It is now a
+   * row in the variant's own rate table, so the cover is not touched at all —
+   * which is the entire point of the model.
+   */
+  it('adds a price band without copying anything', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
@@ -1551,26 +1621,50 @@ describe('add different age', () => {
       value: 80,
     });
 
-    renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
 
-    await user.click(await screen.findByRole('button', { name: /Add different age/i }));
-    await user.type(await screen.findByLabelText(/Age from/i), '41');
-    await user.type(screen.getByLabelText(/Age to/i), '45');
-    // The premium is the one thing that changes with the band.
-    const price = screen.getByLabelText(/Annual price/i);
-    await user.clear(price);
-    await user.type(price, '15984');
-    await user.click(screen.getByRole('button', { name: /Add this age/i }));
+    await user.click(await screen.findByRole('button', { name: /Add age band/i }));
 
-    await waitFor(() => expect(store.configurations).toHaveLength(2));
-    const copy = store.configurations[1]!;
-    expect(copy.ageFrom).toBe(41);
-    expect(copy.ageTo).toBe(45);
-    expect(copy.annualPrice).toBe(15984);
-    // Nothing was re-entered: the benefit and its value came across.
-    const copied = store.planOptions.filter((item) => item.planConfigurationId === copy.id);
-    expect(copied).toHaveLength(1);
-    expect(store.values.filter((value) => value.planOptionId === copied[0]!.id)[0]?.value).toBe(80);
+    const froms = screen.getAllByLabelText('Age from');
+    const tos = screen.getAllByLabelText('Age to');
+    await user.clear(froms[1]!);
+    await user.type(froms[1]!, '61');
+    await user.clear(tos[1]!);
+    await user.type(tos[1]!, '65');
+    await user.type(screen.getByLabelText(/Annual premium for ages 61 to 65/i), '15984');
+
+    await user.click(screen.getByRole('button', { name: /Save prices/i }));
+
+    await waitFor(() => expect(store.configurations[0]?.priceBands).toHaveLength(2));
+
+    // Still ONE variant, and its benefit was never duplicated.
+    expect(store.configurations).toHaveLength(1);
+    expect(store.configurations[0]?.priceBands[1]).toMatchObject({
+      ageFrom: 61,
+      ageTo: 65,
+      annualPrice: 15984,
+    });
+    expect(store.planOptions.filter((item) => item.planConfigurationId === configurationId))
+      .toHaveLength(1);
+  });
+
+  it('says a band with no premium is not covered, and stores no zero', async () => {
+    const user = userEvent.setup();
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    const configurationId = givenConfiguration('cfg_1', 'plan_1');
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+
+    await user.click(await screen.findByRole('button', { name: /Add age band/i }));
+    // The new row is left unpriced, which is how a plan says it is not sold.
+    expect(await screen.findByText('Not covered')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Save prices/i }));
+
+    await waitFor(() => expect(store.configurations[0]?.priceBands).toHaveLength(2));
+    expect(store.configurations[0]?.priceBands[1]?.annualPrice).toBeNull();
   });
 });
 
@@ -2378,8 +2472,12 @@ describe('dynamic insurance options', () => {
       'Any network clinic',
     );
 
-    // No Save button anywhere: each box goes on its own.
-    expect(screen.queryByRole('button', { name: /^Save / })).not.toBeInTheDocument();
+    /**
+     * No Save button for a BENEFIT: each box goes on its own as it is filled
+     * in. The rate table below has one, because a set of age bands is edited
+     * and saved as a set — but no benefit value ever waits for a button.
+     */
+    expect(screen.queryByRole('button', { name: /^Save (?!prices)/ })).not.toBeInTheDocument();
     await waitFor(() => expect(store.values).toHaveLength(2), { timeout: 4000 });
     expect(store.values.find((v) => v.optionFieldId === 'f_available')?.value).toBe(true);
   });
