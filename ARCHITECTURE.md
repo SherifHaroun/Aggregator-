@@ -106,12 +106,19 @@ plus a `*.mapper.ts` that converts Prisma rows to the DTOs in
 
 ```
 Company ──< Plan >── InsuranceType ──< InsuranceOption ──< OptionField
-                │                            │                   │
-                └──< PlanConfiguration       │                   │
-                          │                  │                   │
-                          └──< PlanOption >──┘                   │
-                                    │                            │
-                                    └──< PlanOptionValue >───────┘
+   │            │  (customerType)            │                   │
+   │            └──< PlanConfiguration       │                   │
+   │                   (the VARIANT)         │                   │
+   │                      │    │             │                   │
+   │                      │    └──< PlanPriceBand                │
+   │                      │                  │                   │
+   │                      └──< PlanOption >──┘                   │
+   │                                │                            │
+   │                                └──< PlanOptionValue >───────┘
+   │
+   └──< CompanyMedicalNetwork ──< NetworkProvider
+              ^
+              └── a variant names one of its own company's networks
 ```
 
 **No benefit is ever a column.** There is no `dentalCare` or `maternity` field
@@ -154,33 +161,47 @@ umbrella removes them from that configuration. That is why
 `PlanOptionDto`. The comparison skips umbrellas — a heading is not cover, and a
 column for it would read "not covered" against every plan.
 
-### Plan vs PlanConfiguration
-
-A **`Plan`** is the product — name, code, category, company, insurance type.
-It carries no price and no benefits.
-
-A **`PlanConfiguration`** is that product priced and configured for one
-customer type and one coverage area. One plan therefore holds up to six
-configurations (Individual/Family/SME × Local/International) rather than being
-split into six plan records:
+### Company, customer type, plan, variant, price band
 
 ```
-Plan "…"
- ├── INDIVIDUAL + LOCAL          price, limits, its own options
- ├── INDIVIDUAL + INTERNATIONAL  …
- ├── FAMILY     + LOCAL          …
- └── …
+Company
+  └── Plan          customerType = INDIVIDUAL | FAMILY | SME
+        └── Variant (PlanConfiguration)   coverage, network, room, ceiling
+              ├── benefits   valued ONCE for the whole variant
+              └── price bands   one premium per age band
 ```
 
-`@@unique([planId, customerType, geographicalCoverage])` allows at most one
-configuration per combination. The constraint covers active *and* inactive
-rows, so deactivating one does not free the slot — edit or delete it to reuse
-the combination.
+**A `Plan` is the product, sold to one buyer.** Name, code, company, insurance
+type — and `customerType`. A company's Individual, Family and SME books are
+separate products that merely share a name, so "Gold+" for a family is a
+different record from "Gold+" for one person. They must never mix: somebody
+managing one should not be able to reach the others, and the comparison filters
+on this column.
 
-**Options attach to the configuration, not the plan.** That is what lets the
-same benefit carry 80% for Individual+Local and 90% for Family+Local. Each
-configuration owns its `PlanOption` rows, which own their `PlanOptionValue`
-rows, so values can never leak between configurations.
+**A `PlanConfiguration` is one VARIANT** — the plan sold one way: one coverage
+scope, on one network, at one ceiling. "Gold+ Local" and "Gold+ International"
+are two variants of one plan, never two plans with the scope written into their
+names. Its display name is DERIVED from the plan's name and the coverage, never
+stored, so renaming the plan renames every variant with it — and the comparison
+filters on the columns, never on the name.
+
+`@@unique([planId, geographicalCoverage, medicalNetworkId, roomType, annualLimit])`
+is what makes one variant different from another. PostgreSQL treats NULLs as
+distinct, so two variants that leave the network, room and ceiling unstated slip
+past it; `plan-configurations.service.ts` refuses those and is the authority for
+the case the index cannot see.
+
+**A `PlanPriceBand` is what the variant costs across one age band.** Age is the
+only thing that varies between them — the cover above is identical for all of
+them. The legacy data said so outright: across 32 products, all 69 age rows of
+each carried an identical benefit set and only the premium moved. So thirty
+benefits are entered once, not once per band. A band with no premium is "not
+sold at this age", which is a null and never a zero.
+
+**Options attach to the variant, not the plan and not the band.** That is what
+lets the same benefit carry 80% on the local variant and 90% on the
+international one. Each variant owns its `PlanOption` rows, which own their
+`PlanOptionValue` rows, so values can never leak between variants.
 
 ### The comparison query
 
@@ -188,14 +209,21 @@ The employee enters criteria, never a company or a plan. The engine will run:
 
 ```
 PlanConfiguration
-  where customerType = ? and geographicalCoverage = ? and isActive
-  include plan -> company
+  where geographicalCoverage = ? and isActive
+    and plan.customerType = ? and plan.isActive
+    and priceBands.some(ageFrom <= age and ageTo >= age and annualPrice not null)
+  include plan -> company, and the one band that prices this customer
 ```
 
-backed by `@@index([customerType, geographicalCoverage, isActive])`. That
-returns every matching configuration across all companies and plans, each
-knowing its plan and company, ready to be grouped by `Plan.category` or name.
-Coverage details for scoring come from each configuration's options and values.
+backed by `@@index([geographicalCoverage, isActive])`. Who the customer is
+narrows on the PLAN; how old they are narrows on the BANDS. Bands may overlap —
+an insurer quoting both 0-64 and 0-17 means the narrower one for a child — so
+the band is read highest `ageFrom` first, then lowest `ageTo`. A band with no
+premium is not sellable, so it excludes rather than offering a free plan.
+
+That returns every matching variant across all companies and plans, each knowing
+its plan and company. Coverage details for scoring come from each variant's
+options and values.
 
 ### Customer type and geographical coverage
 
@@ -212,19 +240,25 @@ a **build failure**: a type-level assertion stops compiling if the two lists
 disagree. Adding a value means editing the shared config, the Prisma enum, and
 adding a migration — together, or the build breaks.
 
-### The same cover at another age
+### The same cover at another age, and at another scope
 
-Health insurance is priced age band by age band: one plan is the identical
-benefit set sold ten times over at ten premiums. Re-entering thirty benefits per
-band is where mistakes come from, so
-`POST /plan-configurations/:id/duplicate` copies a configuration to a new band —
-every attached benefit, in its order, with the value it holds — and takes the
-new band plus anything the caller wants to override. Whatever is omitted is
-inherited. The copy is then independent: each configuration owns its own
-`PlanOption` rows and values, so it can diverge wherever the ages actually
-differ. "Add different age" on a configuration card is this endpoint.
+Health insurance is priced age band by age band. That used to mean a
+configuration per band, each carrying a duplicate of every benefit, and an
+endpoint whose job was to make those copies bearable. It is now a ROW: adding an
+age is adding a `PlanPriceBand`, and the cover is not touched at all.
 
-The copy is deliberately three statements — the attachments in one
+The rate table is replaced whole (`PATCH /plan-configurations/:id` with
+`priceBands`), because an insurer's table is read off the document in one go and
+removing the 65+ line is how a plan stops being sold at 65 — the absence of a
+row says it, so no delete endpoint for a band is needed.
+
+`POST /plan-configurations/:id/duplicate` survives with a different axis: it
+copies a variant to another COVERAGE — "Gold+ Local" becoming "Gold+
+International" — carrying every attached benefit in its order with the value it
+holds, and the whole rate table with it. Whatever the caller omits is inherited,
+and the copy is then independent.
+
+That copy is deliberately three statements — the attachments in one
 `createManyAndReturn`, their values in one `createMany` — because a round trip
 per benefit runs past the transaction timeout on exactly the plans that have
 most of them.
@@ -299,7 +333,7 @@ implementation of both directions.
 
 ### Age
 
-`PlanConfiguration` stores the band it applies to (`ageFrom`..`ageTo`) and
+`PlanPriceBand` stores the band it applies to (`ageFrom`..`ageTo`) and
 **never the customer's own age** — that is a number they type on the comparison
 screen and it is matched against the band. Age-based pricing is therefore one
 configuration per band, which is what the duplicate endpoint above exists to
@@ -530,7 +564,7 @@ refused without the token, and every public read still succeeds.
 
 | Need | Already available |
 | ---- | ----------------- |
-| Find matching plans | `GET /plan-configurations?customerType=&geographicalCoverage=&isActive=true`, backed by a matching index |
+| Find matching plans | `GET /plan-configurations?customerType=&geographicalCoverage=&isActive=true` — customer type filters through the plan, backed by a matching index |
 | Company / plan detail | `GET /companies/:id`, `GET /plans/:id` (includes configurations, options and values) |
 | Benefit definitions | `GET /insurance-options` — employee-defined, with their own fields |
 | Business rules | `@aggregator/shared` — SME average age, customer types, coverage, labels, money formatting |
