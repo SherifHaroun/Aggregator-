@@ -213,6 +213,61 @@ describe.skipIf(!url)('one plan name, three customer types', () => {
       ageTo: 32,
     });
     expect(crossed.plans).toHaveLength(0);
+
+    /**
+     * AND IT SAYS WHICH REQUIREMENT DID IT.
+     *
+     * "Try widening the selection" is not help when six things were selected.
+     * The coverage area is what rules this one out, and the individual plan
+     * that would have matched is counted so the customer can see the choice.
+     */
+    const coverage = crossed.blockers.find((b) => b.field === 'geographicalCoverage');
+    expect(coverage).toBeDefined();
+    expect(coverage!.wouldMatch).toBeGreaterThan(0);
+    expect(coverage!.message).toMatch(/rules everything out/i);
+  });
+
+  it('names the TIER when that alone is what hides a plan', async () => {
+    /**
+     * The individual Platinum has a 200,000 ceiling, which reads as Premium.
+     * Asked for Basic it disappears — and a plan NAMED "Basic" at a Standard
+     * ceiling is exactly how a real report of this arrived, so the screen has
+     * to say the tier is the reason rather than leave it to be guessed.
+     */
+    const wrongTier = await runComparison({
+      planTierId: 'BASIC',
+      customerTypeId: 'INDIVIDUAL',
+      geographicalCoverageId: TERMS.INDIVIDUAL.coverage,
+      currency: 'EGP',
+      ageFrom: 32,
+      ageTo: 32,
+    });
+
+    expect(wrongTier.plans).toHaveLength(0);
+    const tier = wrongTier.blockers.find((b) => b.field === 'planTier');
+    expect(tier).toBeDefined();
+    expect(tier!.label).toBe('Basic');
+    expect(tier!.wouldMatch).toBeGreaterThan(0);
+  });
+
+  it('says nothing rather than blame the wrong thing', async () => {
+    /**
+     * A currency nobody prices in. No single OTHER requirement explains the
+     * emptiness, so none is named — inventing a culprit is worse than saying
+     * nothing, and the generic message is what remains.
+     */
+    const noSuchCurrency = await runComparison({
+      customerTypeId: 'INDIVIDUAL',
+      geographicalCoverageId: TERMS.INDIVIDUAL.coverage,
+      currency: 'ZZZ',
+      ageFrom: 32,
+      ageTo: 32,
+    });
+
+    expect(noSuchCurrency.plans).toHaveLength(0);
+    // The currency IS the reason, and it is the one named.
+    expect(noSuchCurrency.blockers.map((b) => b.field)).toContain('currency');
+    expect(noSuchCurrency.blockers.every((b) => b.wouldMatch > 0)).toBe(true);
   });
 
   it('matches the age band, not merely the plan', async () => {

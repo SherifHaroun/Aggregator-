@@ -202,6 +202,32 @@ export interface ResolvedComparisonRequest {
   benefits: { id: string; name: string }[];
 }
 
+/**
+ * WHY NOTHING MATCHED, one entry per requirement that is on its own to blame.
+ *
+ * "Try widening the selection" is not help when six things were selected. Each
+ * entry names ONE requirement and says how many plans would match if it alone
+ * were relaxed — so the customer can see that it is the tier, not the coverage,
+ * standing between them and a result.
+ */
+export interface ComparisonBlocker {
+  /** Which requirement, as the form calls it. */
+  field:
+    | 'planTier'
+    | 'customerType'
+    | 'geographicalCoverage'
+    | 'currency'
+    | 'age'
+    | 'budget'
+    | 'workforce';
+  /** What is selected now, ready to print. */
+  label: string;
+  /** How many plans would match if this requirement alone were dropped. */
+  wouldMatch: number;
+  /** Said in full, e.g. "Basic — 1 plan matches at Standard". */
+  message: string;
+}
+
 /** The full answer: what matched, how it scored, and what is recommended. */
 export interface ComparisonResultDto {
   criteria: ResolvedComparisonRequest;
@@ -215,6 +241,14 @@ export interface ComparisonResultDto {
   recommendationReasons: string[];
   /** Configurations that matched every requirement, budget included. */
   matchedCount: number;
+
+  /**
+   * When nothing matched, the requirements that are on their own to blame.
+   * Empty whenever something did match, and empty when no single requirement
+   * explains it — several together can leave nothing, and inventing a culprit
+   * would be worse than saying nothing.
+   */
+  blockers: ComparisonBlocker[];
 
   /**
    * The plans that matched everything EXCEPT the budget — shown beneath the

@@ -12,6 +12,7 @@ import {
   tierLimitRange,
   totalSmeEmployees,
   type CandidateBenefit,
+  type ComparisonBlocker,
   type ComparisonCandidate,
   type ComparisonPlanResult,
   type ComparisonPriceRangeDto,
@@ -211,6 +212,73 @@ async function workforcePriceRange(
 }
 
 /**
+ * WHICH REQUIREMENT IS STANDING IN THE WAY.
+ *
+ * Run only when nothing matched. Each requirement is dropped ON ITS OWN and
+ * the query re-run: if the plans appear, that requirement is the reason, and
+ * the customer is told so by name instead of being asked to "widen the
+ * selection" of six things at once.
+ *
+ * A requirement that changes nothing is not reported, and when no single one
+ * explains the emptiness nothing is reported at all — several requirements
+ * together can leave nothing, and naming a culprit that is not one is worse
+ * than saying nothing.
+ */
+async function findBlockers(input: ComparisonRequestPayload): Promise<ComparisonBlocker[]> {
+  const prisma = getPrisma();
+
+  /** How many variants match, with `drop` left out of the requirements. */
+  const countWithout = async (drop: keyof ComparisonRequestPayload | 'budget') => {
+    const relaxed = { ...input, [drop]: undefined } as ComparisonRequestPayload;
+    /**
+     * The workforce is not a filter in the query — a plan that cannot price it
+     * is dropped afterwards — so relaxing it means counting the plans that
+     * survive everything else.
+     */
+    const where = {
+      ...variantRequirements(relaxed),
+      priceBands: { some: bandRequirements(relaxed) },
+    };
+    return prisma.planConfiguration.count({ where });
+  };
+
+  const candidates: { field: ComparisonBlocker['field']; drop: 'planTierId' | 'geographicalCoverageId' | 'customerTypeId' | 'currency' | 'budget'; label: string }[] = [
+    ...(input.planTierId
+      ? [{ field: 'planTier' as const, drop: 'planTierId' as const, label: PLAN_TIERS[input.planTierId].label }]
+      : []),
+    {
+      field: 'geographicalCoverage',
+      drop: 'geographicalCoverageId',
+      label: optionLabel(GEOGRAPHICAL_COVERAGES, input.geographicalCoverageId),
+    },
+    {
+      field: 'customerType',
+      drop: 'customerTypeId',
+      label: optionLabel(CUSTOMER_TYPES, input.customerTypeId),
+    },
+    { field: 'currency', drop: 'currency', label: input.currency },
+    ...(input.budget === undefined
+      ? []
+      : [{ field: 'budget' as const, drop: 'budget' as const, label: `${input.budget} ${input.currency}` }]),
+  ];
+
+  const blockers: ComparisonBlocker[] = [];
+  for (const candidate of candidates) {
+    const wouldMatch = await countWithout(candidate.drop);
+    if (wouldMatch === 0) continue;
+    blockers.push({
+      field: candidate.field,
+      label: candidate.label,
+      wouldMatch,
+      message: `${candidate.label} is what rules everything out — ${wouldMatch} plan${
+        wouldMatch === 1 ? '' : 's'
+      } would match without it.`,
+    });
+  }
+  return blockers;
+}
+
+/**
  * Run a comparison.
  *
  * The order matters and is the order the business asked for: the database
@@ -296,6 +364,8 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
     recommendedConfigurationId: affordable.recommendedConfigurationId,
     recommendationReasons: affordable.reasons,
     matchedCount: affordable.plans.length,
+    /* Only worth asking when there is nothing to show. */
+    blockers: affordable.plans.length === 0 ? await findBlockers(input) : [],
 
     overBudgetPlans: dearer.plans,
     overBudgetBenefits: dearer.benefits,
@@ -401,6 +471,8 @@ async function runWorkforceComparison(
     recommendedConfigurationId: affordable.recommendedConfigurationId,
     recommendationReasons: affordable.reasons,
     matchedCount: affordable.plans.length,
+    /* Only worth asking when there is nothing to show. */
+    blockers: affordable.plans.length === 0 ? await findBlockers(input) : [],
 
     overBudgetPlans: dearer.plans,
     overBudgetBenefits: dearer.benefits,

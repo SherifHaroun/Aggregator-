@@ -121,6 +121,9 @@ export function ComparisonResultsPage() {
   const recommended = result?.plans.find((plan) => plan.isRecommended);
   const alternatives = result?.plans.filter((plan) => !plan.isRecommended) ?? [];
 
+  /** Which single requirement, if any, is standing between the customer and a result. */
+  const blockers = result?.blockers ?? [];
+
   const overBudget = result?.overBudgetPlans ?? [];
   const overBudgetPick = overBudget.find((plan) => plan.isRecommended);
   const overBudgetRest = overBudget.filter((plan) => !plan.isRecommended);
@@ -188,16 +191,25 @@ export function ComparisonResultsPage() {
         subject="the comparison"
         onRetry={() => void comparison.refetch()}
         empty={{
-          // The budget is never quietly ignored: when it is what ruled every
-          // plan out, say so and offer the way forward.
+          /**
+           * NAME THE REQUIREMENT, never "widen the selection".
+           *
+           * Six things were selected. Asking the customer to loosen all of
+           * them is asking them to guess, and the engine already knows which
+           * one is responsible — it re-ran the query without each in turn.
+           */
           title:
             (result?.overBudgetCount ?? 0) > 0
               ? 'No plans found within your budget'
-              : 'No plan matches those requirements',
+              : blockers.length > 0
+                ? `${blockers[0]!.label} is what rules every plan out`
+                : 'No plan matches those requirements',
           description:
             (result?.overBudgetCount ?? 0) > 0
               ? `${result?.overBudgetCount} plan${result?.overBudgetCount === 1 ? '' : 's'} match everything else but cost more than your budget. They are listed below, or you can increase your budget.`
-              : 'No configuration matches this insurance type, customer type, coverage area, currency and age. Try widening the selection.',
+              : blockers.length > 0
+                ? blockers.map((blocker) => blocker.message).join(' ')
+                : 'Nothing on record matches this combination of customer type, coverage area, currency and age. Try changing one of them.',
           action: <ButtonLink to={ROUTES.comparison.new}>Change selection</ButtonLink>,
         }}
       >
