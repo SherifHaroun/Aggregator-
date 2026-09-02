@@ -66,8 +66,6 @@ export function ConfigurationDialog({
     medicalNetworkId: configuration?.medicalNetworkId ?? '',
     currency: configuration?.currency ?? '',
     annualLimit: configuration?.annualLimit?.toString() ?? '',
-    deductible: configuration?.deductible?.toString() ?? '',
-    coPayment: configuration?.coPayment?.toString() ?? '',
     isActive: configuration?.isActive ?? true,
   });
 
@@ -78,8 +76,6 @@ export function ConfigurationDialog({
         medicalNetworkId: values.medicalNetworkId === '' ? null : values.medicalNetworkId,
         currency: values.currency.trim() === '' ? null : values.currency.trim(),
         annualLimit: toNumber(values.annualLimit),
-        deductible: toNumber(values.deductible),
-        coPayment: toNumber(values.coPayment),
         isActive: values.isActive,
         /**
          * Coverage identifies the variant, so it is set once and never edited:
@@ -193,28 +189,13 @@ export function ConfigurationDialog({
             )}
           </Field>
 
-          {/* Left blank when the plan document does not state one. */}
-          <Field label="Deductible" error={fieldErrors.deductible} hint={NOT_STATED_HINT}>
-            {(props) => (
-              <NumberInput
-                {...props}
-                suffix={values.currency || ''}
-                value={values.deductible}
-                onChange={(next) => setValue('deductible', next)}
-              />
-            )}
-          </Field>
-
-          <Field label="Co-payment" error={fieldErrors.coPayment} hint={NOT_STATED_HINT}>
-            {(props) => (
-              <NumberInput
-                {...props}
-                suffix="%"
-                value={values.coPayment}
-                onChange={(next) => setValue('coPayment', next)}
-              />
-            )}
-          </Field>
+          {/*
+            NO DEDUCTIBLE AND NO CO-PAYMENT. The business stopped collecting
+            them, and a box nobody fills produces a column of blanks that the
+            comparison would then rank plans on — whichever record happened to
+            predate the change winning on a figure the others were never asked
+            for. What the columns already hold is left alone and still read.
+          */}
 
           <Field label="Status" error={fieldErrors.isActive}>
             {(props) => (

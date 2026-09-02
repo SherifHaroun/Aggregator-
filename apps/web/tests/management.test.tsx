@@ -1330,8 +1330,19 @@ describe('plans', () => {
     const dialog = within(await screen.findByRole('dialog'));
     await user.type(dialog.getByLabelText(/Plan name/i), 'Elite');
     await user.type(dialog.getByLabelText(/Annual \/ in-patient limit/i), '600000');
-    // In-patient is quoted as a share of the bill, so the box takes a figure.
-    await user.type(dialog.getByLabelText('In-patient coverage'), '80');
+    /**
+     * In-patient is quoted as a share of the bill, and the box is NAMED for
+     * that — the kind is fixed by the business, so the label states it rather
+     * than leaving the employee to guess what the number means.
+     */
+    await user.type(dialog.getByLabelText('In-patient Coverage'), '80');
+    // Two areas are quoted as a percentage; both say so under their box.
+    expect(dialog.getAllByText(/Accepts a percentage only/i)).toHaveLength(2);
+    expect(dialog.getAllByText(/Accepts a limit only/i)).toHaveLength(4);
+
+    // And a ceiling area says the opposite, in the same place.
+    expect(dialog.getByLabelText('Dental Limit')).toBeInTheDocument();
+    expect(dialog.queryByLabelText(/co-payment/i)).not.toBeInTheDocument();
 
     // Three bands, three premiums, one benefit entry.
     await user.type(dialog.getByLabelText('Variant 1 premium, ages 1 to 17'), '3681');

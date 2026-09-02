@@ -226,23 +226,10 @@ export function PlanSetupForm({
         );
       }
 
-      const settledTarget =
-        spec.coPayment && !(target.fields ?? []).some((f) => f.key === CO_PAYMENT_FIELD.key)
-          ? await (async () => {
-              await api.post(`/insurance-options/${target.id}/fields`, {
-                label: CO_PAYMENT_FIELD.label,
-                key: CO_PAYMENT_FIELD.key,
-                dataType: CO_PAYMENT_FIELD.dataType,
-                unit: CO_PAYMENT_FIELD.unit,
-              });
-              return api.get<InsuranceOptionDto>(`/insurance-options/${target.id}`);
-            })()
-          : target;
-
       return {
         attach: existing,
-        valueOptionId: settledTarget.id,
-        valueFields: settledTarget.fields ?? [],
+        valueOptionId: target.id,
+        valueFields: target.fields ?? [],
       };
     }
 
@@ -254,21 +241,12 @@ export function PlanSetupForm({
       });
     }
 
-    // Add the co-payment box if this benefit does not carry one yet. Also
-    // covers a benefit that existed before this form did.
-    const full = await api.get<InsuranceOptionDto>(`/insurance-options/${option.id}`);
-    const hasCoPayment = (full.fields ?? []).some((field) => field.key === CO_PAYMENT_FIELD.key);
-
-    if (spec.coPayment && !hasCoPayment) {
-      await api.post(`/insurance-options/${full.id}/fields`, {
-        label: CO_PAYMENT_FIELD.label,
-        key: CO_PAYMENT_FIELD.key,
-        dataType: CO_PAYMENT_FIELD.dataType,
-        unit: CO_PAYMENT_FIELD.unit,
-      });
-    }
-
-    const settled = await api.get<InsuranceOptionDto>(`/insurance-options/${full.id}`);
+    /**
+     * A core area carries ONE figure, of the kind the business fixed for it.
+     * Nothing else is created alongside it — a co-payment box added here would
+     * be a field no screen fills and the comparison would still find.
+     */
+    const settled = await api.get<InsuranceOptionDto>(`/insurance-options/${option.id}`);
     catalogue.set(fold(spec.name), settled);
     return { attach: settled, valueOptionId: settled.id, valueFields: settled.fields ?? [] };
   }
@@ -289,7 +267,6 @@ export function PlanSetupForm({
       const entry = variant.entries[spec.name];
       return (
         (entry?.coverage ?? '').trim() !== '' ||
-        (entry?.coPayment ?? '').trim() !== '' ||
         (entry?.details ?? []).some((line) => line.trim() !== '')
       );
     });
@@ -412,14 +389,6 @@ export function PlanSetupForm({
             });
           }
 
-          const coPaymentField = row.values.find(
-            (value) => value.fieldKey === CO_PAYMENT_FIELD.key,
-          );
-          if (coPaymentField && entry.coPayment.trim() !== '') {
-            await api.put(`/plan-options/${row.id}/values/${coPaymentField.optionFieldId}`, {
-              value: Number(entry.coPayment),
-            });
-          }
 
           const details = entry.details.map((line) => line.trim()).filter((line) => line !== '');
           if (details.length > 0) {

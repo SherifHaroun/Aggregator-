@@ -7,6 +7,7 @@ import {
   OPTIONAL_MEDICAL_BENEFITS,
   UNSPECIFIED_OPTION_LABEL,
   listEnabledOptions,
+  CORE_VALUE_KINDS,
   medicalBenefitSpec,
   variantDisplayName,
   type CompanyMedicalNetworkDto,
@@ -202,16 +203,15 @@ export function VariantEditor({
         <div className="space-y-3">
           <SubTitle>Core benefits</SubTitle>
           <div className="border-border-subtle divide-border-subtle divide-y rounded-(--radius-card) border">
-            <div className="text-content-subtle grid grid-cols-[1fr_auto] gap-4 px-4 py-2 text-xs font-semibold tracking-wide uppercase sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_7rem]">
+            <div className="text-content-subtle grid grid-cols-[1fr_auto] gap-4 px-4 py-2 text-xs font-semibold tracking-wide uppercase sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)]">
               <span>Benefit</span>
-              <span className="hidden sm:block">Coverage</span>
-              <span className="text-right sm:text-left">Co-payment</span>
+              {/* One figure per area, and the business fixes which kind. */}
+              <span className="hidden sm:block">Limit or coverage %</span>
             </div>
             {CORE_MEDICAL_BENEFITS.map((spec) => (
               <BenefitRow
                 key={spec.name}
                 spec={spec}
-                existing={existingKinds.get(spec.name.trim().toLowerCase()) ?? null}
                 entry={variant.entries[spec.name] ?? emptyEntry()}
                 onChange={(patch) => setEntry(spec.name, patch)}
               />
@@ -397,71 +397,59 @@ function SubTitle({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * One core benefit: what it covers, any co-payment, and the lines the plan
- * states about it.
+ * One core benefit: its single figure, and the lines the plan states about it.
  *
- * Only the coverage box reaches a comparison. The co-payment and the details
- * are shown wherever the plan is read — which is what makes it safe to record
- * "10 sessions per year" without it pretending to be cover.
+ * THE KIND IS NOT A CHOICE. In-patient and out-patient are a share of the
+ * bill; maternity, dental, optical and chronic cover are a ceiling. The
+ * business fixed that, so the box takes one kind and says which — a plan free
+ * to answer "80" where another answered "5,000" is two plans answering
+ * different questions, and a comparison could not rank them.
+ *
+ * It is read from the SPEC rather than from whatever the catalogue happens to
+ * hold: a record created before the rule existed must not be able to reopen
+ * the question.
+ *
+ * Only this figure reaches a comparison. The detail lines are shown wherever
+ * the plan is read — which is what makes it safe to record "10 sessions per
+ * year" without it pretending to be cover.
  */
 function BenefitRow({
   spec,
-  existing,
   entry,
   onChange,
 }: {
   spec: MedicalBenefitSpec;
-  existing: ExistingKind | null;
   entry: BenefitEntry;
   onChange: (patch: Partial<BenefitEntry>) => void;
 }) {
-  /**
-   * The box follows the benefit, not the other way round. A benefit already in
-   * the catalogue keeps whatever it carries; only a brand-new one takes the
-   * kind this form would create it with.
-   */
-  const numeric = existing
-    ? existing.dataType !== 'TEXT' && existing.dataType !== 'RANK'
-    : spec.valueKind === 'LIMIT';
+  const kind = CORE_VALUE_KINDS[spec.valueKind === 'PERCENTAGE' ? 'COVERAGE' : 'LIMIT'];
 
   return (
     <div className="px-4 py-3">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_7rem] sm:items-center">
-        <div className="flex items-center gap-2.5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)] sm:items-start">
+        <div className="flex items-center gap-2.5 sm:pt-2">
           <span aria-hidden className="text-lg leading-none">
             {spec.emoji}
           </span>
           <span className="text-content text-sm font-medium">{spec.name}</span>
         </div>
 
-        {numeric ? (
+        <div>
           <NumberInput
-            aria-label={`${spec.name} coverage`}
+            aria-label={`${spec.name} ${kind.fieldLabel}`}
             value={entry.coverage}
             onChange={(value) => onChange({ coverage: value })}
-            suffix={existing?.unit ?? undefined}
+            suffix={kind.unit ?? undefined}
             placeholder={UNSPECIFIED_OPTION_LABEL}
           />
-        ) : (
-          <Input
-            aria-label={`${spec.name} coverage`}
-            value={entry.coverage}
-            onChange={(event) => onChange({ coverage: event.target.value })}
-            placeholder={UNSPECIFIED_OPTION_LABEL}
-          />
-        )}
-
-        {spec.coPayment ? (
-          <NumberInput
-            aria-label={`${spec.name} co-payment`}
-            value={entry.coPayment}
-            onChange={(value) => onChange({ coPayment: value })}
-            suffix="%"
-            placeholder="None"
-          />
-        ) : (
-          <span className="text-content-subtle text-sm">—</span>
-        )}
+          {/* Said under the box, so nobody types a ceiling into a percentage. */}
+          <p className="text-content-subtle mt-1 text-xs">
+            {spec.valueKind === 'PERCENTAGE'
+              ? 'Accepts a percentage only.'
+              : 'Accepts a limit only.'}
+            {entry.coverage.trim() === '0' ? ' Not covered.' : ' Enter 0 if not covered.'}
+          </p>
+        </div>
       </div>
 
       {entry.details.length > 0 ? (
