@@ -289,3 +289,55 @@ describe('the hidden comparison age', () => {
     expect(SME_COMPARISON_AVERAGE_AGE).toBe(35);
   });
 });
+
+/**
+ * THE BUDGET A BUSINESS IS OFFERED.
+ *
+ * The screen proposes a budget from what the matching plans cost, so that
+ * figure and the prices shown afterwards have to be the same arithmetic. For a
+ * business that means the whole workforce — a budget worked out from one
+ * person at the standard age is a fraction of the bill, and proposing it put
+ * every plan over the ceiling and produced "no matching plans" for a workforce
+ * every one of them could have quoted.
+ */
+describe('the budget proposed to a business', () => {
+  const RATE: SmePriceBand[] = [
+    band(0, 17, 2_905),
+    band(18, 18, 2_949),
+    band(19, 24, 3_138),
+    band(25, 29, 3_960),
+    band(30, 34, 4_296),
+    band(35, 39, 5_134),
+    band(40, 44, 5_893),
+    band(45, 49, 8_491),
+  ];
+
+  it('is what the workforce costs, not what one employee costs', () => {
+    const workforce = staff({ '20–24': 10 });
+    const quote = quoteSmeWorkforce(workforce, RATE);
+
+    // Ten employees at 3,138 each.
+    expect(quote.total).toBe(31_380);
+
+    /**
+     * The band spanning the standard comparison age is 5,134 — one person's
+     * premium. A budget of 5,134 against a bill of 31,380 excludes the very
+     * plan it was derived from.
+     */
+    const oneHeadAtTheStandardAge = RATE.find(
+      (row) => row.ageFrom <= SME_COMPARISON_AVERAGE_AGE && row.ageTo >= SME_COMPARISON_AVERAGE_AGE,
+    )!.annualPrice;
+    expect(oneHeadAtTheStandardAge).toBe(5_134);
+    expect(quote.total).toBeGreaterThan(oneHeadAtTheStandardAge!);
+  });
+
+  it('leaves out a plan that cannot quote the workforce at all', () => {
+    /**
+     * This rate table stops at 49. A workforce with somebody older has no
+     * price on this plan, and a floor it could never actually offer is worse
+     * than no floor at all.
+     */
+    expect(quoteSmeWorkforce(staff({ '50–54': 1 }), RATE).total).toBeNull();
+    expect(quoteSmeWorkforce(staff({ '20–24': 10, '50–54': 1 }), RATE).total).toBeNull();
+  });
+});

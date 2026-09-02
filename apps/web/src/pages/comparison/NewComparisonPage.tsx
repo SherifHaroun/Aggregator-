@@ -175,6 +175,12 @@ export function NewComparisonPage() {
     employeesError === null
       ? {
           ...(planTierId ? { planTierId } : {}),
+          /**
+           * The workforce goes with it. A budget worked out from ONE person at
+           * the standard age is a fraction of what a business pays, and
+           * proposing it put every plan over the ceiling.
+           */
+          ...(ageIsFixed && employeeCount > 0 ? { smeEmployees: employees } : {}),
           customerTypeId,
           geographicalCoverageId: coverageId,
           currency: effectiveCurrency,

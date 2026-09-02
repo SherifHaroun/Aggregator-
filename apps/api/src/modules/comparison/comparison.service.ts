@@ -130,6 +130,16 @@ export async function getComparisonPriceRange(
   const band = bandRequirements(input);
 
   /**
+   * AN SME IS PRICED BY ITS WORKFORCE HERE TOO.
+   *
+   * The aggregate below reads a BAND — what one person costs at the standard
+   * age — and for a business that is a fraction of the bill. Suggesting it as
+   * a budget put every plan over the ceiling and produced "no matching plans"
+   * for a workforce every one of them could have quoted.
+   */
+  if (input.smeEmployees) return workforcePriceRange(input, input.smeEmployees);
+
+  /**
    * Prices come from the BANDS, but the count is of VARIANTS — a variant whose
    * overlapping bands both span the customer is still one plan on the screen,
    * and counting bands would quietly inflate "how many plans match".
@@ -150,6 +160,50 @@ export async function getComparisonPriceRange(
   return {
     count,
     lowestPrice: toNumber(summary._min.annualPrice),
+    highestPrice,
+    suggestedBudget: highestPrice,
+    currency: input.currency,
+  };
+}
+
+/**
+ * What the matching plans cost THIS WORKFORCE, head by head.
+ *
+ * The same arithmetic the comparison itself uses, so the budget the screen
+ * proposes and the prices it later shows are the same figures. A plan that
+ * cannot price a bracket somebody is in is left out of the range as it is left
+ * out of the comparison — a floor it could never actually offer is worse than
+ * no floor at all.
+ */
+async function workforcePriceRange(
+  input: ComparisonPriceRangePayload,
+  employees: Record<string, number>,
+): Promise<ComparisonPriceRangeDto> {
+  const prisma = getPrisma();
+
+  const configurations = await prisma.planConfiguration.findMany({
+    where: { ...variantRequirements(input), priceBands: { some: bandRequirements(input) } },
+    select: { id: true, priceBands: { select: { ageFrom: true, ageTo: true, annualPrice: true } } },
+  });
+
+  const totals: number[] = [];
+  for (const configuration of configurations) {
+    const quote = quoteSmeWorkforce(
+      employees,
+      configuration.priceBands.map((band) => ({
+        ageFrom: band.ageFrom,
+        ageTo: band.ageTo,
+        annualPrice: toNumber(band.annualPrice),
+      })),
+    );
+    if (quote.total !== null) totals.push(quote.total);
+  }
+
+  const highestPrice = totals.length ? Math.max(...totals) : null;
+
+  return {
+    count: totals.length,
+    lowestPrice: totals.length ? Math.min(...totals) : null,
     highestPrice,
     suggestedBudget: highestPrice,
     currency: input.currency,
