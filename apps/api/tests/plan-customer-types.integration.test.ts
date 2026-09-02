@@ -250,6 +250,31 @@ describe.skipIf(!url)('one plan name, three customer types', () => {
     expect(tier!.wouldMatch).toBeGreaterThan(0);
   });
 
+  it('does not promise a match that relaxing the requirement would not give', async () => {
+    /**
+     * The SME Platinum is sold across one band. A workforce with somebody
+     * outside it cannot be priced on that plan, so dropping the tier would
+     * still show nothing — and saying "1 plan would match without it" would
+     * send the reader round the same loop a second time.
+     */
+    const outsideTheTable = await runComparison({
+      planTierId: 'BASIC',
+      customerTypeId: 'SME',
+      geographicalCoverageId: TERMS.SME.coverage,
+      currency: 'EGP',
+      ageFrom: 35,
+      ageTo: 35,
+      smeEmployees: { '65+': 3 },
+    });
+
+    expect(outsideTheTable.plans).toHaveLength(0);
+    // Whatever it reports, every count it prints has to be achievable.
+    for (const blocker of outsideTheTable.blockers) {
+      expect(blocker.wouldMatch).toBeGreaterThan(0);
+    }
+    expect(outsideTheTable.blockers.some((b) => b.field === 'planTier')).toBe(false);
+  });
+
   it('says nothing rather than blame the wrong thing', async () => {
     /**
      * A currency nobody prices in. No single OTHER requirement explains the

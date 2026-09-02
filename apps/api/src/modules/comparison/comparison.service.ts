@@ -4,6 +4,7 @@ import {
   PLAN_TIERS,
   OPTION_FIELD_DATA_TYPES,
   explainRecommendation,
+  formatNumber,
   optionLabel,
   quoteSmeWorkforce,
   rankValue,
@@ -227,24 +228,71 @@ async function workforcePriceRange(
 async function findBlockers(input: ComparisonRequestPayload): Promise<ComparisonBlocker[]> {
   const prisma = getPrisma();
 
-  /** How many variants match, with `drop` left out of the requirements. */
-  const countWithout = async (drop: keyof ComparisonRequestPayload | 'budget') => {
-    const relaxed = { ...input, [drop]: undefined } as ComparisonRequestPayload;
-    /**
-     * The workforce is not a filter in the query — a plan that cannot price it
-     * is dropped afterwards — so relaxing it means counting the plans that
-     * survive everything else.
-     */
-    const where = {
-      ...variantRequirements(relaxed),
-      priceBands: { some: bandRequirements(relaxed) },
+  /**
+   * How many plans a customer would actually SEE under these requirements.
+   *
+   * Counting rows that satisfy the query is not the same thing. A business is
+   * priced head by head afterwards, and a plan that cannot price a bracket
+   * somebody is in never reaches the screen — so counting it here would
+   * promise a match that relaxing the requirement does not deliver, and send
+   * the reader round the same loop again.
+   */
+  const visible = async (requirements: ComparisonRequestPayload) => {
+    const rows = await prisma.planConfiguration.findMany({
+      where: {
+        ...variantRequirements(requirements),
+        priceBands: { some: bandRequirements(requirements) },
+      },
+      select: {
+        id: true,
+        priceBands: { select: { ageFrom: true, ageTo: true, annualPrice: true } },
+      },
+    });
+
+    const priced = rows.map((row) => ({
+      id: row.id,
+      quote: requirements.smeEmployees
+        ? quoteSmeWorkforce(
+            requirements.smeEmployees,
+            row.priceBands.map((band) => ({
+              ageFrom: band.ageFrom,
+              ageTo: band.ageTo,
+              annualPrice: toNumber(band.annualPrice),
+            })),
+          )
+        : null,
+    }));
+
+    return {
+      /** Plans that survive everything, workforce and budget included. */
+      shown: priced.filter(
+        (row) =>
+          (row.quote === null || row.quote.total !== null) &&
+          (requirements.budget === undefined ||
+            row.quote === null ||
+            row.quote.total! <= requirements.budget),
+      ).length,
+      /** Plans lost solely because the workforce cannot be priced on them. */
+      unpriceable: priced.filter((row) => row.quote !== null && row.quote.total === null),
     };
-    return prisma.planConfiguration.count({ where });
   };
 
-  const candidates: { field: ComparisonBlocker['field']; drop: 'planTierId' | 'geographicalCoverageId' | 'customerTypeId' | 'currency' | 'budget'; label: string }[] = [
+  const without = (drop: keyof ComparisonRequestPayload) =>
+    visible({ ...input, [drop]: undefined } as ComparisonRequestPayload);
+
+  const candidates: {
+    field: ComparisonBlocker['field'];
+    drop: 'planTierId' | 'geographicalCoverageId' | 'customerTypeId' | 'currency' | 'budget';
+    label: string;
+  }[] = [
     ...(input.planTierId
-      ? [{ field: 'planTier' as const, drop: 'planTierId' as const, label: PLAN_TIERS[input.planTierId].label }]
+      ? [
+          {
+            field: 'planTier' as const,
+            drop: 'planTierId' as const,
+            label: PLAN_TIERS[input.planTierId].label,
+          },
+        ]
       : []),
     {
       field: 'geographicalCoverage',
@@ -259,22 +307,54 @@ async function findBlockers(input: ComparisonRequestPayload): Promise<Comparison
     { field: 'currency', drop: 'currency', label: input.currency },
     ...(input.budget === undefined
       ? []
-      : [{ field: 'budget' as const, drop: 'budget' as const, label: `${input.budget} ${input.currency}` }]),
+      : [
+          {
+            field: 'budget' as const,
+            drop: 'budget' as const,
+            label: `${formatNumber(input.budget)} ${input.currency}`,
+          },
+        ]),
   ];
 
   const blockers: ComparisonBlocker[] = [];
   for (const candidate of candidates) {
-    const wouldMatch = await countWithout(candidate.drop);
-    if (wouldMatch === 0) continue;
+    const { shown } = await without(candidate.drop);
+    if (shown === 0) continue;
     blockers.push({
       field: candidate.field,
       label: candidate.label,
-      wouldMatch,
-      message: `${candidate.label} is what rules everything out — ${wouldMatch} plan${
-        wouldMatch === 1 ? '' : 's'
+      wouldMatch: shown,
+      message: `${candidate.label} is what rules everything out — ${shown} plan${
+        shown === 1 ? '' : 's'
       } would match without it.`,
     });
   }
+
+  /**
+   * THE WORKFORCE ITSELF, which is not a filter and still hides plans.
+   *
+   * A plan sold only up to 49 cannot quote a business with a 52-year-old, so
+   * it is dropped rather than quoted with a hole in it. Silently dropped, the
+   * company simply is not there and nothing says why — which is the whole
+   * fault this diagnosis exists to end.
+   */
+  if (input.smeEmployees) {
+    const { unpriceable } = await visible(input);
+    if (unpriceable.length > 0) {
+      const ages = [...new Set(unpriceable.flatMap((row) => row.quote!.unpricedBracketIds))];
+      blockers.push({
+        field: 'workforce',
+        label: ages.join(', '),
+        wouldMatch: unpriceable.length,
+        message: `${unpriceable.length} plan${
+          unpriceable.length === 1 ? ' matches' : 's match'
+        } everything else but ${
+          unpriceable.length === 1 ? 'is' : 'are'
+        } not sold at ${ages.length === 1 ? 'age' : 'ages'} ${ages.join(', ')} — remove those employees or choose another plan.`,
+      });
+    }
+  }
+
   return blockers;
 }
 
