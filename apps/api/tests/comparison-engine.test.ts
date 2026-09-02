@@ -257,6 +257,46 @@ describe('comparison engine', () => {
     expect(recommended(results)?.configurationId).toBe('good');
   });
 
+  it('gives a plan advantage for a higher ceiling, all else equal', () => {
+    /**
+     * THE CEILING IS PART OF THE COMPARISON, not decoration on the card.
+     *
+     * Two plans, same premium and the same cover on every benefit; one pays
+     * out to twice as much. A customer choosing between them is choosing on
+     * the ceiling, so the ranking has to move on it too — otherwise the screen
+     * shows a figure that demonstrably changes nothing.
+     */
+    const results = scoreCandidates([
+      plan('higher', 'Company A', 700, [pct('out', 'Out-patient', 80)], { annualLimit: 200_000 }),
+      plan('lower', 'Company B', 700, [pct('out', 'Out-patient', 80)], { annualLimit: 100_000 }),
+    ]);
+
+    const higher = results.find((r) => r.configurationId === 'higher')!;
+    const lower = results.find((r) => r.configurationId === 'lower')!;
+
+    expect(higher.coverageScore).toBeGreaterThan(lower.coverageScore);
+    expect(higher.valueScore).toBeGreaterThan(lower.valueScore);
+    expect(recommended(results)?.configurationId).toBe('higher');
+    expect(higher.attributes.find((a) => a.id === 'annualLimit')?.isBest).toBe(true);
+  });
+
+  it('never lets the ceiling outweigh the benefits themselves', () => {
+    /**
+     * The ceiling separates plans that are otherwise close; it does not decide
+     * between them. A plan covering NOTHING at a vast ceiling must not beat one
+     * covering everything at a modest one — a limit is what a plan pays UP TO,
+     * and up to a large number of nothing is still nothing.
+     */
+    const results = scoreCandidates([
+      plan('empty', 'Company A', 700, [pct('out', 'Out-patient', null)], {
+        annualLimit: 5_000_000,
+      }),
+      plan('covering', 'Company B', 700, [pct('out', 'Out-patient', 90)], { annualLimit: 20_000 }),
+    ]);
+
+    expect(recommended(results)?.configurationId).toBe('covering');
+  });
+
   it('compares nothing the business stopped collecting', () => {
     const results = scoreCandidates([
       plan('a', 'Company A', 700, [pct('out', 'Outpatient', 80)], {

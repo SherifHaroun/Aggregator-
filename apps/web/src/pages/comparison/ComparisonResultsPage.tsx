@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   CUSTOMER_TYPE_IDS,
@@ -22,7 +22,12 @@ import {
   PageHeader,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
-import { AlternativePlanCard, ComparisonTable, RecommendedPlanCard } from '@/features/comparison';
+import {
+  AlternativePlanCard,
+  ComparisonTable,
+  PlanPreviewDialog,
+  RecommendedPlanCard,
+} from '@/features/comparison';
 import { useComparison } from '@/features/insurance-data/insurance-data.api';
 
 /**
@@ -124,6 +129,16 @@ export function ComparisonResultsPage() {
   /** Which single requirement, if any, is standing between the customer and a result. */
   const blockers = result?.blockers ?? [];
 
+  /**
+   * The plan being read, if any. Held here rather than in each card so only
+   * one can be open, and so closing it returns the customer to exactly the
+   * results they were scanning.
+   */
+  const [previewing, setPreviewing] = useState<string | null>(null);
+  const everyPlan = [...(result?.plans ?? []), ...(result?.overBudgetPlans ?? [])];
+  const previewed = everyPlan.find((plan) => plan.configurationId === previewing) ?? null;
+  const criteria = params.toString();
+
   const overBudget = result?.overBudgetPlans ?? [];
   const overBudgetPick = overBudget.find((plan) => plan.isRecommended);
   const overBudgetRest = overBudget.filter((plan) => !plan.isRecommended);
@@ -219,6 +234,8 @@ export function ComparisonResultsPage() {
               <RecommendedPlanCard
                 plan={recommended}
                 reasons={result?.recommendationReasons ?? []}
+                criteria={criteria}
+                onPreview={(plan) => setPreviewing(plan.configurationId)}
               />
             ) : null}
 
@@ -227,7 +244,11 @@ export function ComparisonResultsPage() {
                 <h2 className="text-content mb-3 text-lg font-semibold">Other matching plans</h2>
                 <div className="grid gap-3 sm:grid-cols-2">
                   {alternatives.map((plan) => (
-                    <AlternativePlanCard key={plan.configurationId} plan={plan} />
+                    <AlternativePlanCard
+                      key={plan.configurationId}
+                      plan={plan}
+                      onPreview={(chosen) => setPreviewing(chosen.configurationId)}
+                    />
                   ))}
                 </div>
               </section>
@@ -270,13 +291,19 @@ export function ComparisonResultsPage() {
                 reasons={result?.overBudgetRecommendationReasons ?? []}
                 label="BEST ABOVE YOUR BUDGET"
                 tone="warning"
+                criteria={criteria}
+                onPreview={(plan) => setPreviewing(plan.configurationId)}
               />
             ) : null}
 
             {overBudgetRest.length > 0 ? (
               <div className="grid gap-3 sm:grid-cols-2">
                 {overBudgetRest.map((plan) => (
-                  <AlternativePlanCard key={plan.configurationId} plan={plan} />
+                  <AlternativePlanCard
+                    key={plan.configurationId}
+                    plan={plan}
+                    onPreview={(chosen) => setPreviewing(chosen.configurationId)}
+                  />
                 ))}
               </div>
             ) : null}
@@ -285,6 +312,13 @@ export function ComparisonResultsPage() {
           </div>
         </section>
       ) : null}
+
+      {/* Any plan, read where it sits — the winner has no privilege here. */}
+      <PlanPreviewDialog
+        plan={previewed}
+        criteria={criteria}
+        onClose={() => setPreviewing(null)}
+      />
     </>
   );
 }

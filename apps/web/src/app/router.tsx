@@ -4,6 +4,7 @@ import { ROUTES, ROUTE_PATTERNS } from '@/config/routes';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { ComparisonResultsPage } from '@/pages/comparison/ComparisonResultsPage';
+import { PlanDetailsPage } from '@/pages/comparison/PlanDetailsPage';
 import { NewComparisonPage } from '@/pages/comparison/NewComparisonPage';
 import { AddCompanyPage } from '@/pages/manage/AddCompanyPage';
 import { CompaniesPage } from '@/pages/manage/CompaniesPage';
@@ -40,6 +41,8 @@ export const routes: RouteObject[] = [
 
       { path: ROUTES.comparison.new, element: <NewComparisonPage /> },
       { path: ROUTES.comparison.results, element: <ComparisonResultsPage /> },
+      /* One compared plan in full, reached from the results and shareable. */
+      { path: ROUTE_PATTERNS.comparisonPlan, element: <PlanDetailsPage /> },
 
       { path: '*', element: <NotFoundPage /> },
     ],

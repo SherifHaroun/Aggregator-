@@ -6,3 +6,7 @@ export * from './SmeEmployeeAges';
 export * from './ComparisonCriteriaSummary';
 export * from './comparison-options';
 export * from './useComparisonCriteria';
+export * from './PlanSummary';
+export * from './PlanPreviewDialog';
+export * from './usePlanDocument';
+export * from './plan-document';

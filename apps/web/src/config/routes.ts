@@ -41,6 +41,13 @@ export const ROUTES = {
   comparison: {
     new: '/comparison/new',
     results: '/comparison/results',
+    /**
+     * One compared plan, in full. The criteria travel with it in the query
+     * string: the premium shown is the premium THIS customer would pay, so
+     * the page has to be able to work it out again rather than be handed a
+     * figure it cannot check.
+     */
+    plan: (configurationId: string) => `/comparison/plan/${configurationId}`,
   },
 } as const;
 
@@ -49,4 +56,5 @@ export const ROUTE_PATTERNS = {
   companyDetail: '/companies/:companyId',
   planDetail: '/companies/:companyId/plans/:planId',
   configurationDetail: '/companies/:companyId/plans/:planId/configurations/:configurationId',
+  comparisonPlan: '/comparison/plan/:configurationId',
 } as const;

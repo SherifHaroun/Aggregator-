@@ -14,6 +14,7 @@ import {
   benefitValueField,
   DEFAULT_BENEFIT_VALUE_KIND,
   derivePlanCode,
+  medicalBenefitSpec,
   quoteSmeWorkforce,
   resolveAverageAgeForCustomerType,
   totalSmeEmployees,
@@ -586,20 +587,53 @@ function route({
         benefits: options.map((planOption) => {
           const option = store.options.find((item) => item.id === planOption.optionId);
           const value = store.values.find((v) => v.planOptionId === planOption.id)?.value ?? null;
+          /**
+           * The kind is the one the BUSINESS fixed for the area, as the real
+           * engine reads it — a ceiling carries no percent sign, and a double
+           * that made everything a percentage would let a screen print
+           * "20,000%" and still pass.
+           */
+          const spec = medicalBenefitSpec(option?.name ?? '');
+          const percentage = spec?.valueKind !== 'LIMIT';
+          const figure = typeof value === 'number' ? value : null;
           return {
             optionId: planOption.optionId,
-            optionName: option?.name ?? '',
-            covered: value !== null,
-            value: typeof value === 'number' ? value : null,
-            display: typeof value === 'number' ? `${value}%` : 'Not covered',
-            dataType: 'PERCENTAGE',
-            unit: '%',
+            optionName: spec?.name ?? option?.name ?? '',
+            covered: figure !== null && figure !== 0,
+            value: figure,
+            display:
+              figure === null
+                ? 'Not specified in plan'
+                : figure === 0
+                  ? 'Not covered'
+                  : percentage
+                    ? `${figure}%`
+                    : String(figure),
+            dataType: percentage ? 'PERCENTAGE' : 'CURRENCY',
+            unit: percentage ? '%' : null,
             direction: 'HIGHER_IS_BETTER',
-            score: typeof value === 'number' ? 1 : 0,
+            score: figure ? 1 : 0,
             isBest: false,
+            limitations: [],
+            limitationsDisplay: null,
+            limitationFactor: 1,
           };
         }),
-        attributes: [],
+        /** The ceiling is a scored ATTRIBUTE, exactly as the engine returns it. */
+        attributes: [
+          {
+            id: 'annualLimit',
+            label: 'Annual limit',
+            value: configuration.annualLimit,
+            display:
+              configuration.annualLimit === null
+                ? 'Not specified in plan'
+                : String(configuration.annualLimit),
+            direction: 'HIGHER_IS_BETTER',
+            score: 1,
+            isBest: false,
+          },
+        ],
         coverageScore: 1,
         priceScore: 1,
         valueScore: 1,

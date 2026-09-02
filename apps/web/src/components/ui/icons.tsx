@@ -206,3 +206,13 @@ export const IconCollapse = (props: SVGProps<SVGSVGElement>) => (
     />
   </svg>
 );
+
+/** Saving something to keep — a plan document. */
+export function IconDownload({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <path d="M10 3v9m0 0 3.5-3.5M10 12 6.5 8.5" />
+      <path d="M3.5 13.5v1.5a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-1.5" />
+    </Icon>
+  );
+}

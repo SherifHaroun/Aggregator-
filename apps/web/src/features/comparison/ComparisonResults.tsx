@@ -1,16 +1,16 @@
 import { formatNumber, type ComparisonPlanResult } from '@aggregator/shared';
-import { Link } from 'react-router-dom';
 import {
   Badge,
+  Button,
   ButtonLink,
   Card,
   CardBody,
-  CompanyLogo,
   IconCheck,
   IconChevronRight,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
 import { cn } from '@/lib/cn';
+import { AnnualLimitPanel, CoreBenefitList, PlanFigures, PlanIdentity } from './PlanSummary';
 
 const price = (plan: { annualPrice: number | null; currency: string | null }) =>
   plan.annualPrice === null
@@ -47,13 +47,20 @@ export function RecommendedPlanCard({
   reasons,
   label = 'RECOMMENDED',
   tone = 'brand',
+  criteria,
+  onPreview,
 }: {
   plan: ComparisonPlanResult;
   reasons: string[];
   label?: string;
   /** `warning` marks a plan that costs more than the customer asked to pay. */
   tone?: 'brand' | 'warning';
+  /** The comparison's query string, so the full page opens on this plan. */
+  criteria?: string;
+  onPreview?: (plan: ComparisonPlanResult) => void;
 }) {
+  const fullPage = `${ROUTES.comparison.plan(plan.configurationId)}${criteria ? `?${criteria}` : ''}`;
+
   return (
     <Card
       className={cn(
@@ -73,67 +80,20 @@ export function RecommendedPlanCard({
       </div>
 
       <CardBody className="space-y-5">
-        <div className="flex flex-wrap items-start gap-4">
-          <CompanyLogo name={plan.companyName} logoUrl={plan.companyLogoUrl} />
-          <div className="min-w-0 flex-1">
-            <p className="text-content-muted text-sm font-medium">{plan.companyName}</p>
-            <h3 className="text-content text-xl font-bold">{plan.planName}</h3>
-            <p className="text-content-subtle mt-1 text-xs">
-              {plan.customerTypeLabel} • {plan.geographicalCoverageLabel}
-            </p>
-          </div>
-          <div className="text-right">
-            {priceCaption(plan).heading ? (
-              <p className="text-content-muted text-xs font-medium">{priceCaption(plan).heading}</p>
-            ) : null}
-            <p className="text-content text-2xl font-bold tabular-nums">{price(plan)}</p>
-            <p className="text-content-subtle text-xs">{priceCaption(plan).footnote}</p>
-          </div>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <PlanIdentity plan={plan} size="lg" />
+          <PlanFigures plan={plan} />
         </div>
 
-        <dl className="grid gap-2 sm:grid-cols-2">
-          {plan.benefits.map((benefit) => (
-            <div
-              key={benefit.optionId}
-              className="border-border-subtle flex items-baseline justify-between gap-3 border-b pb-1.5"
-            >
-              <dt className="text-content-muted min-w-0 truncate text-sm">
-                {benefit.optionName}
-                {/**
-                 * The conditions the plan attaches to this figure. Shown under
-                 * it because two plans can quote the same number and still be
-                 * offering different cover.
-                 *
-                 * EACH ONE IS DRAWN SEPARATELY. Joined into a line, nine
-                 * recorded answers about what an inpatient stay includes read
-                 * as one vague remark — as if somebody had typed a sentence —
-                 * and the ninth is lost to truncation. They are nine separate
-                 * facts and they stay nine.
-                 */}
-                {benefit.limitations.length > 0 ? (
-                  <span className="mt-1 flex flex-wrap gap-1">
-                    {benefit.limitations.map((limitation) => (
-                      <span
-                        key={limitation.id}
-                        className="bg-surface-muted text-content-subtle rounded-(--radius-control) px-1.5 py-0.5 text-xs"
-                      >
-                        {limitation.name}
-                      </span>
-                    ))}
-                  </span>
-                ) : null}
-              </dt>
-              <dd
-                className={cn(
-                  'shrink-0 text-sm font-semibold tabular-nums',
-                  benefit.covered ? 'text-content' : 'text-content-subtle italic',
-                )}
-              >
-                {benefit.display}
-              </dd>
-            </div>
-          ))}
-        </dl>
+        {/* The ceiling beside the price: two halves of one question. */}
+        <AnnualLimitPanel plan={plan} />
+
+        <div>
+          <p className="text-content-muted mb-1 text-xs font-semibold tracking-wide uppercase">
+            Core benefits
+          </p>
+          <CoreBenefitList plan={plan} columns={2} />
+        </div>
 
         {reasons.length > 0 ? (
           <div
@@ -166,8 +126,16 @@ export function RecommendedPlanCard({
           </div>
         ) : null}
 
-        <div className="flex justify-end">
-          <ButtonLink to={ROUTES.plans.detail(plan.companyId, plan.planId)}>
+        <div className="flex flex-wrap justify-end gap-2">
+          {/* Named for its plan, so a page of them is navigable by ear. */}
+          <Button
+            variant="secondary"
+            aria-label={`View details for ${plan.planName}`}
+            onClick={() => onPreview?.(plan)}
+          >
+            View details
+          </Button>
+          <ButtonLink to={fullPage}>
             View plan
             <IconChevronRight className="size-4" />
           </ButtonLink>
@@ -390,37 +358,80 @@ export function ComparisonTable({
   );
 }
 
-/** A non-recommended match, listed under the winner. */
-export function AlternativePlanCard({ plan }: { plan: ComparisonPlanResult }) {
+/**
+ * A non-recommended match.
+ *
+ * The SAME information as the winner, at a smaller size — company, plan,
+ * premium, ceiling, six benefits. Showing less here would make the ranking
+ * self-fulfilling: a customer cannot disagree with a recommendation they were
+ * never given the figures to check.
+ *
+ * The whole card opens the preview, because that is what a customer scanning a
+ * grid will click at.
+ */
+export function AlternativePlanCard({
+  plan,
+  onPreview,
+}: {
+  plan: ComparisonPlanResult;
+  onPreview?: (plan: ComparisonPlanResult) => void;
+}) {
   return (
-    <Card className={cn('p-5', plan.isDominated && 'opacity-75')}>
-      <div className="flex flex-wrap items-start gap-3">
-        <CompanyLogo name={plan.companyName} logoUrl={plan.companyLogoUrl} size="sm" />
-        <div className="min-w-0 flex-1">
-          <p className="text-content-muted text-xs">{plan.companyName}</p>
-          <Link
-            to={ROUTES.plans.detail(plan.companyId, plan.planId)}
-            className="text-content hover:text-brand-strong font-semibold"
-          >
-            {plan.planName}
-          </Link>
-          <p className="mt-1 flex flex-wrap gap-1.5">
-            {plan.isCheapest ? <Badge tone="success">Cheapest</Badge> : null}
-            {plan.isHighestCoverage ? <Badge tone="brand">Most cover</Badge> : null}
-            {plan.isDominated ? <Badge tone="neutral">Outclassed</Badge> : null}
-            {plan.missingBenefitCount > 0 ? (
-              <Badge tone="warning">{plan.missingBenefitCount} not covered</Badge>
-            ) : null}
-          </p>
-        </div>
-        <div className="shrink-0 text-right">
-          <p className="text-content text-lg font-bold tabular-nums">{price(plan)}</p>
-          {/* Named here too: a figure this size should never look like a quote. */}
-          {plan.pricedEmployeeCount === null ? null : (
-            <p className="text-content-subtle text-xs">estimated</p>
-          )}
-        </div>
+    <Card
+      className={cn(
+        'flex flex-col gap-3 p-5 text-left transition-shadow',
+        plan.isDominated && 'opacity-75',
+        onPreview && 'hover:shadow-(--shadow-raised) cursor-pointer',
+      )}
+      {...(onPreview
+        ? {
+            role: 'button',
+            tabIndex: 0,
+            'aria-label': `${plan.companyName} ${plan.planName}`,
+            onClick: () => onPreview(plan),
+            onKeyDown: (event: React.KeyboardEvent) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onPreview(plan);
+              }
+            },
+          }
+        : {})}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <PlanIdentity plan={plan} />
+        <PlanFigures plan={plan} />
       </div>
+
+      {plan.isCheapest || plan.isHighestCoverage || plan.isDominated || plan.missingBenefitCount > 0 ? (
+        <p className="flex flex-wrap gap-1.5">
+          {plan.isCheapest ? <Badge tone="success">Cheapest</Badge> : null}
+          {plan.isHighestCoverage ? <Badge tone="brand">Most cover</Badge> : null}
+          {plan.isDominated ? <Badge tone="neutral">Outclassed</Badge> : null}
+          {plan.missingBenefitCount > 0 ? (
+            <Badge tone="warning">{plan.missingBenefitCount} not covered</Badge>
+          ) : null}
+        </p>
+      ) : null}
+
+      <AnnualLimitPanel plan={plan} />
+      <CoreBenefitList plan={plan} />
+
+      {onPreview ? (
+        <div className="flex justify-end">
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-label={`View details for ${plan.planName}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onPreview(plan);
+            }}
+          >
+            View details
+          </Button>
+        </div>
+      ) : null}
     </Card>
   );
 }

@@ -14,6 +14,7 @@ export function Dialog({
   description,
   children,
   footer,
+  leading,
   size = 'md',
   expandable = false,
 }: {
@@ -23,6 +24,14 @@ export function Dialog({
   description?: string;
   children?: ReactNode;
   footer?: ReactNode;
+  /**
+   * An action at the START of the header — the way back.
+   *
+   * A dialog that fills the screen has hidden whatever it opened over, and
+   * "press Escape" is not an instruction anybody reads. Somewhere to click,
+   * named for where it goes.
+   */
+  leading?: ReactNode;
   size?: 'md' | 'lg';
   /**
    * Offers a control that fills the screen with this dialog.
@@ -57,16 +66,22 @@ export function Dialog({
         if (event.target === ref.current) onClose();
       }}
       className={cn(
-        'bg-surface text-content m-auto w-[calc(100vw-2rem)] rounded-(--radius-card) p-0 shadow-(--shadow-raised)',
-        'backdrop:bg-black/40',
+        'bg-surface text-content p-0 shadow-(--shadow-raised) backdrop:bg-black/40',
+        /**
+         * Expanded means the WHOLE screen — no margin and no rounded corners,
+         * because a frame with the page showing round it is not full screen,
+         * it is a slightly larger dialog.
+         */
         expanded
-          ? 'flex h-[calc(100vh-2rem)] max-w-none flex-col'
-          : size === 'lg'
-            ? 'max-w-2xl'
-            : 'max-w-lg',
+          ? 'fixed inset-0 m-0 flex h-screen max-h-none w-screen max-w-none flex-col rounded-none'
+          : cn(
+              'm-auto w-[calc(100vw-2rem)] rounded-(--radius-card)',
+              size === 'lg' ? 'max-w-2xl' : 'max-w-lg',
+            ),
       )}
     >
       <div className="border-border-subtle flex items-start gap-3 border-b px-6 py-4">
+        {leading}
         <div className="min-w-0 flex-1">
           <h2 className="text-content text-base font-semibold">{title}</h2>
           {description ? <p className="text-content-muted mt-1 text-sm">{description}</p> : null}
