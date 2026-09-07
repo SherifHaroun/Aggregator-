@@ -12,6 +12,7 @@ import {
   ALTERNATIVE_VALUE_KEY,
   alternativeValueField,
   benefitValueField,
+  PROVIDER_LIST_HISTORY_LIMIT,
   DEFAULT_BENEFIT_VALUE_KIND,
   derivePlanCode,
   medicalBenefitSpec,
@@ -234,16 +235,28 @@ function route({
         network.providerListUrl = `/uploads/${id('file')}.xlsx`;
         network.providerListFileName = file.name;
         network.providerListUpdatedAt = new Date(0).toISOString();
-        // Every upload is kept, newest first, and only the newest is current.
+        // The newest few are kept, newest first, and only the newest is current.
         network.providerListHistory = [
           {
             id: id('version'),
             fileName: file.name,
             uploadedAt: network.providerListUpdatedAt,
+            sizeBytes: file.size,
             isCurrent: true,
           },
           ...(network.providerListHistory ?? []).map((v) => ({ ...v, isCurrent: false })),
-        ];
+        ].slice(0, PROVIDER_LIST_HISTORY_LIMIT);
+        return ok(withUsage(network));
+      }
+      if (method === 'DELETE' && third === 'versions' && fourth) {
+        const version = (network.providerListHistory ?? []).find((v) => v.id === fourth);
+        if (!version) return fail(404, 'NOT_FOUND', 'The record was not found.');
+        if (version.isCurrent) {
+          return fail(409, 'CONFLICT', 'This is the current provider list.');
+        }
+        network.providerListHistory = (network.providerListHistory ?? []).filter(
+          (v) => v.id !== fourth,
+        );
         return ok(withUsage(network));
       }
       if (method === 'DELETE') {

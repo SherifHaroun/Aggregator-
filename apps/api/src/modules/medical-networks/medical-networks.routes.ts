@@ -19,6 +19,7 @@ import {
   clearProviderList,
   createMedicalNetwork,
   deleteMedicalNetwork,
+  deleteProviderListVersion,
   getMedicalNetwork,
   listMedicalNetworks,
   reorderMedicalNetworks,
@@ -158,6 +159,7 @@ medicalNetworksRouter.put(
           storedUrl: `${env.uploadPublicPath}/${req.file.filename}`,
           // Multer decodes the name as Latin-1; insurers name files in Arabic.
           originalName: Buffer.from(req.file.originalname, 'latin1').toString('utf8'),
+          sizeBytes: req.file.size,
         }),
       ),
     );
@@ -168,5 +170,13 @@ medicalNetworksRouter.delete(
   '/:id/provider-list',
   asyncHandler(async (req, res) => {
     res.json(success(await clearProviderList(param(req, 'id'))));
+  }),
+);
+
+/** Drop one past issue from the history. The current one is refused. */
+medicalNetworksRouter.delete(
+  '/:id/provider-list/versions/:versionId',
+  asyncHandler(async (req, res) => {
+    res.json(success(await deleteProviderListVersion(param(req, 'id'), param(req, 'versionId'))));
   }),
 );

@@ -222,6 +222,16 @@ export function useClearProviderList() {
   );
 }
 
+/** Drop one past issue from a network's history. The current one is refused. */
+export function useDeleteProviderListVersion() {
+  return useNetworkMutation<MedicalNetworkDto, { networkId: string; versionId: string }>(
+    ({ networkId, versionId }) =>
+      api.delete<MedicalNetworkDto>(
+        `/medical-networks/${networkId}/provider-list/versions/${versionId}`,
+      ),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Insurance types
 // ---------------------------------------------------------------------------

@@ -9,6 +9,8 @@
 
 import {
   PROVIDER_LIST_DOWNLOAD_LABEL,
+  PROVIDER_LIST_PANEL_TITLE,
+  providerListPanelSubtitle,
   presentAnnualLimit,
   presentCoreBenefits,
   presentPremium,
@@ -80,32 +82,49 @@ function row(doc: PdfDocument, label: string, value: string, bold = false) {
 }
 
 /**
- * A BUTTON THAT OPENS THE NETWORK'S PROVIDER LIST.
+ * THE PANEL THAT OPENS THE NETWORK'S PROVIDER LIST.
  *
  * The list cannot be printed here — it is thousands of rows, in Arabic, in a
  * layout the insurer changes every few months — so the document carries a
- * link instead. The address is the network's STABLE one: it hands out
- * whatever file is current when the customer clicks, however long after this
- * PDF was made.
+ * panel with a button instead: a badge, what is on offer, which network, and
+ * the button. The address is the network's STABLE one: it hands out whatever
+ * file is current when the customer clicks, however long after this PDF was
+ * made.
  */
-function providerListButton(doc: PdfDocument, url: string) {
-  const label = PROVIDER_LIST_DOWNLOAD_LABEL;
-  const width = widthOf(label, 10, 'bold') + 28;
-  const height = 26;
-
-  doc.ensure(height + 22);
-  doc.y += 6;
+function providerListPanel(doc: PdfDocument, networkName: string, url: string) {
+  const height = 54;
+  doc.ensure(height + 18);
+  doc.y += 8;
   const top = doc.y;
-  const x = doc.width - doc.margin - width;
+  const left = doc.margin;
+  const width = doc.contentWidth;
 
-  doc.rect(x, top, width, height, NAVY);
-  doc.y = top + 8;
-  doc.text(label, x + 14, 10, 'bold', WHITE);
-  doc.link(x, top, width, height, url);
+  doc.rect(left, top, width, height, WASH);
 
-  doc.y = top + 9;
-  doc.text('Opens the current provider list for this network.', doc.margin, 8.5, 'regular', MUTED);
-  doc.y = top + height + 8;
+  // The badge: the network's initial in a navy disc.
+  const initial = (networkName.trim()[0] ?? 'N').toUpperCase();
+  doc.circle(left + 26, top + height / 2, 12, NAVY);
+  doc.y = top + height / 2 - 5.5;
+  doc.text(initial, left + 26 - widthOf(initial, 10, 'bold') / 2, 10, 'bold', WHITE);
+
+  // What is on offer, and from which network.
+  doc.y = top + 13;
+  doc.text(PROVIDER_LIST_PANEL_TITLE, left + 48, 10, 'bold', INK);
+  doc.y = top + 30;
+  doc.text(providerListPanelSubtitle(networkName), left + 48, 8.5, 'regular', MUTED);
+
+  // The button, right-aligned inside the panel, and the click area over it.
+  const label = PROVIDER_LIST_DOWNLOAD_LABEL.toUpperCase();
+  const buttonWidth = widthOf(label, 8.5, 'bold') + 28;
+  const buttonHeight = 24;
+  const buttonLeft = left + width - 14 - buttonWidth;
+  const buttonTop = top + (height - buttonHeight) / 2;
+  doc.rect(buttonLeft, buttonTop, buttonWidth, buttonHeight, NAVY);
+  doc.y = buttonTop + 7.5;
+  doc.text(label, buttonLeft + 14, 8.5, 'bold', WHITE);
+  doc.link(buttonLeft, buttonTop, buttonWidth, buttonHeight, url);
+
+  doc.y = top + height + 10;
 }
 
 /** Build the document. Returns the blob and the name it should be saved under. */
@@ -211,10 +230,12 @@ export function buildPlanDocument(input: PlanDocumentInput): { blob: Blob; filen
   row(doc, 'Annual premium', presentPremium(plan));
   row(doc, 'Annual limit', presentAnnualLimit(plan));
   if (plan.medicalNetworkName) {
-    row(doc, 'Medical network', plan.medicalNetworkName);
-    // The name only — never the tier. The list itself is a click away.
+    // The name only — never the tier. With a list on file the panel names the
+    // network itself; without one, a plain row does.
     if (plan.medicalNetworkId && plan.medicalNetworkHasProviderList) {
-      providerListButton(doc, providerListUrl(plan.medicalNetworkId));
+      providerListPanel(doc, plan.medicalNetworkName, providerListUrl(plan.medicalNetworkId));
+    } else {
+      row(doc, 'Medical network', plan.medicalNetworkName);
     }
   }
   if (plan.pricedEmployeeCount !== null) {

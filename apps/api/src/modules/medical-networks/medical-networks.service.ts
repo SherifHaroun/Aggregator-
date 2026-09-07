@@ -17,7 +17,7 @@
 
 import { unlink } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import type { MedicalNetworkDto } from '@aggregator/shared';
+import { PROVIDER_LIST_HISTORY_LIMIT, type MedicalNetworkDto } from '@aggregator/shared';
 import type { MedicalNetwork, MedicalNetworkProviderList } from '@prisma/client';
 import { env } from '../../config/env.js';
 import { toIso } from '../../lib/decimal.js';
@@ -56,6 +56,7 @@ export function toMedicalNetworkDto(network: NetworkWithUsage): MedicalNetworkDt
             id: version.id,
             fileName: version.fileName,
             uploadedAt: toIso(version.uploadedAt),
+            sizeBytes: version.sizeBytes,
             isCurrent: version.storedUrl === network.providerListUrl,
           })),
         }
@@ -256,7 +257,7 @@ async function discardStoredFile(url: string | null): Promise<void> {
  */
 export async function setProviderList(
   id: string,
-  file: { storedUrl: string; originalName: string },
+  file: { storedUrl: string; originalName: string; sizeBytes: number },
 ): Promise<MedicalNetworkDto> {
   const prisma = getPrisma();
   const existing = await prisma.medicalNetwork.findUnique({ where: { id } });
@@ -274,12 +275,60 @@ export async function setProviderList(
       providerListFileName: file.originalName,
       providerListUpdatedAt: uploadedAt,
       providerLists: {
-        create: { storedUrl: file.storedUrl, fileName: file.originalName, uploadedAt },
+        create: {
+          storedUrl: file.storedUrl,
+          fileName: file.originalName,
+          sizeBytes: file.sizeBytes,
+          uploadedAt,
+        },
       },
     },
     include: withUsage,
   });
-  return toMedicalNetworkDto(network);
+
+  /**
+   * THE HISTORY IS SHORT ON PURPOSE. The newest few answer "what changed since
+   * the last issue?"; anything older is an archive nobody asked for, and
+   * every file kept is a file on the volume. Older issues go, files and all.
+   */
+  const stale = (network.providerLists ?? []).slice(PROVIDER_LIST_HISTORY_LIMIT);
+  if (stale.length > 0) {
+    await prisma.medicalNetworkProviderList.deleteMany({
+      where: { id: { in: stale.map((version) => version.id) } },
+    });
+    for (const version of stale) await discardStoredFile(version.storedUrl);
+  }
+
+  return toMedicalNetworkDto(
+    await prisma.medicalNetwork.findUniqueOrThrow({ where: { id }, include: withUsage }),
+  );
+}
+
+/**
+ * Drop one PAST issue from the history. The current file is not deletable
+ * this way — take it off the network with `clearProviderList`, which keeps it
+ * in the history, or replace it.
+ */
+export async function deleteProviderListVersion(
+  networkId: string,
+  versionId: string,
+): Promise<MedicalNetworkDto> {
+  const prisma = getPrisma();
+  const network = await prisma.medicalNetwork.findUnique({ where: { id: networkId } });
+  if (!network) throw notFound('Medical network');
+  const version = await prisma.medicalNetworkProviderList.findFirst({
+    where: { id: versionId, networkId },
+  });
+  if (!version) throw notFound('Provider list');
+  if (version.storedUrl === network.providerListUrl) {
+    throw conflict(
+      'This is the current provider list. Replace it or remove it from the network first.',
+    );
+  }
+
+  await prisma.medicalNetworkProviderList.delete({ where: { id: versionId } });
+  await discardStoredFile(version.storedUrl);
+  return getMedicalNetwork(networkId);
 }
 
 /**

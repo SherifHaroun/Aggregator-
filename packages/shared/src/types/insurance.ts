@@ -159,6 +159,8 @@ export interface ProviderListVersionDto {
   fileName: string;
   /** ISO 8601. */
   uploadedAt: string;
+  /** In bytes. `null` for a file recorded before sizes were kept. */
+  sizeBytes: number | null;
   /** Whether this is the file the network hands out today. */
   isCurrent: boolean;
 }

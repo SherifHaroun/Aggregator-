@@ -945,31 +945,24 @@ describe('editing a company', () => {
 // The shared list of medical networks
 // ---------------------------------------------------------------------------
 
-/** A network on the shared list, at the position given. */
-function givenNetwork(
-  id: string,
-  name: string,
-  sortOrder: number,
-  file: { name: string } | null = null,
-) {
+/** A network on the shared list, at the position given, with the files named. */
+function givenNetwork(id: string, name: string, sortOrder: number, files: string[] = []) {
+  const current = files[0];
   store.medicalNetworks.push({
     id,
     name,
     description: null,
     sortOrder,
-    providerListUrl: file ? `/uploads/${id}.xlsx` : null,
-    providerListFileName: file?.name ?? null,
-    providerListUpdatedAt: file ? '2026-05-15T00:00:00.000Z' : null,
-    providerListHistory: file
-      ? [
-          {
-            id: `${id}_v1`,
-            fileName: file.name,
-            uploadedAt: '2026-05-15T00:00:00.000Z',
-            isCurrent: true,
-          },
-        ]
-      : [],
+    providerListUrl: current ? `/uploads/${id}.xlsx` : null,
+    providerListFileName: current ?? null,
+    providerListUpdatedAt: current ? '2026-05-15T00:00:00.000Z' : null,
+    providerListHistory: files.map((fileName, index) => ({
+      id: `${id}_v${files.length - index}`,
+      fileName,
+      uploadedAt: `2026-0${5 - index}-15T00:00:00.000Z`,
+      sizeBytes: 1_200_000,
+      isCurrent: index === 0,
+    })),
     isActive: true,
     ...timestamps,
   });
@@ -984,11 +977,24 @@ async function renderedNetworks() {
     .map((row) => row.textContent ?? '');
 }
 
+/** Open one network's panel from the list. */
+async function openNetwork(user: ReturnType<typeof userEvent.setup>, name: string) {
+  await user.click(await screen.findByRole('button', { name: new RegExp(`^Open ${name}`) }));
+  return within(await screen.findByRole('dialog', { name: new RegExp(name) }));
+}
+
+/** The files as the panel lists them, newest first. */
+function listedFiles(panel: ReturnType<typeof within>) {
+  return panel
+    .getAllByRole('listitem', { name: /issue of the provider list/i })
+    .map((row) => row.textContent ?? '');
+}
+
 describe('medical networks', () => {
   it('is one list, reached from its own screen, in the order it is ranked', async () => {
     // Seeded deliberately out of insertion order: rank is what the row is.
     givenNetwork('net_3', 'Basic Network', 2);
-    givenNetwork('net_1', 'GlobeMed', 0);
+    givenNetwork('net_1', 'GlobeMed', 0, ['GlobeMed May.xlsx']);
     givenNetwork('net_2', 'AXA Providers', 1);
 
     renderApp(ROUTES.medicalNetworks.list);
@@ -997,67 +1003,88 @@ describe('medical networks', () => {
     expect(rows[0]).toContain('GlobeMed');
     expect(rows[1]).toContain('AXA Providers');
     expect(rows[2]).toContain('Basic Network');
-    // Positions are shown, so the ranking is legible without dragging anything.
-    expect(rows[0]).toContain('1.');
-    expect(rows[2]).toContain('3.');
+    // Each card says when its list was last updated, or that it has none.
+    expect(rows[0]).toContain('Last updated 15 May 2026');
+    expect(rows[1]).toContain('No provider list yet');
   });
 
-  it('shows what is on file for each network, and that nothing is for the rest', async () => {
-    givenNetwork('net_1', 'GlobeMed', 0, { name: 'GlobeMed Network May 2026.xlsx' });
+  it('opens a network in a side panel with its files and history', async () => {
+    const user = userEvent.setup();
+    givenNetwork('net_1', 'GlobeMed', 0, ['GlobeMed September.xlsx', 'GlobeMed May.xlsx']);
     givenNetwork('net_2', 'AXA Providers', 1);
 
     renderApp(ROUTES.medicalNetworks.list);
+    const panel = await openNetwork(user, 'GlobeMed');
 
-    const rows = await renderedNetworks();
-    expect(rows[0]).toContain('GlobeMed Network May 2026.xlsx');
-    expect(rows[0]).toContain('Updated 15 May 2026');
-    expect(rows[1]).toContain('No provider list yet.');
+    const files = listedFiles(panel);
+    expect(files).toHaveLength(2);
+    expect(files[0]).toContain('GlobeMed September.xlsx');
+    expect(files[0]).toContain('Latest');
+    expect(files[0]).toContain('1.1 MB');
+    expect(files[1]).toContain('GlobeMed May.xlsx');
+    expect(files[1]).not.toContain('Latest');
 
     // The download is the STABLE address, keyed on the network, never the file.
-    const link = screen.getByRole('link', { name: /GlobeMed Network May 2026\.xlsx/ });
-    expect(link).toHaveAttribute(
+    const download = panel.getByRole('link', { name: /Download provider list/i });
+    expect(download).toHaveAttribute(
       'href',
       expect.stringContaining('/medical-networks/net_1/provider-list'),
     );
-    expect(link.getAttribute('href')).not.toContain('/uploads/');
+    expect(download.getAttribute('href')).not.toContain('/uploads/');
+    // A past issue downloads by its own address.
+    const past = panel.getByRole('link', { name: /GlobeMed May\.xlsx/ });
+    expect(past.getAttribute('href')).toMatch(/\/provider-list\/versions\//);
+
+    // Another network's panel shows its own state.
+    await user.click(panel.getByRole('button', { name: /Close/i }));
+    const other = await openNetwork(user, 'AXA Providers');
+    expect(other.getByText(/No provider list yet/i)).toBeInTheDocument();
   });
 
-  it('replaces the provider list with the file the insurer sent', async () => {
+  it('replaces the provider list with the file the insurer sent, keeping the last three', async () => {
     const user = userEvent.setup();
-    givenNetwork('net_1', 'GlobeMed', 0, { name: 'GlobeMed May.xlsx' });
+    givenNetwork('net_1', 'GlobeMed', 0, [
+      'GlobeMed July.xlsx',
+      'GlobeMed June.xlsx',
+      'GlobeMed May.xlsx',
+    ]);
 
     renderApp(ROUTES.medicalNetworks.list);
-    expect(await screen.findByText('GlobeMed May.xlsx')).toBeInTheDocument();
+    const panel = await openNetwork(user, 'GlobeMed');
+    expect(listedFiles(panel)).toHaveLength(3);
 
-    const input = screen.getByLabelText('Provider list file for GlobeMed');
     await user.upload(
-      input,
+      panel.getByLabelText('Provider list file for GlobeMed'),
       new File(['rows'], 'GlobeMed September.xlsx', { type: 'application/vnd.ms-excel' }),
     );
 
-    // Replaced whole: the new name is on record and is what the row shows.
+    // The new file is current, and the oldest has dropped off the end.
     await waitFor(() =>
       expect(store.medicalNetworks[0]?.providerListFileName).toBe('GlobeMed September.xlsx'),
     );
-    expect(await screen.findByText('GlobeMed September.xlsx')).toBeInTheDocument();
-    expect(screen.queryByText('GlobeMed May.xlsx')).not.toBeInTheDocument();
+    await waitFor(() => expect(listedFiles(panel)[0]).toContain('GlobeMed September.xlsx'));
+    const files = listedFiles(panel);
+    expect(files).toHaveLength(3);
+    expect(files[0]).toContain('Latest');
+    expect(files.some((row) => row.includes('GlobeMed May.xlsx'))).toBe(false);
+  });
 
-    // But the old file is not gone: it is in the history, each issue with its
-    // own download, and only the newest is marked current.
-    await user.click(screen.getByRole('button', { name: /Provider list history for GlobeMed/i }));
-    const history = within(
-      await screen.findByRole('list', { name: /Provider list history for GlobeMed/i }),
-    );
-    const rows = history.getAllByRole('listitem').map((row) => row.textContent ?? '');
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toContain('GlobeMed September.xlsx');
-    expect(rows[0]).toContain('Current');
-    expect(rows[1]).toContain('GlobeMed May.xlsx');
-    expect(rows[1]).not.toContain('Current');
-    const past = history.getByRole('link', { name: /GlobeMed May\.xlsx/ });
-    expect(past.getAttribute('href')).toMatch(
-      /\/medical-networks\/net_1\/provider-list\/versions\//,
-    );
+  it('drops a past issue from the history, but never the current one', async () => {
+    const user = userEvent.setup();
+    givenNetwork('net_1', 'GlobeMed', 0, ['GlobeMed September.xlsx', 'GlobeMed May.xlsx']);
+
+    renderApp(ROUTES.medicalNetworks.list);
+    const panel = await openNetwork(user, 'GlobeMed');
+
+    await user.click(panel.getByRole('button', { name: /Actions for GlobeMed May\.xlsx/i }));
+    await user.click(panel.getByRole('menuitem', { name: /Delete/i }));
+
+    await waitFor(() => expect(listedFiles(panel)).toHaveLength(1));
+    expect(store.medicalNetworks[0]?.providerListHistory).toHaveLength(1);
+
+    // The current file offers no delete: it is replaced or removed, not dropped.
+    await user.click(panel.getByRole('button', { name: /Actions for GlobeMed September\.xlsx/i }));
+    expect(panel.queryByRole('menuitem', { name: /Delete/i })).not.toBeInTheDocument();
   });
 
   it('persists a new ranking and re-reads the list from it', async () => {
@@ -1092,27 +1119,31 @@ describe('medical networks', () => {
     expect(rows[2]).toContain('AXA Providers');
   });
 
-  it('adds a network at the bottom of the list, with no Save button', async () => {
+  it('adds a network by name, at the bottom of the list', async () => {
     const user = userEvent.setup();
     givenNetwork('net_1', 'GlobeMed', 0);
 
     renderApp(ROUTES.medicalNetworks.list);
+    await user.click(await screen.findByRole('button', { name: /Add network/i }));
 
-    await user.type(await screen.findByLabelText(/New medical network/i), 'AXA Providers{Enter}');
+    const dialog = within(await screen.findByRole('dialog'));
+    await user.type(dialog.getByLabelText(/Network name/i), 'AXA Providers');
+    await user.click(dialog.getByRole('button', { name: /^Add network$/i }));
 
     await waitFor(() => expect(store.medicalNetworks).toHaveLength(2));
     expect(store.medicalNetworks[1]).toMatchObject({ name: 'AXA Providers', sortOrder: 1 });
-    expect(await screen.findByText('AXA Providers')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /^Open AXA Providers/ })).toBeInTheDocument();
   });
 
-  it('renames a network in place', async () => {
+  it('renames a network in place, from its panel', async () => {
     const user = userEvent.setup();
     givenNetwork('net_1', 'Globmed', 0);
 
     renderApp(ROUTES.medicalNetworks.list);
-    await user.click(await screen.findByRole('button', { name: /Edit Globmed/i }));
+    const panel = await openNetwork(user, 'Globmed');
+    await user.click(panel.getByRole('button', { name: /Edit Globmed/i }));
 
-    const input = await screen.findByLabelText(/Rename Globmed/i);
+    const input = panel.getByLabelText(/Rename Globmed/i);
     await user.clear(input);
     await user.type(input, 'GlobeMed{Enter}');
 
@@ -1127,7 +1158,8 @@ describe('medical networks', () => {
     givenNetwork('net_1', 'GlobeMed', 0);
 
     renderApp(ROUTES.medicalNetworks.list);
-    await user.click(await screen.findByRole('button', { name: /Delete GlobeMed/i }));
+    const panel = await openNetwork(user, 'GlobeMed');
+    await user.click(panel.getByRole('button', { name: /Delete GlobeMed/i }));
 
     await waitFor(() => expect(store.medicalNetworks).toHaveLength(0));
     expect(confirm).not.toHaveBeenCalled();
@@ -1144,7 +1176,8 @@ describe('medical networks', () => {
     store.plans[0]!.medicalNetworkId = 'net_1';
 
     renderApp(ROUTES.medicalNetworks.list);
-    await user.click(await screen.findByRole('button', { name: /Delete GlobeMed/i }));
+    const panel = await openNetwork(user, 'GlobeMed');
+    await user.click(panel.getByRole('button', { name: /Delete GlobeMed/i }));
 
     expect(confirm).toHaveBeenCalledWith(expect.stringContaining('1 plan is'));
     await waitFor(() => expect(store.medicalNetworks).toHaveLength(0));

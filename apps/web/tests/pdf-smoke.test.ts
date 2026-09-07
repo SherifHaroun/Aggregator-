@@ -113,7 +113,9 @@ describe('the plan document', () => {
      * network's stable address — never to a file, so a PDF kept for months
      * still opens the list that is current.
      */
-    expect(text).toContain('Download medical network');
+    expect(text).toContain('Medical network provider list');
+    expect(text).toContain('View the current providers available through GlobeMed.');
+    expect(text).toContain('DOWNLOAD PROVIDER LIST');
     expect(text).toContain('/Subtype /Link');
     expect(text).toMatch(/\/URI \([^)]*\/medical-networks\/net_1\/provider-list\)/);
     expect(text).toContain('/Annots [');

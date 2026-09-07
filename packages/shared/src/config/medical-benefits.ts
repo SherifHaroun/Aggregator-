@@ -405,7 +405,29 @@ export const PROVIDER_LIST_ACCEPT = PROVIDER_LIST_FILE_TYPES.map((type) => type.
 export const PROVIDER_LIST_MAX_BYTES = 25 * 1024 * 1024;
 
 /** The words on the control that opens the list, on screen and in the PDF. */
-export const PROVIDER_LIST_DOWNLOAD_LABEL = 'Download medical network';
+export const PROVIDER_LIST_DOWNLOAD_LABEL = 'Download provider list';
+
+/** The heading over that control: what the customer is being offered. */
+export const PROVIDER_LIST_PANEL_TITLE = 'Medical network provider list';
+
+/** The line under it, naming the network. */
+export function providerListPanelSubtitle(networkName: string): string {
+  return `View the current providers available through ${networkName}.`;
+}
+
+/**
+ * How many uploads a network keeps. The current one and the two before it:
+ * enough to answer "what changed since the last issue?", not an archive.
+ */
+export const PROVIDER_LIST_HISTORY_LIMIT = 3;
+
+/** "1.2 MB", as a file listing writes it. */
+export function describeFileSize(bytes: number | null): string | null {
+  if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 /**
  * THE STABLE ADDRESS of a network's provider list, relative to the API root.

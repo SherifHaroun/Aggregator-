@@ -166,6 +166,8 @@ model MedicalNetworkProviderList {
   storedUrl  String
   /// The name the insurer gave it.
   fileName   String
+  /// Shown beside the date, as a file listing does. Unknown for old rows.
+  sizeBytes  Int?
   uploadedAt DateTime @default(now())
 
   @@index([networkId, uploadedAt])

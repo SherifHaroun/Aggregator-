@@ -211,6 +211,20 @@ export class PdfDocument {
     });
   }
 
+  /** A filled circle — the badge a panel carries. Four Bézier arcs. */
+  circle(cx: number, cy: number, r: number, color: Rgb) {
+    const k = 0.5523 * r;
+    const y = A4.height - cy;
+    const p = (x: number, yy: number) => `${x.toFixed(2)} ${yy.toFixed(2)}`;
+    this.op(
+      `${color.r} ${color.g} ${color.b} rg ${p(cx + r, y)} m ` +
+        `${p(cx + r, y + k)} ${p(cx + k, y + r)} ${p(cx, y + r)} c ` +
+        `${p(cx - k, y + r)} ${p(cx - r, y + k)} ${p(cx - r, y)} c ` +
+        `${p(cx - r, y - k)} ${p(cx - k, y - r)} ${p(cx, y - r)} c ` +
+        `${p(cx + k, y - r)} ${p(cx + r, y - k)} ${p(cx + r, y)} c f`,
+    );
+  }
+
   line(x1: number, y: number, x2: number, color: Rgb, thickness = 0.6) {
     this.op(
       `${color.r} ${color.g} ${color.b} RG ${thickness} w ${x1.toFixed(2)} ${(A4.height - y).toFixed(2)} m ` +

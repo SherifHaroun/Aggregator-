@@ -28,6 +28,8 @@ import {
   clearProviderList,
   createMedicalNetwork,
   deleteMedicalNetwork,
+  deleteProviderListVersion,
+  getMedicalNetwork,
   listMedicalNetworks,
   reorderMedicalNetworks,
   resolveProviderList,
@@ -75,7 +77,11 @@ async function givenPlanOn(companyId: string, medicalNetworkId: string | null) {
 async function givenUploadedFile(contents: string) {
   const name = `${unique()}.xlsx`;
   await writeFile(join(env.uploadDir, name), contents);
-  return { storedUrl: `${env.uploadPublicPath}/${name}`, originalName: 'GlobeMed Network.xlsx' };
+  return {
+    storedUrl: `${env.uploadPublicPath}/${name}`,
+    originalName: 'GlobeMed Network.xlsx',
+    sizeBytes: contents.length,
+  };
 }
 
 const exists = (path: string) =>
@@ -225,6 +231,32 @@ describe.skipIf(!url)('the shared medical networks', () => {
     await deleteMedicalNetwork(network.id, { force: true });
     expect(await exists(current.path)).toBe(false);
     expect(await exists(past.path)).toBe(false);
+  });
+
+  it('keeps only the newest few issues, and drops the files of the rest', async () => {
+    const network = await createMedicalNetwork({ name: `${PREFIX} GlobeMed` });
+    const issues = ['jan', 'feb', 'mar', 'apr'];
+    const files = [];
+    for (const issue of issues) {
+      const file = await givenUploadedFile(issue);
+      files.push(file);
+      await setProviderList(network.id, file);
+    }
+
+    const history = (await getMedicalNetwork(network.id)).providerListHistory!;
+    expect(history).toHaveLength(3);
+    expect(history[0]!.isCurrent).toBe(true);
+    expect(history[0]!.sizeBytes).toBe(3);
+    // January is gone, from the history and from disk.
+    expect(await exists(join(env.uploadDir, basename(files[0]!.storedUrl)))).toBe(false);
+    expect(await exists(join(env.uploadDir, basename(files[1]!.storedUrl)))).toBe(true);
+
+    // A past issue can be dropped; the current one cannot.
+    await deleteProviderListVersion(network.id, history[2]!.id);
+    expect((await getMedicalNetwork(network.id)).providerListHistory).toHaveLength(2);
+    await expect(deleteProviderListVersion(network.id, history[0]!.id)).rejects.toMatchObject({
+      status: 409,
+    });
   });
 
   it('never resolves a stored path outside the upload directory', async () => {

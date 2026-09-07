@@ -206,10 +206,11 @@ and is recorded nowhere.
 (`providerListUrl`, `providerListFileName`, `providerListUpdatedAt`). Every
 insurer lays its spreadsheet out differently and reissues it every few months,
 so nothing parses it: an employee uploads the new file on the Medical networks
-screen and it replaces the old one whole. **Every upload is kept**: each is a
-row in `MedicalNetworkProviderList`, downloadable by its own address under
-`/provider-list/versions/:id`, so the question "what was the list in May?" is
-answered by the file itself. Deleting the network deletes its files.
+screen and it replaces the old one whole. **The newest few uploads are kept**
+(`PROVIDER_LIST_HISTORY_LIMIT`): each is a row in `MedicalNetworkProviderList`,
+downloadable by its own address under `/provider-list/versions/:id`, so "what
+changed since the last issue?" is answered by the files themselves. Older
+issues are dropped, files and all, and deleting the network deletes its files.
 
 **The download address is STABLE.** `GET /medical-networks/:id/provider-list`
 streams whatever file is current, under the insurer's own file name. It is
