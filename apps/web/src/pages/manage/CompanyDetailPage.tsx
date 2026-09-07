@@ -34,7 +34,6 @@ import {
   useToast,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
-import { CompanyMedicalNetworks } from '@/features/companies/CompanyMedicalNetworks';
 import { PlanSetupForm } from '@/features/company-setup/PlanSetupForm';
 import { CustomerTypeTabs } from '@/features/companies/CustomerTypeTabs';
 import {
@@ -139,11 +138,6 @@ export function CompanyDetailPage() {
               </CardBody>
             </Card>
 
-            {/* A network belongs to the company, not to a plan and not to a
-                benefit: it is the estate of providers this insurer sells access
-                to, and its plans pick from this list. */}
-            <CompanyMedicalNetworks companyId={company.data!.id} />
-
             <Card>
               <CardHeader
                 title={`${optionLabel(CUSTOMER_TYPES, customerType)} plans`}
@@ -157,11 +151,7 @@ export function CompanyDetailPage() {
                 }
               />
               <CardBody className="space-y-4">
-                <CustomerTypeTabs
-                  value={customerType}
-                  onChange={setCustomerType}
-                  counts={counts}
-                />
+                <CustomerTypeTabs value={customerType} onChange={setCustomerType} counts={counts} />
 
                 {plans.isLoading ? (
                   <div className="space-y-3">

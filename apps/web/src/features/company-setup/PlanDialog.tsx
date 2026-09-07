@@ -1,4 +1,4 @@
-import { derivePlanCode, type PlanDto } from '@aggregator/shared';
+import { UNSPECIFIED_OPTION_LABEL, derivePlanCode, type PlanDto } from '@aggregator/shared';
 import {
   Button,
   Callout,
@@ -9,21 +9,15 @@ import {
   StatusToggle,
   useToast,
 } from '@/components/ui';
-import {
-  useSavePlan,
-} from '@/features/insurance-data/insurance-data.api';
+import { useMedicalNetworks, useSavePlan } from '@/features/insurance-data/insurance-data.api';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
-
-/** Sentinel for the "create a new insurance type" choice in the select. */
-const NEW_TYPE = '__new__';
 
 /**
  * Create or edit a plan, from inside the company screen.
  *
- * Every plan belongs to an insurance type, and insurance types have no screen of
- * their own in this workflow — so the type is chosen here, and a brand-new one
- * can be created inline without leaving the dialog. Types remain database
- * records; none are built into the UI.
+ * The network is chosen HERE, on the plan: every variant beneath it gives
+ * access to the same estate, and the customer is told the network's name and
+ * offered its provider list. Chosen from the shared list, never typed.
  */
 export function PlanDialog({
   companyId,
@@ -37,10 +31,12 @@ export function PlanDialog({
 }) {
   const { notify } = useToast();
   const savePlan = useSavePlan(plan?.id);
+  const networks = useMedicalNetworks();
 
   const { values, setValue, fieldErrors, formError, applyError } = useRecordForm({
     name: plan?.name ?? '',
     code: plan?.code ?? '',
+    medicalNetworkId: plan?.medicalNetworkId ?? '',
     isActive: plan?.isActive ?? true,
   });
 
@@ -54,11 +50,11 @@ export function PlanDialog({
   const derivedCode = derivePlanCode(values.name, plan?.customerType ?? 'INDIVIDUAL');
 
   function submit() {
-
     savePlan.mutate(
       {
         name: values.name.trim(),
         code: values.code.trim() === '' ? derivedCode : values.code.trim(),
+        medicalNetworkId: values.medicalNetworkId === '' ? null : values.medicalNetworkId,
         isActive: values.isActive,
         ...(plan ? {} : { companyId }),
       },
@@ -110,6 +106,32 @@ export function PlanDialog({
               onChange={(event) => setValue('name', event.target.value)}
               placeholder="e.g. the tier this company sells"
             />
+          )}
+        </Field>
+
+        <Field
+          label="Medical network"
+          error={fieldErrors.medicalNetworkId}
+          hint={
+            (networks.data?.length ?? 0) === 0
+              ? 'No networks yet. Add them on the Medical networks screen.'
+              : 'Every variant of this plan is sold on it. Customers see the name and can download its provider list.'
+          }
+        >
+          {(props) => (
+            <Select
+              {...props}
+              value={values.medicalNetworkId}
+              disabled={(networks.data?.length ?? 0) === 0}
+              onChange={(event) => setValue('medicalNetworkId', event.target.value)}
+            >
+              <option value="">{UNSPECIFIED_OPTION_LABEL}</option>
+              {(networks.data ?? []).map((network) => (
+                <option key={network.id} value={network.id}>
+                  {network.name}
+                </option>
+              ))}
+            </Select>
           )}
         </Field>
 

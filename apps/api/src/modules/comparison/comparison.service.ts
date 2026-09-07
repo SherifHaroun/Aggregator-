@@ -115,7 +115,7 @@ function bandRequirements(
  * Bands may overlap — an insurer quoting 0–64 and 0–17 means the narrower one
  * for a child. Highest `ageFrom` first, then lowest `ageTo`, is that band.
  */
-const tightestBandFirst = [{ ageFrom: "desc" as const }, { ageTo: "asc" as const }];
+const tightestBandFirst = [{ ageFrom: 'desc' as const }, { ageTo: 'asc' as const }];
 
 /**
  * What the plans matching these requirements cost.
@@ -515,8 +515,7 @@ async function runWorkforceComparison(
 
   /** Affordable is decided on what the workforce costs, not on one head. */
   const affordableConfigurations = quotable.filter(
-    (configuration) =>
-      input.budget === undefined || quotes.get(configuration.id)! <= input.budget,
+    (configuration) => input.budget === undefined || quotes.get(configuration.id)! <= input.budget,
   );
   const dearerConfigurations = quotable.filter(
     (configuration) => input.budget !== undefined && quotes.get(configuration.id)! > input.budget,
@@ -576,19 +575,17 @@ const comparisonInclude = (band: ReturnType<typeof bandRequirements>) =>
         name: true,
         customerType: true,
         company: { select: { id: true, name: true, logoUrl: true } },
+        /**
+         * The network the plan is sold on, and whether it has a provider list
+         * to hand the customer. Shown, never scored: which estate is better is
+         * a judgement nobody has recorded.
+         */
+        medicalNetwork: { select: { id: true, name: true, providerListUrl: true } },
       },
     },
     // Every benefit these plans carry — the customer chose none of them.
     // Valued once for the whole variant, never once per age band.
     options: { include: planOptionInclude, orderBy: { sortOrder: 'asc' as const } },
-    /**
-     * Named on the result so two variants of one plan can be told apart.
-     *
-     * Shown, never scored: which network is better is a judgement only the
-     * company's own ranking carries, and ranking across companies would compare
-     * two estates that have nothing to do with each other.
-     */
-    medicalNetwork: { select: { name: true } },
     /** The one band that prices this customer. */
     priceBands: { where: band, orderBy: tightestBandFirst, take: 1 },
   }) as const;
@@ -705,11 +702,14 @@ function compareConfigurations(
       companyId: configuration.plan.company.id,
       companyName: configuration.plan.company.name,
       companyLogoUrl: configuration.plan.company.logoUrl,
-      medicalNetworkName: configuration.medicalNetwork?.name ?? null,
+      medicalNetworkId: configuration.plan.medicalNetwork?.id ?? null,
+      medicalNetworkName: configuration.plan.medicalNetwork?.name ?? null,
+      medicalNetworkHasProviderList: Boolean(configuration.plan.medicalNetwork?.providerListUrl),
       roomType: configuration.roomType,
       currency: configuration.currency,
       annualPrice:
-        workforcePrices?.get(configuration.id) ?? toNumber(configuration.priceBands[0]?.annualPrice),
+        workforcePrices?.get(configuration.id) ??
+        toNumber(configuration.priceBands[0]?.annualPrice),
       annualLimit: toNumber(configuration.annualLimit),
       deductible: toNumber(configuration.deductible),
       coPayment: toNumber(configuration.coPayment),

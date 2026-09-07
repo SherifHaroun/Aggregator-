@@ -50,6 +50,7 @@ function givenAnSmePlanOnSale() {
     code: 'GOLD-SME',
     description: null,
     averageAge: { value: null, source: 'NOT_SPECIFIED', label: null },
+    medicalNetworkId: null,
     isActive: true,
     ...timestamps,
   });
@@ -57,7 +58,6 @@ function givenAnSmePlanOnSale() {
     id: 'cfg_1',
     planId: 'plan_1',
     geographicalCoverage: 'LOCAL',
-    medicalNetworkId: null,
     roomType: null,
     priceBands: [{ id: 'band_1', ageFrom: 0, ageTo: 120, annualPrice: 4_000 }],
     currency: 'EGP',

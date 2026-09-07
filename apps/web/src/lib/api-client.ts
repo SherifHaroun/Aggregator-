@@ -136,6 +136,35 @@ export async function uploadImage(file: File): Promise<string> {
   return payload.data.url;
 }
 
+/**
+ * Send one file to an endpoint that takes multipart form data — a network's
+ * provider list, for instance — and return what the endpoint answers.
+ */
+export async function uploadFile<T>(path: string, file: File, method = 'PUT'): Promise<T> {
+  const body = new FormData();
+  body.append('file', file, file.name);
+
+  let response: Response;
+  try {
+    // No Content-Type header: the browser sets the multipart boundary.
+    response = await fetch(`${BASE_URL}${path}`, { method, body });
+  } catch (cause) {
+    console.error(`[api] ${path} upload failed:`, cause);
+    throw new ApiError('NETWORK_ERROR', 'Could not reach the API server.', 0);
+  }
+
+  const payload = await readEnvelope<T>(response, path);
+  if (!payload.ok) {
+    throw new ApiError(
+      payload.error.code,
+      payload.error.message,
+      response.status,
+      payload.error.details,
+    );
+  }
+  return payload.data;
+}
+
 export const api = {
   get: <T>(path: string) => apiRequest<T>(path, { method: 'GET' }),
   put: <T>(path: string, body: unknown) =>

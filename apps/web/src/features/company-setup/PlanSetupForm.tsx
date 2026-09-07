@@ -7,6 +7,7 @@ import {
   CORE_MEDICAL_BENEFITS,
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
+  UNSPECIFIED_OPTION_LABEL,
   derivePlanCode,
   medicalBenefitLookupNames,
   medicalBenefitSpec,
@@ -21,7 +22,7 @@ import {
   type PlanOptionDto,
 } from '@aggregator/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { Button, Callout, Field, IconAdd, Input, useToast } from '@/components/ui';
+import { Button, Callout, Field, IconAdd, Input, Select, useToast } from '@/components/ui';
 import { describeError } from '@/components/ui/DataState';
 import {
   keys,
@@ -35,10 +36,10 @@ import { emptyEntry, newVariant, type VariantDraft } from './variant-draft';
 /**
  * ONE PLAN, ANY NUMBER OF VARIANTS.
  *
- * A plan is the product and carries only its name. Everything that can differ
- * between the ways it is sold — what it covers, on whose network, at what
- * ceiling, with which benefits and at what premium per age — belongs to a
- * VARIANT. "Gold+ Local" and "Gold+ International" are therefore one Gold+
+ * A plan is the product: its name, and the NETWORK it is sold on, which every
+ * variant shares. Everything that can differ between the ways it is sold —
+ * what it covers, at what ceiling, with which benefits and at what premium per
+ * age — belongs to a VARIANT. "Gold+ Local" and "Gold+ International" are therefore one Gold+
  * plan with two variants, never two plans with the scope written into their
  * names.
  *
@@ -96,10 +97,12 @@ export function PlanSetupForm({
 }) {
   const { notify } = useToast();
   const queryClient = useQueryClient();
-  const networks = useMedicalNetworks(companyId);
+  const networks = useMedicalNetworks();
   const catalogueQuery = useInsuranceOptions({ isActive: true });
 
   const [name, setName] = useState('');
+  /** The shared network every variant of this plan is sold on. '' = not stated. */
+  const [medicalNetworkId, setMedicalNetworkId] = useState('');
   const [variants, setVariants] = useState<VariantDraft[]>(() => [
     newVariant(CORE_MEDICAL_BENEFITS),
   ]);
@@ -172,14 +175,14 @@ export function PlanSetupForm({
       }
     }
 
-    // Two variants covering the same scope on the same network at the same
-    // ceiling are one offering entered twice, and the API would refuse the
-    // second. Saying so here costs nothing.
+    // Two variants covering the same scope at the same ceiling are one
+    // offering entered twice, and the API would refuse the second. Saying so
+    // here costs nothing.
     const seen = new Set<string>();
     for (const variant of variants) {
-      const identity = `${variant.geographicalCoverage}|${variant.medicalNetworkId}|${variant.annualLimit.trim()}`;
+      const identity = `${variant.geographicalCoverage}|${variant.annualLimit.trim()}`;
       if (seen.has(identity)) {
-        return 'Two variants have the same coverage, network and limit. Change one of them.';
+        return 'Two variants have the same coverage and limit. Change one of them.';
       }
       seen.add(identity);
     }
@@ -330,6 +333,7 @@ export function PlanSetupForm({
         customerType,
         name: name.trim(),
         code: derivePlanCode(name, customerType),
+        medicalNetworkId: medicalNetworkId === '' ? null : medicalNetworkId,
         isActive: true,
       });
 
@@ -341,7 +345,6 @@ export function PlanSetupForm({
         const configuration = await api.post<PlanConfigurationDto>('/plan-configurations', {
           planId: plan.id,
           geographicalCoverage: variant.geographicalCoverage,
-          medicalNetworkId: variant.medicalNetworkId === '' ? null : variant.medicalNetworkId,
           currency: DEFAULT_CURRENCY,
           annualLimit: Number(variant.annualLimit),
           /**
@@ -374,9 +377,7 @@ export function PlanSetupForm({
               : entry.coverage.trim()
             : entry.coverage.trim();
 
-          const coverageField = row.values.find(
-            (value) => value.fieldKey !== CO_PAYMENT_FIELD.key,
-          );
+          const coverageField = row.values.find((value) => value.fieldKey !== CO_PAYMENT_FIELD.key);
           if (coverageField && written !== '') {
             const value = coerce(written, coverageField.dataType);
             if (value === undefined) {
@@ -388,7 +389,6 @@ export function PlanSetupForm({
               value,
             });
           }
-
 
           const details = entry.details.map((line) => line.trim()).filter((line) => line !== '');
           if (details.length > 0) {
@@ -413,6 +413,7 @@ export function PlanSetupForm({
       onCreated(plan.name);
 
       setName('');
+      setMedicalNetworkId('');
       setVariants([newVariant(CORE_MEDICAL_BENEFITS)]);
     } catch (error) {
       // The form raises its own plain Errors for problems it can explain
@@ -439,8 +440,8 @@ export function PlanSetupForm({
       <section className="space-y-4">
         <SectionTitle>Plan</SectionTitle>
         <p className="text-content-subtle -mt-2 text-sm">
-          The product itself. Everything that can differ between the ways it is sold belongs to a
-          variant below.
+          The product itself, and the network it is sold on. Everything that can differ between the
+          ways it is sold belongs to a variant below.
         </p>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -466,6 +467,34 @@ export function PlanSetupForm({
               />
             )}
           </Field>
+
+          {/* Chosen from the shared list, never typed. Every variant of the
+              plan inherits it; the customer sees the name and can download the
+              provider list, nothing about tiers. */}
+          <Field
+            label="Medical network"
+            hint={
+              (networks.data?.length ?? 0) === 0
+                ? 'No networks yet. Add them on the Medical networks screen.'
+                : 'Every variant of this plan is sold on it.'
+            }
+          >
+            {(props) => (
+              <Select
+                {...props}
+                value={medicalNetworkId}
+                disabled={(networks.data?.length ?? 0) === 0}
+                onChange={(event) => setMedicalNetworkId(event.target.value)}
+              >
+                <option value="">{UNSPECIFIED_OPTION_LABEL}</option>
+                {(networks.data ?? []).map((network) => (
+                  <option key={network.id} value={network.id}>
+                    {network.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
         </div>
       </section>
 
@@ -478,7 +507,6 @@ export function PlanSetupForm({
             planName={name}
             position={index + 1}
             variant={variant}
-            networks={networks.data ?? []}
             currency={DEFAULT_CURRENCY}
             existingKinds={existingKinds}
             onChange={(patch) => patchVariant(variant.key, patch)}

@@ -76,11 +76,14 @@ export interface ComparisonCandidate {
   companyName: string;
   companyLogoUrl: string | null;
   /**
-   * What tells two variants of one plan apart on screen. Shown, never scored —
-   * one company's "Full Network" and another's are unrelated estates, so no
-   * ranking across them could mean anything.
+   * The network the plan is sold on. Shown, never scored: which estate is
+   * better is a judgement nobody has recorded, and ranking one insurer's
+   * "Full Network" against another's would compare unrelated things.
    */
+  medicalNetworkId: string | null;
   medicalNetworkName: string | null;
+  /** Whether the network has a provider list on file to offer the customer. */
+  medicalNetworkHasProviderList: boolean;
   roomType: string | null;
   currency: string | null;
   annualPrice: number | null;
@@ -469,7 +472,9 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
       companyId: entry.candidate.companyId,
       companyName: entry.candidate.companyName,
       companyLogoUrl: entry.candidate.companyLogoUrl,
+      medicalNetworkId: entry.candidate.medicalNetworkId,
       medicalNetworkName: entry.candidate.medicalNetworkName,
+      medicalNetworkHasProviderList: entry.candidate.medicalNetworkHasProviderList,
       roomType: entry.candidate.roomType,
       currency: entry.candidate.currency,
       annualPrice: entry.candidate.annualPrice,

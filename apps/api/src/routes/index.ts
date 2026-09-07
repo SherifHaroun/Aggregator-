@@ -9,6 +9,7 @@
 import { Router } from 'express';
 import { requireWriteAccess } from '../middleware/access.js';
 import { companiesRouter } from '../modules/companies/companies.routes.js';
+import { medicalNetworksRouter } from '../modules/medical-networks/medical-networks.routes.js';
 import { comparisonRouter } from '../modules/comparison/comparison.routes.js';
 import { configurationRouter } from '../modules/configuration/configuration.routes.js';
 import { healthRouter } from '../modules/health/health.routes.js';
@@ -37,6 +38,8 @@ apiRouter.use(requireWriteAccess);
 
 // Insurance data — every record is created by employees; nothing is seeded.
 apiRouter.use('/companies', companiesRouter);
+/** The shared list of networks plans are sold on, and each one's provider list. */
+apiRouter.use('/medical-networks', medicalNetworksRouter);
 apiRouter.use('/insurance-options', insuranceOptionsRouter);
 apiRouter.use('/option-fields', optionFieldsRouter);
 apiRouter.use('/plans', plansRouter);

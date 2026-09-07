@@ -3,8 +3,8 @@ import { derivePlanCode, type Paginated, type PlanDto } from '@aggregator/shared
 import { badRequest, conflict, notFound } from '../../lib/errors.js';
 import { activeFilter, paginate, toSkipTake, type ListQuery } from '../../lib/pagination.js';
 import { getPrisma } from '../../lib/prisma.js';
+import { assertMedicalNetworkExists } from '../medical-networks/medical-networks.service.js';
 import { planOptionInclude } from '../plan-options/plan-options.mapper.js';
-import { assertNetworkBelongsToCompany } from '../companies/medical-networks.service.js';
 import { toPlanDto } from './plans.mapper.js';
 import type { CreatePlanInput, DuplicatePlanInput, UpdatePlanInput } from './plans.schemas.js';
 
@@ -13,11 +13,11 @@ import type { CreatePlanInput, DuplicatePlanInput, UpdatePlanInput } from './pla
  * field definitions and values — the whole product in one response.
  */
 const planDetailInclude = {
+  /** So the plan names its network without a second request. */
+  medicalNetwork: { select: { name: true } },
   configurations: {
     include: {
       options: { include: planOptionInclude, orderBy: { sortOrder: 'asc' as const } },
-      /** So each variant names its network without a second request. */
-      medicalNetwork: true,
       plan: { select: { name: true } },
       /** The rate table, youngest band first, as a plan document writes it. */
       priceBands: { orderBy: { ageFrom: 'asc' as const } },
@@ -49,7 +49,12 @@ export async function listPlans(
   };
 
   const [items, total] = await Promise.all([
-    prisma.plan.findMany({ where, orderBy: { name: 'asc' }, ...toSkipTake(query) }),
+    prisma.plan.findMany({
+      where,
+      include: { medicalNetwork: { select: { name: true } } },
+      orderBy: { name: 'asc' },
+      ...toSkipTake(query),
+    }),
     prisma.plan.count({ where }),
   ]);
 
@@ -149,6 +154,9 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
         name: input.name,
         code,
         description: input.description === undefined ? source.description : input.description,
+        // The network is part of what the product IS: a copy on another
+        // network would be a different offering wearing a similar name.
+        medicalNetworkId: source.medicalNetworkId,
         isActive: input.isActive ?? source.isActive,
       },
       select: { id: true },
@@ -166,9 +174,8 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
       data: wanted.map((configuration) => ({
         planId: plan.id,
         geographicalCoverage: configuration.geographicalCoverage,
-        // The network and room are part of what a variant IS, so a copy that
-        // dropped them would be a different offering wearing the same name.
-        medicalNetworkId: configuration.medicalNetworkId,
+        // The room is part of what a variant IS, so a copy that dropped it
+        // would be a different offering wearing the same name.
         roomType: configuration.roomType,
         currency: configuration.currency,
         annualLimit: configuration.annualLimit,
@@ -179,7 +186,6 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
       select: {
         id: true,
         geographicalCoverage: true,
-        medicalNetworkId: true,
         roomType: true,
         annualLimit: true,
       },
@@ -188,13 +194,11 @@ export async function duplicatePlan(id: string, input: DuplicatePlanInput): Prom
     /** A variant is unique on exactly these within a plan, so this is exact. */
     const identity = (configuration: {
       geographicalCoverage: string;
-      medicalNetworkId: string | null;
       roomType: string | null;
       annualLimit: Prisma.Decimal | null;
     }) =>
       [
         configuration.geographicalCoverage,
-        configuration.medicalNetworkId ?? '',
         configuration.roomType ?? '',
         configuration.annualLimit === null ? '' : configuration.annualLimit.toString(),
       ].join('|');
@@ -297,6 +301,8 @@ export async function createPlan(input: CreatePlanInput): Promise<PlanDto> {
   if (!company) throw notFound('Company');
 
   await assertPlanIsDistinct(input.companyId, input.customerType, input.name);
+  // A plan is sold on a network that exists, or on none — never on a typo.
+  await assertMedicalNetworkExists(input.medicalNetworkId);
 
   const plan = await prisma.plan.create({ data: input, include: planDetailInclude });
   return toPlanDto(plan);
@@ -364,6 +370,10 @@ export async function updatePlan(id: string, input: UpdatePlanInput): Promise<Pl
       input.name ?? current.name,
       { excludeId: id },
     );
+  }
+
+  if (input.medicalNetworkId !== undefined) {
+    await assertMedicalNetworkExists(input.medicalNetworkId);
   }
 
   const plan = await prisma.plan.update({

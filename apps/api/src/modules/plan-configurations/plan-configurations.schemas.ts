@@ -55,13 +55,11 @@ const orderedAgeBand = <TSchema extends z.ZodTypeAny>(schema: TSchema) =>
 /**
  * What makes one variant of a plan different from another, beyond its age band.
  *
- * All optional: a plan whose document states none of them is still one sellable
- * variant. Stating them is what lets the same plan be sold on two networks, or
- * at two ceilings, at two prices.
+ * Optional: a plan whose document states none of it is still one sellable
+ * variant. Stating it is what lets the same plan be sold at two ceilings, or
+ * in two rooms, at two prices. The network is NOT here — it is the plan's.
  */
 const variantFields = {
-  /** Must belong to the plan's own company — the service checks. */
-  medicalNetworkId: z.string().min(1).nullable().optional(),
   /** Free text: insurers name accommodation differently. Never compared. */
   roomType: z.string().trim().min(1).max(120).nullable().optional(),
 };
@@ -158,7 +156,6 @@ export const listPlanConfigurationsQueryExtension = z.object({
   /** The two criteria the comparison will search on. */
   customerType: customerTypeSchema.optional(),
   geographicalCoverage: geographicalCoverageSchema.optional(),
-  medicalNetworkId: z.string().min(1).optional(),
 });
 
 export type CreatePlanConfigurationInput = z.infer<typeof createPlanConfigurationSchema>;

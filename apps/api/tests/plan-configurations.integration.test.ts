@@ -253,12 +253,12 @@ describe.skipIf(!url)('PlanConfiguration architecture', () => {
   });
 
   // (8)
-  it('rejects a second variant with the same coverage, network, room and ceiling', async () => {
+  it('rejects a second variant with the same coverage, room and ceiling', async () => {
     /**
      * Checked through the SERVICE, because the index alone cannot do it.
      *
      * PostgreSQL treats NULLs as distinct, so two variants that both leave the
-     * network, room and ceiling unstated slip past a unique index every time.
+     * room and ceiling unstated slip past a unique index every time.
      * They are the same offering entered twice, and the employee should be
      * told so rather than finding two identical rows later — which is why
      * `assertVariantIsDistinct` exists and why this asserts on it.

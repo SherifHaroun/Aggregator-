@@ -31,8 +31,6 @@ export interface CompanyDto extends RecordMeta {
   phone: string | null;
   mobile: string | null;
   address: string | null;
-  /** Present when the company was fetched with its networks, in its own order. */
-  medicalNetworks?: CompanyMedicalNetworkDto[];
 }
 
 /**
@@ -126,41 +124,43 @@ export interface OptionFieldDto extends RecordMeta {
 }
 
 /**
- * A provider network belonging to ONE insurance company.
+ * A MEDICAL NETWORK — the estate of hospitals, clinics and pharmacies a plan
+ * gives access to. GlobeMed, AXA's provider network, and whatever comes next.
  *
- * Not a benefit: a network is the estate of hospitals and clinics the company
- * sells access to, and every plan that company offers picks one of them.
- * `sortOrder` is the company's own ranking, best first.
+ * GLOBAL, like a benefit: defined once and offered to every plan of every
+ * company. Never compared, and the customer is told only its NAME — the tier
+ * or card they bought is negotiated per deal and is not recorded here.
+ *
+ * The provider list is the insurer's own file, kept as sent and replaced
+ * whole. `providerListUrl` is where the current one is stored; the download
+ * that plans and PDFs point at is the STABLE address in
+ * `medicalNetworkProviderListPath`, which serves whatever file is current.
  */
-export interface CompanyMedicalNetworkDto extends RecordMeta {
-  companyId: string;
+export interface MedicalNetworkDto extends RecordMeta {
   name: string;
   description: string | null;
+  /** The order the list is offered in, best first. */
   sortOrder: number;
-  /**
-   * How many PRICED VARIANTS are sold on it. Returned by the company endpoints.
-   *
-   * Variants rather than plans: one plan may be sold on two networks, so a plan
-   * count would understate what deleting this network costs.
-   */
-  variantCount?: number;
-  /** What the network gives access to, when it was read with its estate. */
-  providers?: NetworkProviderDto[];
+  /** Where the current provider list is stored. `null` until one is added. */
+  providerListUrl: string | null;
+  /** The name the insurer gave the file, kept for the download. */
+  providerListFileName: string | null;
+  /** When the current file replaced the last one. ISO 8601. */
+  providerListUpdatedAt: string | null;
+  /** How many plans are sold on it. Returned by the list endpoint. */
+  planCount?: number;
+  /** Every list ever uploaded, newest first, when read with its history. */
+  providerListHistory?: ProviderListVersionDto[];
 }
 
-/**
- * One category of provider in a network's estate.
- *
- * A document may state a figure, wording, or both — "1,240 hospitals",
- * "all major hospitals in Greater Cairo" — so neither is required. The figure
- * is what can be compared; the wording is what a figure cannot say.
- */
-export interface NetworkProviderDto {
+/** One issue of a network's provider list, kept after it was replaced. */
+export interface ProviderListVersionDto {
   id: string;
-  category: string;
-  count: number | null;
-  detail: string | null;
-  sortOrder: number;
+  fileName: string;
+  /** ISO 8601. */
+  uploadedAt: string;
+  /** Whether this is the file the network hands out today. */
+  isCurrent: boolean;
 }
 
 /**
@@ -189,6 +189,14 @@ export interface PlanDto extends RecordMeta {
    * variant the question separately could only ever give the same answer.
    */
   averageAge: ResolvedAverageAge;
+  /**
+   * THE NETWORK THIS PLAN IS SOLD ON, chosen from the shared list. Every
+   * variant beneath it gives access to the same estate. `null` where the
+   * document does not say.
+   */
+  medicalNetworkId: string | null;
+  /** Resolved from the shared list, so a row renders without a join. */
+  medicalNetworkName?: string | null;
   /** Present when the plan was fetched with its variants. */
   configurations?: PlanConfigurationDto[];
 }
@@ -196,8 +204,8 @@ export interface PlanDto extends RecordMeta {
 /**
  * ONE VARIANT of a plan — the sellable thing.
  *
- * The plan sold one way: one coverage scope, on one network, at one ceiling,
- * with its own benefits. What it COSTS lives in `priceBands`, because age is
+ * The plan sold one way: one coverage scope, at one ceiling, with its own
+ * benefits. The network is the plan's, shared by every variant beneath it. What it COSTS lives in `priceBands`, because age is
  * the only thing that varies between them — the cover is identical, and
  * repeating thirty benefits per band is exactly the duplication the legacy data
  * showed was unnecessary.
@@ -208,17 +216,6 @@ export interface PlanDto extends RecordMeta {
 export interface PlanConfigurationDto extends RecordMeta {
   planId: string;
   geographicalCoverage: GeographicalCoverageId;
-  /**
-   * The company network THIS variant is sold on. `null` where the document does
-   * not say.
-   *
-   * On the variant rather than the plan: one plan is routinely sold on two
-   * networks at two prices, and while this sat on the plan those had to be two
-   * plans with the network written into their names.
-   */
-  medicalNetworkId: string | null;
-  /** Resolved from the company's list, so a row renders without a join. */
-  medicalNetworkName?: string | null;
   /**
    * What this variant is called: the plan's name and what it covers, e.g.
    * "Gold+ Local".

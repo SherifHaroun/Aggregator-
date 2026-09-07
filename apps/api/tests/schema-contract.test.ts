@@ -111,16 +111,13 @@ describe('Plan vs PlanConfiguration', () => {
   it('is unique on everything that makes one variant different from another', () => {
     /**
      * A variant is the plan plus what changes its terms: where it covers, the
-     * network, the room and the ceiling. The same plan really is sold on two
-     * networks at two prices, so all of it counts.
+     * room and the ceiling.
      *
-     * Age is NOT part of it any more — that is what the price bands are for —
-     * and neither is the buyer, which belongs to the plan.
+     * Age is NOT part of it — that is what the price bands are for — and
+     * neither is the buyer or the network, which both belong to the plan.
      */
     expect(uniqueSets('PlanConfiguration')).toContain(
-      ['planId', 'geographicalCoverage', 'medicalNetworkId', 'roomType', 'annualLimit']
-        .sort()
-        .join('+'),
+      ['planId', 'geographicalCoverage', 'roomType', 'annualLimit'].sort().join('+'),
     );
   });
 
@@ -131,9 +128,7 @@ describe('Plan vs PlanConfiguration', () => {
      * and could not be saved at all — the code became the thing standing in the
      * way of a real business case.
      */
-    expect(uniqueSets('Plan')).toContain(
-      ['companyId', 'customerType', 'code'].sort().join('+'),
-    );
+    expect(uniqueSets('Plan')).toContain(['companyId', 'customerType', 'code'].sort().join('+'));
     expect(uniqueSets('Plan')).not.toContain(['companyId', 'code'].sort().join('+'));
   });
 
@@ -144,26 +139,27 @@ describe('Plan vs PlanConfiguration', () => {
     expect(fieldNames('PlanConfiguration')).not.toContain('customerType');
   });
 
-  it('puts the medical network on the variant, never on the plan', () => {
-    // On the plan it forced "Gold (Full Network)" and "Gold (limited Network)"
-    // to be two products. They are one product sold two ways.
-    expect(fieldNames('Plan')).not.toContain('medicalNetworkId');
-    expect(fieldNames('PlanConfiguration')).toContain('medicalNetworkId');
+  it('puts the medical network on the plan, never on the variant', () => {
+    // Every variant of a plan gives access to the same estate, and the
+    // customer is told the network's name — so it is one fact, on the plan.
+    expect(fieldNames('Plan')).toContain('medicalNetworkId');
+    expect(fieldNames('PlanConfiguration')).not.toContain('medicalNetworkId');
     expect(fieldNames('PlanConfiguration')).toContain('roomType');
   });
 
-  it('keeps a provider estate on the network, as rows', () => {
-    // Entered once per network and read by every variant sold on it — never
-    // re-typed per plan, and never ten columns that cannot grow an eleventh.
-    const provider = fieldNames('NetworkProvider');
-    expect(provider).toContain('networkId');
-    expect(provider).toContain('category');
-    expect(uniqueSets('NetworkProvider')).toContain(['networkId', 'category'].sort().join('+'));
-    // Neither a figure nor wording is required: documents give one, the other,
-    // or both.
-    const model_ = model('NetworkProvider').fields;
-    expect(model_.find((f) => f.name === 'count')?.isRequired).toBe(false);
-    expect(model_.find((f) => f.name === 'detail')?.isRequired).toBe(false);
+  it('keeps one shared list of networks, each carrying its provider list as a file', () => {
+    // GlobeMed is one network however many insurers sell on it: no company on
+    // the row, a name unique across the whole list, and the insurer's own file
+    // rather than typed-in provider counts.
+    const network = fieldNames('MedicalNetwork');
+    expect(network).not.toContain('companyId');
+    expect(model('MedicalNetwork').fields.find((f) => f.name === 'name')?.isUnique).toBe(true);
+    for (const field of ['providerListUrl', 'providerListFileName', 'providerListUpdatedAt']) {
+      expect(network).toContain(field);
+      expect(model('MedicalNetwork').fields.find((f) => f.name === field)?.isRequired).toBe(false);
+    }
+    expect(() => model('NetworkProvider')).toThrow();
+    expect(() => model('CompanyMedicalNetwork')).toThrow();
   });
 
   it('holds no age on the variant itself', () => {

@@ -374,50 +374,54 @@ export const DEFAULT_AGE_BANDS: readonly { from: number; to: number }[] = [
 export const AGE_BAND_NOT_SOLD_LABEL = 'Not covered';
 
 // ---------------------------------------------------------------------------
-//  WHAT A NETWORK GIVES ACCESS TO
+//  THE PROVIDER LIST A NETWORK GIVES ACCESS TO
 // ---------------------------------------------------------------------------
 
 /**
- * The provider categories a network's estate is described in.
+ * The list is the insurer's own file, kept as sent.
  *
- * Every one of these was a column in the legacy
- * `hb_group_medical_network_summary` table, filled in once per provider and
- * shown against every plan sold on it. That was the one thing the old schema
- * genuinely normalised, and it is worth keeping.
- *
- * A STARTING LIST, not a closed one: the categories are stored as rows, so an
- * employee may record one nobody anticipated. Nothing here is required.
+ * Every insurer lays its spreadsheet out differently and changes it every few
+ * months — AXA's carries four sheets with additions and deletions, GlobeMed's
+ * one bilingual sheet with tier codes. Parsing them would mean a column map per
+ * insurer that breaks on each reissue, so the file is stored whole and the
+ * customer opens exactly what the insurer published.
  */
-export const NETWORK_PROVIDER_CATEGORIES: readonly { name: string; emoji: string }[] = [
-  { name: 'Hospitals', emoji: '🏥' },
-  { name: 'Polyclinics', emoji: '🏬' },
-  { name: 'Physicians', emoji: '👩‍⚕️' },
-  { name: 'Pharmacies', emoji: '💊' },
-  { name: 'Laboratories', emoji: '🧪' },
-  { name: 'Radiology Centers', emoji: '🩻' },
-  { name: 'Dental Centers', emoji: '🦷' },
-  { name: 'Optical Centers', emoji: '👓' },
-  { name: 'Physiotherapy Centers', emoji: '🤸' },
-  { name: 'Specialized Medical Centers', emoji: '⚕️' },
+export const PROVIDER_LIST_FILE_TYPES: readonly { mimeType: string; extension: string }[] = [
+  {
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    extension: '.xlsx',
+  },
+  { mimeType: 'application/vnd.ms-excel', extension: '.xls' },
+  { mimeType: 'text/csv', extension: '.csv' },
+  { mimeType: 'application/pdf', extension: '.pdf' },
 ];
 
-/** Longest a category name may be. */
-export const NETWORK_PROVIDER_CATEGORY_MAX_LENGTH = 120;
+/** The extensions above, for a file picker. */
+export const PROVIDER_LIST_ACCEPT = PROVIDER_LIST_FILE_TYPES.map((type) => type.extension).join(
+  ',',
+);
 
-/** Longest the wording beside a figure may be. */
-export const NETWORK_PROVIDER_DETAIL_MAX_LENGTH = 500;
+/** Largest provider list accepted. The real ones are one to two megabytes. */
+export const PROVIDER_LIST_MAX_BYTES = 25 * 1024 * 1024;
 
-/** Most categories one network may describe. */
-export const NETWORK_PROVIDER_MAX = 40;
+/** The words on the control that opens the list, on screen and in the PDF. */
+export const PROVIDER_LIST_DOWNLOAD_LABEL = 'Download medical network';
 
-/** Shown on a network whose estate nobody has recorded yet. */
-export const NO_NETWORK_PROVIDERS_LABEL =
-  'No provider information yet — add it once here and every plan on this network shows it.';
+/**
+ * THE STABLE ADDRESS of a network's provider list, relative to the API root.
+ *
+ * Keyed on the network, never on the file: a PDF issued last month carries this
+ * address, and opening it today downloads whatever file is current. Replacing
+ * the file changes nothing a customer already holds.
+ */
+export function medicalNetworkProviderListPath(networkId: string): string {
+  return `/medical-networks/${networkId}/provider-list`;
+}
 
-/** The emoji for a provider category, or a neutral mark for an invented one. */
-export function networkProviderEmoji(category: string): string {
-  const match = NETWORK_PROVIDER_CATEGORIES.find(
-    (item) => item.name.trim().toLowerCase() === category.trim().toLowerCase(),
-  );
-  return match?.emoji ?? '📍';
+/** One PAST issue of the list, by its own id. Never written into a PDF. */
+export function medicalNetworkProviderListVersionPath(
+  networkId: string,
+  versionId: string,
+): string {
+  return `/medical-networks/${networkId}/provider-list/versions/${versionId}`;
 }

@@ -4,7 +4,6 @@ import { ROUTES } from '@/config/routes';
 import {
   useCompany,
   useInsuranceOptions,
-  useMedicalNetworks,
   usePlan,
   usePlanConfiguration,
 } from '@/features/insurance-data/insurance-data.api';
@@ -32,7 +31,6 @@ export function PlanConfigurationDetailPage() {
   const configuration = usePlanConfiguration(configurationId);
   const company = useCompany(companyId);
   const plan = usePlan(planId);
-  const networks = useMedicalNetworks(companyId);
 
   // The global benefit catalogue: the same list whichever company this is.
   const options = useInsuranceOptions({ isActive: true });
@@ -85,7 +83,6 @@ export function PlanConfigurationDetailPage() {
             planName={plan.data!.name}
             customerType={plan.data!.customerType}
             catalogue={options.data ?? []}
-            networks={networks.data ?? []}
           />
         )}
       </DataState>

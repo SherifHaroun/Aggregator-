@@ -10,7 +10,6 @@ import {
   CORE_VALUE_KINDS,
   medicalBenefitSpec,
   variantDisplayName,
-  type CompanyMedicalNetworkDto,
   type GeographicalCoverageId,
   type MedicalBenefitSpec,
 } from '@aggregator/shared';
@@ -32,8 +31,8 @@ import { emptyEntry, type BenefitEntry, type VariantDraft } from './variant-draf
 export type ExistingKind = { dataType: string; unit: string | null };
 
 /**
- * One variant of a plan: what it covers, on which network, at what ceiling,
- * with its own benefits and its own premium per age band.
+ * One variant of a plan: what it covers, at what ceiling, with its own
+ * benefits and its own premium per age band. The network is the plan's.
  *
  * The name is not typed. It is the plan's name and the coverage read together
  * — "Gold+ Local" — so it cannot disagree with the fields it is made of, and
@@ -43,7 +42,6 @@ export function VariantEditor({
   planName,
   position,
   variant,
-  networks,
   currency,
   existingKinds,
   onChange,
@@ -52,7 +50,6 @@ export function VariantEditor({
   planName: string;
   position: number;
   variant: VariantDraft;
-  networks: CompanyMedicalNetworkDto[];
   currency: string;
   existingKinds: Map<string, ExistingKind>;
   onChange: (patch: Partial<VariantDraft>) => void;
@@ -154,31 +151,6 @@ export function VariantEditor({
                   <IconLock className="size-4" />
                 </span>
               </div>
-            )}
-          </Field>
-
-          <Field
-            label="Medical network"
-            hint={
-              networks.length === 0
-                ? 'This company has no networks yet. Add them on the company screen.'
-                : 'This company’s own list. Another insurer’s is never on offer.'
-            }
-          >
-            {(props) => (
-              <Select
-                {...props}
-                value={variant.medicalNetworkId}
-                disabled={networks.length === 0}
-                onChange={(event) => onChange({ medicalNetworkId: event.target.value })}
-              >
-                <option value="">{UNSPECIFIED_OPTION_LABEL}</option>
-                {networks.map((network) => (
-                  <option key={network.id} value={network.id}>
-                    {network.name}
-                  </option>
-                ))}
-              </Select>
             )}
           </Field>
 
@@ -353,9 +325,7 @@ export function VariantEditor({
                   type="button"
                   aria-label={`Variant ${position} remove band ${band.from}–${band.to}`}
                   className="text-content-subtle hover:text-danger rounded p-1.5"
-                  onClick={() =>
-                    onChange({ bands: variant.bands.filter((_, i) => i !== index) })
-                  }
+                  onClick={() => onChange({ bands: variant.bands.filter((_, i) => i !== index) })}
                 >
                   <IconTrash className="size-4" />
                 </button>
@@ -366,7 +336,9 @@ export function VariantEditor({
           <Button
             type="button"
             variant="secondary"
-            onClick={() => onChange({ bands: [...variant.bands, { from: '', to: '', premium: '' }] })}
+            onClick={() =>
+              onChange({ bands: [...variant.bands, { from: '', to: '', premium: '' }] })
+            }
           >
             <IconAdd className="size-4" />
             Add age band

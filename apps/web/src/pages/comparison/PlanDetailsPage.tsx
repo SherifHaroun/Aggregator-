@@ -24,7 +24,11 @@ import {
   IconDownload,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
-import { downloadPlanDocument, usePlanDocumentSource } from '@/features/comparison';
+import {
+  ProviderListLink,
+  downloadPlanDocument,
+  usePlanDocumentSource,
+} from '@/features/comparison';
 import { useComparison } from '@/features/insurance-data/insurance-data.api';
 
 /**
@@ -148,9 +152,7 @@ function PlanBody({
               </p>
             </div>
             <div className="text-right">
-              <p className="text-content text-3xl font-bold tabular-nums">
-                {presentPremium(plan)}
-              </p>
+              <p className="text-content text-3xl font-bold tabular-nums">{presentPremium(plan)}</p>
               <p className="text-content-subtle text-sm">
                 {plan.pricedEmployeeCount === null
                   ? 'Annual premium'
@@ -189,9 +191,7 @@ function PlanBody({
             <li key={benefit.name}>
               <div className="flex items-baseline justify-between gap-3">
                 <span className="text-content text-sm font-medium">{benefit.name}</span>
-                <span
-                  className={cnValue(benefit.stated)}
-                >{benefit.display}</span>
+                <span className={cnValue(benefit.stated)}>{benefit.display}</span>
               </div>
               {benefit.fraction === null ? null : (
                 <div className="bg-surface-muted mt-1.5 h-2 overflow-hidden rounded-full">
@@ -236,6 +236,9 @@ function PlanBody({
             </div>
           ))}
         </dl>
+        <div className="mt-3">
+          <ProviderListLink plan={plan} />
+        </div>
       </Section>
 
       {/*
@@ -247,7 +250,10 @@ function PlanBody({
         <Section title="Additional benefits">
           <ul className="grid gap-2 sm:grid-cols-2">
             {document.additional.map((benefit) => (
-              <li key={benefit.name} className="border-border-subtle rounded-(--radius-control) border p-3">
+              <li
+                key={benefit.name}
+                className="border-border-subtle rounded-(--radius-control) border p-3"
+              >
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-content flex min-w-0 items-center gap-2 text-sm font-medium">
                     <IconCheck className="text-success size-4 shrink-0" />

@@ -5,9 +5,10 @@
  * drilling into a company, so the employee never has to hunt across parallel
  * screens.
  *
- * BENEFITS is the exception, and earns it: the catalogue belongs to no company.
- * It is one list shared by all of them, and a benefit has to exist in it before
- * any plan can point at one — so it cannot live underneath a company.
+ * BENEFITS and MEDICAL NETWORKS are the exceptions, and earn it: each is one
+ * list shared by every company — a benefit has to exist before a plan can
+ * point at it, and GlobeMed is one network however many insurers sell on it —
+ * so neither can live underneath a company.
  *
  * "Compare plans" leads instead: it is what the site exists to do, and it reads
  * the same database the rest of these screens fill in.
@@ -18,6 +19,7 @@ import {
   IconAdd,
   IconBuilding,
   IconDashboard,
+  IconGlobe,
   IconLayers,
   IconSparkle,
 } from '@/components/ui/icons';
@@ -47,6 +49,7 @@ export const NAV_ITEMS: NavItem[] = [
     matchPrefix: ROUTES.companies.list,
   },
   { label: 'Benefits', to: ROUTES.benefits.list, icon: IconLayers },
+  { label: 'Medical networks', to: ROUTES.medicalNetworks.list, icon: IconGlobe },
 ];
 
 export const APP_NAME = 'Hadbrok';

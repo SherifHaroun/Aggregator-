@@ -2,12 +2,18 @@ import { CUSTOMER_TYPE_IDS } from '@aggregator/shared';
 import { z } from 'zod';
 
 /**
- * A plan carries only what is true of the product itself, plus WHO it is sold
- * to. Price, limits, network and coverage area live on its variants, because
- * they are what differs between them.
+ * A plan carries only what is true of the product itself: WHO it is sold to,
+ * and WHICH NETWORK it gives access to. Price, limits and coverage area live on
+ * its variants, because they are what differs between them.
  */
 export const createPlanSchema = z.object({
   companyId: z.string().min(1),
+  /**
+   * The shared network this plan is sold on. Every variant inherits it; the
+   * customer is told its name and offered its provider list. `null` where the
+   * document does not say. Must exist — the service checks.
+   */
+  medicalNetworkId: z.string().min(1).nullable().optional(),
   /**
    * Individual, Family and SME are separate products that merely share a name,
    * so this is required: a plan with no buyer could not be filed under any of

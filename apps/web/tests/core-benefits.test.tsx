@@ -86,6 +86,7 @@ function givenVariant() {
     code: 'GOLD-INDIVIDUAL',
     description: null,
     averageAge: { value: null, source: 'NOT_SPECIFIED', label: null },
+    medicalNetworkId: null,
     isActive: true,
     ...timestamps,
   });
@@ -93,7 +94,6 @@ function givenVariant() {
     id: 'cfg_1',
     planId: 'plan_1',
     geographicalCoverage: 'LOCAL',
-    medicalNetworkId: null,
     roomType: null,
     priceBands: [{ id: 'band_1', ageFrom: 18, ageTo: 64, annualPrice: 7000 }],
     currency: 'EGP',

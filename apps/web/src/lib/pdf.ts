@@ -114,9 +114,19 @@ const escapeText = (text: string) =>
  * and PDF's own origin at the bottom-left is a detail of the format rather
  * than of the page.
  */
+/** A clickable area on one page, and where it leads. */
+interface Link {
+  page: number;
+  /** In PDF space: left, bottom, right, top. */
+  rect: [number, number, number, number];
+  url: string;
+}
+
 export class PdfDocument {
   /** One array of drawing commands per page; the last is the one being filled. */
   private readonly pages: string[][] = [[]];
+  /** Link annotations, kept apart from the drawing because a page owns them. */
+  private readonly links: Link[] = [];
   y: number;
 
   constructor(
@@ -186,6 +196,21 @@ export class PdfDocument {
     );
   }
 
+  /**
+   * Make a rectangle of the current page clickable.
+   *
+   * `y` is measured down from the top like everything else here; the PDF
+   * rectangle it becomes is measured up from the bottom, and that is the only
+   * place the difference shows.
+   */
+  link(x: number, y: number, w: number, h: number, url: string) {
+    this.links.push({
+      page: this.pages.length - 1,
+      rect: [x, A4.height - y - h, x + w, A4.height - y],
+      url,
+    });
+  }
+
   line(x1: number, y: number, x2: number, color: Rgb, thickness = 0.6) {
     this.op(
       `${color.r} ${color.g} ${color.b} RG ${thickness} w ${x1.toFixed(2)} ${(A4.height - y).toFixed(2)} m ` +
@@ -234,25 +259,46 @@ export class PdfDocument {
       '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>',
     );
 
+    /**
+     * Links are written before the pages, because a page lists its
+     * annotations by id and nothing in a link needs to know its page's id.
+     * `/Border [0 0 0]` keeps the reader from drawing its own box around what
+     * is already drawn as a button.
+     */
+    const annotationIds = new Map<number, number[]>();
+    for (const link of this.links) {
+      const [left, bottom, right, top] = link.rect;
+      const id = add(
+        `<< /Type /Annot /Subtype /Link /Rect [${left.toFixed(2)} ${bottom.toFixed(2)} ` +
+          `${right.toFixed(2)} ${top.toFixed(2)}] /Border [0 0 0] ` +
+          `/A << /S /URI /URI (${escapeText(link.url)}) >> >>`,
+      );
+      annotationIds.set(link.page, [...(annotationIds.get(link.page) ?? []), id]);
+    }
+
     // The page tree is written last but referenced by every page, so its id is
-    // worked out in advance: two objects per page follow the two fonts.
-    const treeId = 2 + this.pages.length * 2 + 1;
+    // worked out in advance: two objects per page follow the fonts and links.
+    const treeId = 2 + this.links.length + this.pages.length * 2 + 1;
     const pageIds: number[] = [];
-    for (const page of this.pages) {
+    this.pages.forEach((page, index) => {
       const stream = page.join(String.fromCharCode(10));
       const contents = add(`<< /Length ${stream.length} >>
 stream
 ${stream}
 endstream`);
+      const annotations = annotationIds.get(index);
       pageIds.push(
         add(
           `<< /Type /Page /Parent ${treeId} 0 R /MediaBox [0 0 ${A4.width} ${A4.height}] ` +
             `/Resources << /Font << /F1 ${fontRegular} 0 R /F2 ${fontBold} 0 R >> >> ` +
+            (annotations ? `/Annots [${annotations.map((id) => `${id} 0 R`).join(' ')}] ` : '') +
             `/Contents ${contents} 0 R >>`,
         ),
       );
-    }
-    add(`<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`);
+    });
+    add(
+      `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`,
+    );
     const catalog = add(`<< /Type /Catalog /Pages ${treeId} 0 R >>`);
 
     let out = '%PDF-1.4' + NEWLINE;

@@ -98,83 +98,78 @@ model Company {
 
   plans Plan[]
 
-  /// The provider networks THIS company sells, in the order it ranks them.
-  medicalNetworks CompanyMedicalNetwork[]
-
   @@index([isActive])
   @@map("companies")
 }
 
-/// A provider network belonging to ONE insurance company.
+/// A MEDICAL NETWORK — the estate of hospitals, clinics and pharmacies a plan
+/// gives access to. GlobeMed, AXA's provider network, and whatever comes next.
 ///
-/// A network is not a benefit. "Golden Care Network" is not something a plan
-/// covers — it is the estate of hospitals and clinics the company sells access
-/// to, and every plan that company offers picks one of them. Modelling it as a
-/// benefit meant re-typing the same few names on every plan of every company
-/// and left no place to say that one company's network outranks another's.
+/// GLOBAL, like a benefit: a network is defined once and every plan of every
+/// company may sell on it. GlobeMed is one network however many insurers use
+/// it, and modelling it per company meant the same estate entered five times
+/// with five files to keep current.
 ///
-/// `sortOrder` is the company's own ranking of its networks, best first.
-model CompanyMedicalNetwork {
-  id        String  @id @default(cuid())
-  companyId String
-  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+/// A network is not a benefit and is never compared. The plan says which one
+/// it is sold on and the customer is told the NAME — never the tier or the
+/// card, because those are negotiated with the client and vary by deal.
+///
+/// THE PROVIDER LIST IS A FILE. Insurers send the list as a spreadsheet, each in
+/// its own layout, and change it often. It is stored as sent, replaced whole
+/// when a new one arrives, and downloaded through a STABLE address keyed on
+/// this row — so a PDF issued last month opens whatever file is current today.
+///
+/// `sortOrder` is the order the list is offered in, best first.
+model MedicalNetwork {
+  id String @id @default(cuid())
 
-  name        String
+  /// Unique across the whole list, ignoring case. "GlobeMed" and "globemed"
+  /// are one network.
+  name        String  @unique
   description String?
   sortOrder   Int     @default(0)
   isActive    Boolean @default(true)
 
+  /// Where the current provider list is stored — the `/uploads/...` path the
+  /// upload endpoint returned. `null` until a file has been added.
+  providerListUrl String?
+  /// The name the insurer gave the file, so the download keeps it.
+  providerListFileName String?
+  /// When the current file replaced the last one.
+  providerListUpdatedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /// The priced variants sold on this network.
-  ///
-  /// A VARIANT, not a plan: the same plan is routinely sold on two networks at
-  /// two prices, which is a fact about the priced row and not about the
-  /// product. Attaching the network to the plan made those two offerings two
-  /// plans with the network smuggled into their names.
-  configurations PlanConfiguration[]
+  /// The plans sold on this network. Every variant of each inherits it.
+  plans Plan[]
 
-  /// What this network actually gives access to, entered once here and read by
-  /// every variant sold on it.
-  providers NetworkProvider[]
+  /// Every list ever uploaded, newest first. The columns above point at the
+  /// current one; nothing is discarded when it is replaced.
+  providerLists MedicalNetworkProviderList[]
 
-  /// One company cannot sell two networks of the same name.
-  @@unique([companyId, name])
-  @@index([companyId, sortOrder])
-  @@map("company_medical_networks")
+  @@index([isActive, sortOrder])
+  @@map("medical_networks")
 }
 
-/// One category of provider in a network's estate — hospitals, pharmacies,
-/// laboratories and the rest.
+/// ONE ISSUE of a network's provider list — a file the insurer sent, kept.
 ///
-/// ROWS RATHER THAN TEN COLUMNS, so a category nobody anticipated is data. The
-/// legacy system had exactly ten columns and no way to add an eleventh.
-///
-/// A document may give a NUMBER ("1,240 hospitals") or WORDING ("all major
-/// hospitals in Greater Cairo"), and different insurers give different ones for
-/// the same category. Both are therefore available and neither is required:
-/// `count` sorts and compares, `detail` says what a number cannot.
-model NetworkProvider {
-  id        String                @id @default(cuid())
+/// Lists change every few months, and a question about what a customer was
+/// promised last spring needs last spring's file. So an upload adds a row here
+/// and moves the network's pointer; it never deletes what came before.
+model MedicalNetworkProviderList {
+  id        String         @id @default(cuid())
   networkId String
-  network   CompanyMedicalNetwork @relation(fields: [networkId], references: [id], onDelete: Cascade)
+  network   MedicalNetwork @relation(fields: [networkId], references: [id], onDelete: Cascade)
 
-  /// Employee-facing category name, e.g. "Hospitals".
-  category  String
-  /// How many, where the document states a figure.
-  count     Int?
-  /// The wording, where it states one instead of — or as well as — a figure.
-  detail    String?
-  sortOrder Int     @default(0)
+  /// Where the file is stored — the `/uploads/...` path.
+  storedUrl  String
+  /// The name the insurer gave it.
+  fileName   String
+  uploadedAt DateTime @default(now())
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  /// A network states each category at most once.
-  @@unique([networkId, category])
-  @@index([networkId, sortOrder])
-  @@map("network_providers")
+  @@index([networkId, uploadedAt])
+  @@map("medical_network_provider_lists")
 }
 
 // ============================================================================
@@ -420,6 +415,15 @@ model Plan {
   code        String
   description String?
 
+  /// THE NETWORK THIS PLAN IS SOLD ON.
+  ///
+  /// On the plan, not the variant: every priced row of a plan gives access to
+  /// the same estate, and the customer is told the network's name and handed
+  /// its provider list — nothing about which tier of it they bought. `null`
+  /// where the document does not say.
+  medicalNetworkId String?
+  medicalNetwork   MedicalNetwork? @relation(fields: [medicalNetworkId], references: [id], onDelete: SetNull)
+
   isActive Boolean @default(true)
 
   createdAt DateTime @default(now())
@@ -441,14 +445,16 @@ model Plan {
   @@index([companyId, isActive])
   /// The comparison's first cut: "every plan sold to this kind of buyer".
   @@index([companyId, customerType, isActive])
+  @@index([medicalNetworkId])
   @@map("plans")
 }
 
 /// ONE VARIANT OF A PLAN — the sellable thing.
 ///
-/// A variant is the plan sold one way: one coverage scope, on one network, at
-/// one ceiling. "Gold+ Local" and "Gold+ International" are two variants of one
-/// Gold+ plan, never two plans with the scope written into their names.
+/// A variant is the plan sold one way: one coverage scope, at one ceiling.
+/// "Gold+ Local" and "Gold+ International" are two variants of one Gold+ plan,
+/// never two plans with the scope written into their names. The network is the
+/// PLAN's: every variant beneath it gives access to the same estate.
 ///
 /// It owns its benefits ONCE. Age does not divide it: the same cover sold at
 /// ten premiums is ten `PlanPriceBand` rows underneath, not ten copies of
@@ -464,11 +470,6 @@ model PlanConfiguration {
   plan   Plan   @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   geographicalCoverage GeographicalCoverage
-
-  /// The company network THIS variant is sold on, chosen from the plan's own
-  /// company list. `null` where the document does not say.
-  medicalNetworkId String?
-  medicalNetwork   CompanyMedicalNetwork? @relation(fields: [medicalNetworkId], references: [id], onDelete: SetNull)
 
   /// The hospital accommodation this variant buys — "Private Room". Free text,
   /// because insurers name it differently. NOT compared: nothing ranks a room
@@ -494,21 +495,19 @@ model PlanConfiguration {
   priceBands PlanPriceBand[]
 
   /// What makes one variant different from another: the plan, where it covers,
-  /// the network, the room and the ceiling. Age is no longer part of it —
-  /// that is what the price bands are for.
+  /// the room and the ceiling. Age is no longer part of it — that is what the
+  /// price bands are for — and neither is the network, which is the plan's.
   ///
   /// PostgreSQL treats NULLs as distinct in a unique index, so two variants
-  /// that both leave the network, room and ceiling unstated do not collide
-  /// here. `plan-configurations.service.ts` refuses those, and is the authority
-  /// for the cases this index cannot see.
+  /// that both leave the room and ceiling unstated do not collide here.
+  /// `plan-configurations.service.ts` refuses those, and is the authority for
+  /// the cases this index cannot see.
   ///
-  /// Named explicitly: the generated name exceeds Postgres's 63-character
-  /// identifier limit and would be silently truncated.
-  @@unique([planId, geographicalCoverage, medicalNetworkId, roomType, annualLimit], map: "plan_configurations_identity_key")
+  /// Named explicitly, as it always has been, so migrations can find it.
+  @@unique([planId, geographicalCoverage, roomType, annualLimit], map: "plan_configurations_identity_key")
   /// The comparison's lookup: "every active variant covering this area".
   @@index([geographicalCoverage, isActive])
   @@index([planId, isActive])
-  @@index([medicalNetworkId])
   @@map("plan_configurations")
 }
 

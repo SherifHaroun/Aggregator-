@@ -1,6 +1,5 @@
 import {
   GEOGRAPHICAL_COVERAGES,
-  UNSPECIFIED_OPTION_LABEL,
   listEnabledOptions,
   type GeographicalCoverageId,
   type PlanConfigurationDto,
@@ -13,14 +12,10 @@ import {
   Field,
   Input,
   NumberInput,
-  Select,
   StatusToggle,
   useToast,
 } from '@/components/ui';
-import {
-  useMedicalNetworks,
-  useSavePlanConfiguration,
-} from '@/features/insurance-data/insurance-data.api';
+import { useSavePlanConfiguration } from '@/features/insurance-data/insurance-data.api';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
 
 const toNumber = (value: string) => (value.trim() === '' ? null : Number(value));
@@ -28,9 +23,9 @@ const toNumber = (value: string) => (value.trim() === '' ? null : Number(value))
 /**
  * Create or edit ONE VARIANT of a plan — the plan sold one way.
  *
- * A variant is where it covers, on which network, at which ceiling. Not who it
- * is for: that belongs to the plan, and every variant of an SME plan is sold to
- * an SME. Not what it costs: age is the only thing that varies between a
+ * A variant is where it covers, at which ceiling. Not who it is for, and not
+ * on which network: both belong to the plan, and every variant of an SME plan
+ * on GlobeMed is sold to an SME on GlobeMed. Not what it costs: age is the only thing that varies between a
  * variant's prices, so the rate table is a set of bands edited inside the
  * variant rather than a single figure typed here.
  *
@@ -44,26 +39,20 @@ const toNumber = (value: string) => (value.trim() === '' ? null : Number(value))
  */
 export function ConfigurationDialog({
   planId,
-  companyId,
   configuration,
   onClose,
 }: {
   planId: string;
-  /** Whose networks are on offer — never another insurer's. */
-  companyId: string;
   /** `null` creates a new variant. */
   configuration: PlanConfigurationDto | null;
   onClose: () => void;
 }) {
   const { notify } = useToast();
-  // Only THIS company's networks. Another insurer's list is not on offer here.
-  const networks = useMedicalNetworks(companyId);
   const save = useSavePlanConfiguration(configuration?.id);
 
   const { values, setValue, fieldErrors, formError, applyError } = useRecordForm({
     geographicalCoverage: (configuration?.geographicalCoverage ??
       null) as GeographicalCoverageId | null,
-    medicalNetworkId: configuration?.medicalNetworkId ?? '',
     currency: configuration?.currency ?? '',
     annualLimit: configuration?.annualLimit?.toString() ?? '',
     isActive: configuration?.isActive ?? true,
@@ -73,7 +62,6 @@ export function ConfigurationDialog({
     save.mutate(
       {
         // What makes this variant different from the plan's others.
-        medicalNetworkId: values.medicalNetworkId === '' ? null : values.medicalNetworkId,
         currency: values.currency.trim() === '' ? null : values.currency.trim(),
         annualLimit: toNumber(values.annualLimit),
         isActive: values.isActive,
@@ -99,7 +87,7 @@ export function ConfigurationDialog({
       onClose={onClose}
       size="lg"
       title={configuration ? 'Edit variant' : 'Add a variant'}
-      description="The plan sold one way — one coverage scope, one network, one ceiling. Its benefits and prices are edited inside it."
+      description="The plan sold one way — one coverage scope, one ceiling. Its benefits and prices are edited inside it."
       footer={
         <>
           <Button variant="secondary" onClick={onClose} disabled={save.isPending}>
@@ -131,37 +119,12 @@ export function ConfigurationDialog({
         )}
 
         {/* WHAT MAKES THIS A DIFFERENT VARIANT.
-            The same plan sold on another network, or at another ceiling, is a
-            second variant — which is why these sit here and not on the plan.
-            Room type is not among them: it is an optional benefit, so a plan
-            that states one says so with its benefits. */}
+            The same plan sold at another ceiling is a second variant — which
+            is why this sits here and not on the plan. The network is NOT here:
+            it is the plan's, shared by every variant. Room type is not here
+            either: it is an optional benefit, so a plan that states one says
+            so with its benefits. */}
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            label="Medical network"
-            error={fieldErrors.medicalNetworkId}
-            hint={
-              (networks.data?.length ?? 0) === 0
-                ? 'This company has no networks yet. Add them on the company screen.'
-                : 'Chosen from this company own list, never typed.'
-            }
-          >
-            {(props) => (
-              <Select
-                {...props}
-                value={values.medicalNetworkId}
-                disabled={(networks.data?.length ?? 0) === 0}
-                onChange={(event) => setValue('medicalNetworkId', event.target.value)}
-              >
-                <option value="">{UNSPECIFIED_OPTION_LABEL}</option>
-                {(networks.data ?? []).map((network) => (
-                  <option key={network.id} value={network.id}>
-                    {network.name}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-
           <Field
             label="Annual limit"
             error={fieldErrors.annualLimit}

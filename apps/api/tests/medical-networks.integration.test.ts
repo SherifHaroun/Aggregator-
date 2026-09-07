@@ -1,37 +1,42 @@
 /**
- * A company's provider networks, against a real PostgreSQL database.
+ * The shared list of medical networks, against a real PostgreSQL database.
  *
- * The two rules that matter are ownership and order.
+ * Three rules matter.
  *
- * OWNERSHIP: one insurer's network estate is not another's. "Tier 4" at one
- * company has nothing to do with "Tier 4" at the next, so a company's list must
- * never contain a network it does not sell, and a plan must never be recorded
- * as sold on another company's network. That is not a tidiness rule — it is a
- * false statement about what a customer would get.
+ * ONE LIST: GlobeMed is one network however many insurers sell on it, so the
+ * list belongs to no company and a plan of any company may name any entry.
  *
- * ORDER: the ranking is the company's own judgement of its networks, and it is
- * stored on the network row rather than derived, so re-ranking changes how the
- * list reads and changes nothing about which network any plan named.
+ * THE PLAN NAMES IT: every variant of a plan gives access to the same estate,
+ * so the network sits on the plan and the variants say nothing about it.
+ *
+ * THE FILE IS REPLACED WHOLE, AT A STABLE ADDRESS: the insurer's spreadsheet is
+ * kept as sent; a new one replaces it, the old one is discarded, and the
+ * address a customer opens it from is keyed on the network — so it hands out
+ * whatever file is current.
  *
  * OPT-IN, like the other database suites: runs only when `TEST_DATABASE_URL` is
  * set. Every record is namespaced and removed afterwards — test fixtures, not
  * seed data.
  */
 
+import { readFile, stat, writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { env } from '../src/config/env.js';
 import {
+  clearProviderList,
   createMedicalNetwork,
   deleteMedicalNetwork,
   listMedicalNetworks,
   reorderMedicalNetworks,
+  resolveProviderList,
+  resolveProviderListVersion,
+  setProviderList,
   updateMedicalNetwork,
-} from '../src/modules/companies/medical-networks.service.js';
-import {
-  createPlanConfiguration,
-  updatePlanConfiguration,
-} from '../src/modules/plan-configurations/plan-configurations.service.js';
-import { createPlan } from '../src/modules/plans/plans.service.js';
+} from '../src/modules/medical-networks/medical-networks.service.js';
+import { createPlanConfiguration } from '../src/modules/plan-configurations/plan-configurations.service.js';
+import { createPlan, getPlan, updatePlan } from '../src/modules/plans/plans.service.js';
 
 const url = process.env['TEST_DATABASE_URL'];
 const prisma = url ? new PrismaClient({ datasources: { db: { url } } }) : null;
@@ -42,23 +47,51 @@ const db = () => {
   return prisma;
 };
 
-/** Two companies, so "belongs to this one" is a claim with something to fail against. */
+let counter = 0;
+const unique = () => `${PREFIX}_${(counter += 1)}`;
+
+/** Two companies, so "shared by every company" is a claim with two sides. */
 async function givenTwoCompanies() {
   const [a, b] = await Promise.all([
-    db().company.create({ data: { name: `${PREFIX}_company_a` } }),
-    db().company.create({ data: { name: `${PREFIX}_company_b` } }),
+    db().company.create({ data: { name: unique() } }),
+    db().company.create({ data: { name: unique() } }),
   ]);
   return { a: a.id, b: b.id };
 }
 
+/** A plan of one company, on a network or on none. */
+async function givenPlanOn(companyId: string, medicalNetworkId: string | null) {
+  const tag = unique();
+  return createPlan({
+    companyId,
+    customerType: 'INDIVIDUAL',
+    name: tag,
+    code: tag,
+    medicalNetworkId,
+  });
+}
+
+/** A file on disk under the upload directory, as multer would leave it. */
+async function givenUploadedFile(contents: string) {
+  const name = `${unique()}.xlsx`;
+  await writeFile(join(env.uploadDir, name), contents);
+  return { storedUrl: `${env.uploadPublicPath}/${name}`, originalName: 'GlobeMed Network.xlsx' };
+}
+
+const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  );
+
 async function cleanup(): Promise<void> {
   if (!prisma) return;
   await prisma.plan.deleteMany({ where: { name: { startsWith: PREFIX } } });
-  // Networks cascade with their company.
   await prisma.company.deleteMany({ where: { name: { startsWith: PREFIX } } });
+  await prisma.medicalNetwork.deleteMany({ where: { name: { startsWith: PREFIX } } });
 }
 
-describe.skipIf(!url)('a company’s medical networks', () => {
+describe.skipIf(!url)('the shared medical networks', () => {
   beforeEach(cleanup);
 
   afterAll(async () => {
@@ -66,183 +99,154 @@ describe.skipIf(!url)('a company’s medical networks', () => {
     await prisma?.$disconnect();
   });
 
-  it('never shows one company the networks of another', async () => {
+  it('offers one list to every company, and lets each sell on any entry', async () => {
     const { a, b } = await givenTwoCompanies();
+    const globemed = await createMedicalNetwork({ name: `${PREFIX} GlobeMed` });
 
-    await createMedicalNetwork(a, { name: 'Golden Care Network' });
-    await createMedicalNetwork(a, { name: 'Silver Care Network' });
-    await createMedicalNetwork(b, { name: 'Tier 4' });
+    // Two insurers, one network: the whole reason the list is shared.
+    const ofA = await givenPlanOn(a, globemed.id);
+    const ofB = await givenPlanOn(b, globemed.id);
 
-    const forA = await listMedicalNetworks(a);
-    const forB = await listMedicalNetworks(b);
+    expect(ofA.medicalNetworkId).toBe(globemed.id);
+    expect(ofB.medicalNetworkId).toBe(globemed.id);
+    expect((await getPlan(ofA.id)).medicalNetworkName).toBe(`${PREFIX} GlobeMed`);
 
-    expect(forA.map((network) => network.name)).toEqual([
-      'Golden Care Network',
-      'Silver Care Network',
-    ]);
-    expect(forB.map((network) => network.name)).toEqual(['Tier 4']);
-
-    // Nothing of A's appears in B's list, and every row names its own owner.
-    expect(forB.some((network) => network.name.includes('Care'))).toBe(false);
-    expect(forA.every((network) => network.companyId === a)).toBe(true);
-    expect(forB.every((network) => network.companyId === b)).toBe(true);
+    const listed = (await listMedicalNetworks()).find((n) => n.id === globemed.id);
+    expect(listed?.planCount).toBe(2);
   });
 
-  it('lets two companies use the SAME network name without collision', async () => {
-    const { a, b } = await givenTwoCompanies();
-
-    // Uniqueness is per company: one insurer's "Full Network" is not another's.
-    const ofA = await createMedicalNetwork(a, { name: 'Full Network' });
-    const ofB = await createMedicalNetwork(b, { name: 'Full Network' });
-
-    expect(ofA.id).not.toBe(ofB.id);
-    expect(await listMedicalNetworks(a)).toHaveLength(1);
-    expect(await listMedicalNetworks(b)).toHaveLength(1);
-  });
-
-  it('refuses a second network of the same name within one company', async () => {
-    const { a } = await givenTwoCompanies();
-    await createMedicalNetwork(a, { name: 'Golden Care Network' });
-
-    await expect(
-      createMedicalNetwork(a, { name: 'golden care network' }),
-    ).rejects.toMatchObject({ status: 409 });
-  });
-
-  it('refuses to reorder using a network belonging to another company', async () => {
-    const { a, b } = await givenTwoCompanies();
-    const ofA = await createMedicalNetwork(a, { name: 'Golden Care Network' });
-    const ofB = await createMedicalNetwork(b, { name: 'Tier 4' });
-
-    await expect(reorderMedicalNetworks(a, [ofB.id, ofA.id])).rejects.toMatchObject({
-      status: 400,
+  it('refuses a second network of the same name, whatever its case', async () => {
+    await createMedicalNetwork({ name: `${PREFIX} GlobeMed` });
+    await expect(createMedicalNetwork({ name: `${PREFIX} globemed` })).rejects.toMatchObject({
+      status: 409,
     });
-
-    // And A's own order is untouched by the attempt.
-    expect((await listMedicalNetworks(a)).map((n) => n.name)).toEqual(['Golden Care Network']);
   });
 
-
-/**
- * A plan and one priced variant of it.
- *
- * The variant is where a network is chosen now, so every test below needs both.
- */
-async function givenPlanOn(companyId: string, medicalNetworkId: string | null) {
-  const tag = `${PREFIX}_${unique()}`;
-  const plan = await createPlan({
-    companyId,
-    customerType: 'INDIVIDUAL',
-    name: tag,
-    code: tag,
-  });
-  const variant = await createPlanConfiguration({
-    planId: plan.id,
-    geographicalCoverage: 'LOCAL',
-    medicalNetworkId,
-  });
-  return { planId: plan.id, variantId: variant.id };
-}
-
-let counter = 0;
-function unique() {
-  counter += 1;
-  return String(counter);
-}
-
-  it('refuses to sell a variant on another company’s network', async () => {
-    const { a, b } = await givenTwoCompanies();
-    const ofB = await createMedicalNetwork(b, { name: 'Tier 4' });
-
-    await expect(givenPlanOn(a, ofB.id)).rejects.toMatchObject({ status: 400 });
-  });
-
-  it('sells one plan on two networks, as two variants', async () => {
-    // The whole reason the network sits on the variant: "Gold on the full
-    // network" and "Gold on the limited one" are one product sold two ways.
+  it('refuses a plan on a network that does not exist', async () => {
     const { a } = await givenTwoCompanies();
-    const full = await createMedicalNetwork(a, { name: 'Full Network' });
-    const limited = await createMedicalNetwork(a, { name: 'Limited Network' });
+    await expect(givenPlanOn(a, 'no_such_network')).rejects.toMatchObject({ status: 400 });
+  });
 
-    const { planId } = await givenPlanOn(a, full.id);
-    const second = await createPlanConfiguration({
-      planId,
+  it('puts the network on the plan, and its variants say nothing about it', async () => {
+    const { a } = await givenTwoCompanies();
+    const globemed = await createMedicalNetwork({ name: `${PREFIX} GlobeMed` });
+    const plan = await givenPlanOn(a, globemed.id);
+
+    const variant = await createPlanConfiguration({
+      planId: plan.id,
       geographicalCoverage: 'LOCAL',
-      medicalNetworkId: limited.id,
     });
+    expect(variant).not.toHaveProperty('medicalNetworkId');
 
-    expect(second.medicalNetworkId).toBe(limited.id);
-    expect(await db().planConfiguration.count({ where: { planId } })).toBe(2);
+    // Moving the plan moves every variant with it, because there is one fact.
+    const axa = await createMedicalNetwork({ name: `${PREFIX} AXA` });
+    const moved = await updatePlan(plan.id, { medicalNetworkId: axa.id });
+    expect(moved.medicalNetworkName).toBe(`${PREFIX} AXA`);
   });
 
   it('ranks the list, and re-ranking changes no plan’s answer', async () => {
     const { a } = await givenTwoCompanies();
+    const first = await createMedicalNetwork({ name: `${PREFIX} A` });
+    const second = await createMedicalNetwork({ name: `${PREFIX} B` });
+    const third = await createMedicalNetwork({ name: `${PREFIX} C` });
+    const plan = await givenPlanOn(a, second.id);
 
-    // Added at the bottom in turn, so creation order IS the starting ranking.
-    const golden = await createMedicalNetwork(a, { name: 'Golden Care Network' });
-    const silver = await createMedicalNetwork(a, { name: 'Silver Care Network' });
-    const basic = await createMedicalNetwork(a, { name: 'Basic Network' });
+    await reorderMedicalNetworks([first.id, third.id, second.id]);
 
-    expect((await listMedicalNetworks(a)).map((n) => n.name)).toEqual([
-      'Golden Care Network',
-      'Silver Care Network',
-      'Basic Network',
-    ]);
-    const { variantId } = await givenPlanOn(a, silver.id);
-
-    // The company decides Basic outranks Silver after all.
-    await reorderMedicalNetworks(a, [golden.id, basic.id, silver.id]);
-
-    const ranked = await listMedicalNetworks(a);
-    expect(ranked.map((n) => n.name)).toEqual([
-      'Golden Care Network',
-      'Basic Network',
-      'Silver Care Network',
-    ]);
-    // Positions are renumbered contiguously from the top.
-    expect(ranked.map((n) => n.sortOrder)).toEqual([0, 1, 2]);
-
-    /**
-     * The variant still names the SAME network. Re-ranking says how good a
-     * network is thought to be; it never rewrites what a variant is sold on.
-     */
-    const after = await db().planConfiguration.findUniqueOrThrow({ where: { id: variantId } });
-    expect(after.medicalNetworkId).toBe(silver.id);
+    const ours = (await listMedicalNetworks()).filter((n) => n.name.startsWith(PREFIX));
+    expect(ours.map((n) => n.name)).toEqual([`${PREFIX} A`, `${PREFIX} C`, `${PREFIX} B`]);
+    expect((await getPlan(plan.id)).medicalNetworkId).toBe(second.id);
   });
 
   it('renames in place, so every plan sold on it follows', async () => {
     const { a } = await givenTwoCompanies();
-    const network = await createMedicalNetwork(a, { name: 'Golden Care Netwrok' });
-    const { variantId } = await givenPlanOn(a, network.id);
+    const network = await createMedicalNetwork({ name: `${PREFIX} Globmed` });
+    const plan = await givenPlanOn(a, network.id);
 
-    await updateMedicalNetwork(network.id, { name: 'Golden Care Network' });
-
-    // A variant points at the row, never at its wording.
-    const after = await db().planConfiguration.findUniqueOrThrow({ where: { id: variantId } });
-    expect(after.medicalNetworkId).toBe(network.id);
-    expect((await listMedicalNetworks(a))[0]!.name).toBe('Golden Care Network');
+    await updateMedicalNetwork(network.id, { name: `${PREFIX} GlobeMed` });
+    expect((await getPlan(plan.id)).medicalNetworkName).toBe(`${PREFIX} GlobeMed`);
   });
 
-  it('will not quietly delete a network variants are sold on', async () => {
+  it('will not quietly delete a network plans are sold on', async () => {
     const { a } = await givenTwoCompanies();
-    const network = await createMedicalNetwork(a, { name: 'Golden Care Network' });
-    const { variantId } = await givenPlanOn(a, network.id);
+    const network = await createMedicalNetwork({ name: `${PREFIX} GlobeMed` });
+    const plan = await givenPlanOn(a, network.id);
 
     await expect(deleteMedicalNetwork(network.id)).rejects.toMatchObject({ status: 409 });
 
-    // Forced, the variant survives and simply stops naming a network.
+    // Forced, the plan survives and simply stops naming a network.
     await deleteMedicalNetwork(network.id, { force: true });
-    const after = await db().planConfiguration.findUniqueOrThrow({ where: { id: variantId } });
-    expect(after.medicalNetworkId).toBeNull();
+    expect((await getPlan(plan.id)).medicalNetworkId).toBeNull();
   });
 
-  it('clears the reference when a variant is moved off a network', async () => {
-    const { a } = await givenTwoCompanies();
-    const network = await createMedicalNetwork(a, { name: 'Golden Care Network' });
-    const { variantId } = await givenPlanOn(a, network.id);
+  it('replaces the provider list whole and keeps the old file in its history', async () => {
+    const network = await createMedicalNetwork({ name: `${PREFIX} GlobeMed` });
+    expect(await resolveProviderList(network.id).catch((error) => error)).toMatchObject({
+      status: 404,
+    });
 
-    // Null is a real answer: the document does not say which network.
-    const updated = await updatePlanConfiguration(variantId, { medicalNetworkId: null });
-    expect(updated.medicalNetworkId).toBeNull();
+    const may = await givenUploadedFile('may');
+    const withFile = await setProviderList(network.id, may);
+    expect(withFile.providerListFileName).toBe('GlobeMed Network.xlsx');
+    expect(withFile.providerListUpdatedAt).not.toBeNull();
+
+    const september = await givenUploadedFile('september');
+    await setProviderList(network.id, september);
+
+    // The stable address now hands out the new file, under the insurer's name.
+    const current = await resolveProviderList(network.id);
+    expect(basename(current.path)).toBe(basename(september.storedUrl));
+    expect(current.fileName).toBe('GlobeMed Network.xlsx');
+    expect(await readFile(current.path, 'utf8')).toBe('september');
+
+    // The old one is NOT gone: it is the second entry in the history, still
+    // on disk and still downloadable by its own address.
+    const history = (await listMedicalNetworks()).find(
+      (n) => n.id === network.id,
+    )!.providerListHistory!;
+    expect(history.map((v) => v.isCurrent)).toEqual([true, false]);
+    expect(history[1]!.fileName).toBe('GlobeMed Network.xlsx');
+    const past = await resolveProviderListVersion(network.id, history[1]!.id);
+    expect(await readFile(past.path, 'utf8')).toBe('may');
+    expect(await exists(join(env.uploadDir, basename(may.storedUrl)))).toBe(true);
+
+    // Taking the list off the network keeps the history, and only the
+    // stable address stops answering.
+    await clearProviderList(network.id);
+    expect(await exists(current.path)).toBe(true);
+    expect(await resolveProviderList(network.id).catch((error) => error)).toMatchObject({
+      status: 404,
+    });
+    expect((await resolveProviderListVersion(network.id, history[0]!.id)).fileName).toBe(
+      'GlobeMed Network.xlsx',
+    );
+
+    // Deleting the network takes every file with it.
+    await deleteMedicalNetwork(network.id, { force: true });
+    expect(await exists(current.path)).toBe(false);
+    expect(await exists(past.path)).toBe(false);
+  });
+
+  it('never resolves a stored path outside the upload directory', async () => {
+    const network = await createMedicalNetwork({ name: `${PREFIX} GlobeMed` });
+    await db().medicalNetwork.update({
+      where: { id: network.id },
+      data: { providerListUrl: '/uploads/../../.env', providerListFileName: 'x' },
+    });
+    const resolved = await resolveProviderList(network.id);
+    expect(resolved.path).toBe(join(env.uploadDir, '.env'));
+  });
+
+  it('keeps the stable address answering for a retired network', async () => {
+    // A customer holding an older PDF still deserves the list it promised.
+    const network = await createMedicalNetwork({ name: `${PREFIX} GlobeMed` });
+    await setProviderList(network.id, await givenUploadedFile('list'));
+    await updateMedicalNetwork(network.id, { isActive: false });
+
+    expect((await listMedicalNetworks()).some((n) => n.id === network.id)).toBe(false);
+    expect(
+      (await listMedicalNetworks({ includeInactive: true })).some((n) => n.id === network.id),
+    ).toBe(true);
+    expect((await resolveProviderList(network.id)).fileName).toBe('GlobeMed Network.xlsx');
   });
 });

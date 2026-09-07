@@ -1,5 +1,5 @@
 import { variantDisplayName, type PlanConfigurationDto } from '@aggregator/shared';
-import type { CompanyMedicalNetwork, PlanConfiguration, PlanPriceBand } from '@prisma/client';
+import type { PlanConfiguration, PlanPriceBand } from '@prisma/client';
 import { toIso, toNumber } from '../../lib/decimal.js';
 import {
   toPlanOptionDto,
@@ -9,7 +9,6 @@ import {
 export function toPlanConfigurationDto(
   configuration: PlanConfiguration & {
     options?: PlanOptionWithRelations[];
-    medicalNetwork?: CompanyMedicalNetwork | null;
     plan?: { name: string } | null;
     priceBands?: PlanPriceBand[];
   },
@@ -20,12 +19,6 @@ export function toPlanConfigurationDto(
     id: configuration.id,
     planId: configuration.planId,
     geographicalCoverage: configuration.geographicalCoverage,
-    medicalNetworkId: configuration.medicalNetworkId,
-    // Resolved when the variant was read with its network, so a row renders
-    // without a second request.
-    ...(configuration.medicalNetwork !== undefined
-      ? { medicalNetworkName: configuration.medicalNetwork?.name ?? null }
-      : {}),
     roomType: configuration.roomType,
     /**
      * "Gold+ Local" — computed from the plan's name and the scope, so renaming
@@ -56,8 +49,6 @@ export function toPlanConfigurationDto(
     isActive: configuration.isActive,
     createdAt: toIso(configuration.createdAt),
     updatedAt: toIso(configuration.updatedAt),
-    ...(configuration.options
-      ? { options: configuration.options.map(toPlanOptionDto) }
-      : {}),
+    ...(configuration.options ? { options: configuration.options.map(toPlanOptionDto) } : {}),
   };
 }

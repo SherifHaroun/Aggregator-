@@ -13,8 +13,8 @@ import type {
   ComparisonRequestInput,
   ComparisonResultDto,
   CompanyDto,
-  CompanyMedicalNetworkDto,
   InsuranceOptionDto,
+  MedicalNetworkDto,
   OptionChoiceDto,
   Paginated,
   PlanConfigurationDto,
@@ -29,11 +29,12 @@ import {
   useQueryClient,
   type QueryClient,
 } from '@tanstack/react-query';
-import { api, query } from '@/lib/api-client';
+import { api, query, uploadFile } from '@/lib/api-client';
 
 /** Query key roots, so invalidation is consistent across features. */
 export const keys = {
   companies: ['companies'] as const,
+  medicalNetworks: ['medical-networks'] as const,
   insuranceOptions: ['insurance-options'] as const,
   plans: ['plans'] as const,
   planConfigurations: ['plan-configurations'] as const,
@@ -128,64 +129,56 @@ export function useDeleteCompany() {
 }
 
 // ---------------------------------------------------------------------------
-// The provider networks a company sells
+// Medical networks — one shared list, each with its provider list on file
 // ---------------------------------------------------------------------------
 
 /**
- * ONE COMPANY'S networks, in the order that company ranks them.
- *
- * Scoped by the company in the path, never filtered client-side: one insurer's
- * network estate is not another's, and a list that could show the wrong one is
- * a list that eventually will.
+ * The networks plans may be sold on. Active ones by default — that is what a
+ * plan chooses from; the management screen asks for the retired ones too.
  */
-export function useMedicalNetworks(companyId: string | undefined) {
+export function useMedicalNetworks({ includeInactive = false } = {}) {
   return useQuery({
-    queryKey: [...keys.companies, companyId, 'medical-networks'],
-    queryFn: () => api.get<CompanyMedicalNetworkDto[]>(`/companies/${companyId}/medical-networks`),
-    enabled: Boolean(companyId),
+    queryKey: [...keys.medicalNetworks, { includeInactive }],
+    queryFn: () =>
+      api.get<MedicalNetworkDto[]>(
+        `/medical-networks${query({ includeInactive: includeInactive ? 'true' : undefined })}`,
+      ),
   });
 }
 
 /**
- * Every network write refreshes that company and its plans.
+ * Every network write refreshes the list and the plans.
  *
  * A plan names its network, so a rename has to reach the plan rows showing it,
  * and a deletion has to reach the plans that just lost one.
  */
-function useNetworkMutation<TResult, TInput>(
-  companyId: string,
-  mutationFn: (input: TInput) => Promise<TResult>,
-) {
+function useNetworkMutation<TResult, TInput>(mutationFn: (input: TInput) => Promise<TResult>) {
   const queryClient = useQueryClient();
 
   return useMutation<TResult, unknown, TInput>({
     mutationFn,
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: [...keys.companies, companyId, 'medical-networks'],
-      });
-      void queryClient.invalidateQueries({ queryKey: keys.companies });
+      void queryClient.invalidateQueries({ queryKey: keys.medicalNetworks });
       void queryClient.invalidateQueries({ queryKey: keys.plans });
+      void queryClient.invalidateQueries({ queryKey: keys.comparison });
     },
   });
 }
 
-/** Add a network. It lands at the bottom of the company's ranking. */
-export function useCreateMedicalNetwork(companyId: string) {
-  return useNetworkMutation<CompanyMedicalNetworkDto, { name: string }>(companyId, (input) =>
-    api.post<CompanyMedicalNetworkDto>(`/companies/${companyId}/medical-networks`, input),
+/** Add a network. It lands at the bottom of the list. */
+export function useCreateMedicalNetwork() {
+  return useNetworkMutation<MedicalNetworkDto, { name: string }>((input) =>
+    api.post<MedicalNetworkDto>('/medical-networks', input),
   );
 }
 
-/** Rename one. Plans point at the row, so a correction reaches them all. */
-export function useSaveMedicalNetwork(companyId: string) {
-  return useNetworkMutation<CompanyMedicalNetworkDto, { networkId: string; name: string }>(
-    companyId,
-    ({ networkId, name }) =>
-      api.patch<CompanyMedicalNetworkDto>(
-        `/companies/${companyId}/medical-networks/${networkId}`,
-        { name },
-      ),
+/** Rename or retire one. Plans point at the row, so a correction reaches them all. */
+export function useSaveMedicalNetwork() {
+  return useNetworkMutation<
+    MedicalNetworkDto,
+    { networkId: string; name?: string; isActive?: boolean }
+  >(({ networkId, ...input }) =>
+    api.patch<MedicalNetworkDto>(`/medical-networks/${networkId}`, input),
   );
 }
 
@@ -195,44 +188,37 @@ export function useSaveMedicalNetwork(companyId: string) {
  * Refused without `force` while plans are sold on it — the API says how many,
  * so the employee can be told before anything changes.
  */
-export function useDeleteMedicalNetwork(companyId: string) {
-  return useNetworkMutation<void, { networkId: string; force?: boolean }>(
-    companyId,
-    ({ networkId, force }) =>
-      api.delete<void>(
-        `/companies/${companyId}/medical-networks/${networkId}${force ? '?force=true' : ''}`,
-      ),
+export function useDeleteMedicalNetwork() {
+  return useNetworkMutation<void, { networkId: string; force?: boolean }>(({ networkId, force }) =>
+    api.delete<void>(`/medical-networks/${networkId}${force ? '?force=true' : ''}`),
   );
 }
 
-/** The company's own ranking of its networks, best first. */
+/** The order the list is offered in, best first. */
+export function useReorderMedicalNetworks() {
+  return useNetworkMutation<void, { orderedIds: string[] }>((input) =>
+    api.post<void>('/medical-networks/reorder', input),
+  );
+}
+
 /**
- * Record what a network gives access to — hospitals, pharmacies, laboratories.
+ * Replace a network's provider list with the file the insurer sent.
  *
- * Replaces the whole estate, because the screen edits a short list and saves
- * it: a partial update would leave no way to remove a category. Entered once
- * here, every variant sold on the network reads it.
+ * Whole, never merged: the insurer publishes a complete list each time. From
+ * this moment every plan on the network hands out the new file — including
+ * from PDFs already sent, which point at the network rather than at a file.
  */
-export function useSetNetworkProviders(companyId: string) {
-  return useInvalidatingMutation(
-    keys.companies,
-    ({
-      networkId,
-      providers,
-    }: {
-      networkId: string;
-      providers: { category: string; count: number | null; detail: string | null }[];
-    }) =>
-      api.put<CompanyMedicalNetworkDto>(
-        `/companies/${companyId}/medical-networks/${networkId}/providers`,
-        { providers },
-      ),
+export function useUploadProviderList() {
+  return useNetworkMutation<MedicalNetworkDto, { networkId: string; file: File }>(
+    ({ networkId, file }) =>
+      uploadFile<MedicalNetworkDto>(`/medical-networks/${networkId}/provider-list`, file),
   );
 }
 
-export function useReorderMedicalNetworks(companyId: string) {
-  return useNetworkMutation<void, { orderedIds: string[] }>(companyId, (input) =>
-    api.post<void>(`/companies/${companyId}/medical-networks/reorder`, input),
+/** Take the provider list off a network, leaving the network in place. */
+export function useClearProviderList() {
+  return useNetworkMutation<MedicalNetworkDto, string>((networkId) =>
+    api.delete<MedicalNetworkDto>(`/medical-networks/${networkId}/provider-list`),
   );
 }
 
@@ -344,9 +330,7 @@ export function useDeleteInsuranceOption() {
 // Plans
 // ---------------------------------------------------------------------------
 
-export function usePlans(
-  filters: { companyId?: string; isActive?: boolean } = {},
-) {
+export function usePlans(filters: { companyId?: string; isActive?: boolean } = {}) {
   return useQuery({
     queryKey: [...keys.plans, filters],
     queryFn: () =>

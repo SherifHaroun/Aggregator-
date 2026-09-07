@@ -3,23 +3,7 @@ import { success } from '../../lib/api-response.js';
 import { listQuerySchema } from '../../lib/pagination.js';
 import { param } from '../../lib/request.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
-import {
-  createCompanySchema,
-  createMedicalNetworkSchema,
-  deleteMedicalNetworkQuerySchema,
-  reorderMedicalNetworksSchema,
-  setNetworkProvidersSchema,
-  updateCompanySchema,
-  updateMedicalNetworkSchema,
-} from './companies.schemas.js';
-import {
-  createMedicalNetwork,
-  deleteMedicalNetwork,
-  listMedicalNetworks,
-  reorderMedicalNetworks,
-  updateMedicalNetwork,
-  setNetworkProviders,
-} from './medical-networks.service.js';
+import { createCompanySchema, updateCompanySchema } from './companies.schemas.js';
 import {
   createCompany,
   deleteCompany,
@@ -28,74 +12,12 @@ import {
   updateCompany,
 } from './companies.service.js';
 
+/**
+ * Companies only. Medical networks used to be nested here, one list per
+ * company; they are now a shared list of their own under `/medical-networks`,
+ * because GlobeMed is one network however many insurers sell on it.
+ */
 export const companiesRouter: Router = Router();
-
-// --- the provider networks this company sells -------------------------------
-//
-// Nested under the company because that is who owns them: a plan picks one of
-// its own company's networks, and never types a network of its own.
-
-companiesRouter.get(
-  '/:id/medical-networks',
-  asyncHandler(async (req, res) => {
-    res.json(success(await listMedicalNetworks(param(req, 'id'))));
-  }),
-);
-
-companiesRouter.post(
-  '/:id/medical-networks',
-  asyncHandler(async (req, res) => {
-    res
-      .status(201)
-      .json(
-        success(
-          await createMedicalNetwork(param(req, 'id'), createMedicalNetworkSchema.parse(req.body)),
-        ),
-      );
-  }),
-);
-
-/** The company's own ranking of its networks. Declared before `/:networkId`. */
-companiesRouter.post(
-  '/:id/medical-networks/reorder',
-  asyncHandler(async (req, res) => {
-    const { orderedIds } = reorderMedicalNetworksSchema.parse(req.body);
-    await reorderMedicalNetworks(param(req, 'id'), orderedIds);
-    res.status(204).send();
-  }),
-);
-
-companiesRouter.patch(
-  '/:id/medical-networks/:networkId',
-  asyncHandler(async (req, res) => {
-    res.json(
-      success(
-        await updateMedicalNetwork(
-          param(req, 'networkId'),
-          updateMedicalNetworkSchema.parse(req.body),
-        ),
-      ),
-    );
-  }),
-);
-
-/** What the network gives access to. Replaces the whole estate. */
-companiesRouter.put(
-  '/:id/medical-networks/:networkId/providers',
-  asyncHandler(async (req, res) => {
-    const { providers } = setNetworkProvidersSchema.parse(req.body);
-    res.json(success(await setNetworkProviders(param(req, 'networkId'), providers)));
-  }),
-);
-
-companiesRouter.delete(
-  '/:id/medical-networks/:networkId',
-  asyncHandler(async (req, res) => {
-    const { force } = deleteMedicalNetworkQuerySchema.parse(req.query);
-    await deleteMedicalNetwork(param(req, 'networkId'), { force });
-    res.status(204).send();
-  }),
-);
 
 companiesRouter.get(
   '/',

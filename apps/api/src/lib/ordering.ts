@@ -20,11 +20,7 @@ export const reorderSchema = z.object({
  * the raw query safe.
  */
 export type SortableTable =
-  | 'insurance_options'
-  | 'option_fields'
-  | 'option_choices'
-  | 'plan_options'
-  | 'company_medical_networks';
+  'insurance_options' | 'option_fields' | 'option_choices' | 'plan_options' | 'medical_networks';
 
 /** The subset of a Prisma client this helper needs. */
 interface RawClient {

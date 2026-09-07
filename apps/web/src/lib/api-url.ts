@@ -12,9 +12,39 @@
 /** Anything with a scheme — `https:`, `data:`, `blob:` — is already complete. */
 const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:/i;
 
+import {
+  medicalNetworkProviderListPath,
+  medicalNetworkProviderListVersionPath,
+} from '@aggregator/shared';
+
 /** Base path (or absolute URL) every API request is made against. */
 export function apiBaseUrl(): string {
   return import.meta.env.VITE_API_BASE_URL ?? '/api/v1';
+}
+
+/**
+ * THE ADDRESS A CUSTOMER OPENS A NETWORK'S PROVIDER LIST FROM.
+ *
+ * Absolute, because it is written into PDFs that leave this site, and keyed on
+ * the network rather than on the file: a PDF issued last month opens whatever
+ * list is current today. Resolved against the API — in development that is
+ * this origin through the Vite proxy, in production the API's own host.
+ */
+export function providerListUrl(networkId: string): string {
+  return absolute(`${apiBaseUrl()}${medicalNetworkProviderListPath(networkId)}`);
+}
+
+/** A PAST issue of the list, from the network's history. Never put in a PDF. */
+export function providerListVersionUrl(networkId: string, versionId: string): string {
+  return absolute(`${apiBaseUrl()}${medicalNetworkProviderListVersionPath(networkId, versionId)}`);
+}
+
+function absolute(path: string): string {
+  try {
+    return new URL(path, globalThis.location?.href ?? 'http://localhost').href;
+  } catch {
+    return path;
+  }
 }
 
 /**

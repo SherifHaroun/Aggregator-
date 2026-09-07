@@ -8,5 +8,6 @@ export * from './comparison-options';
 export * from './useComparisonCriteria';
 export * from './PlanSummary';
 export * from './PlanPreviewDialog';
+export * from './ProviderListLink';
 export * from './usePlanDocument';
 export * from './plan-document';

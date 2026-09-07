@@ -11,6 +11,7 @@ import { CompaniesPage } from '@/pages/manage/CompaniesPage';
 import { CompanyDetailPage } from '@/pages/manage/CompanyDetailPage';
 import { BenefitsPage } from '@/pages/manage/BenefitsPage';
 import { PlanTiersPage } from '@/pages/manage/PlanTiersPage';
+import { MedicalNetworksPage } from '@/pages/manage/MedicalNetworksPage';
 import { PlanConfigurationDetailPage } from '@/pages/manage/PlanConfigurationDetailPage';
 import { PlanDetailPage } from '@/pages/manage/PlanDetailPage';
 import { PlansPage } from '@/pages/manage/PlansPage';
@@ -37,6 +38,7 @@ export const routes: RouteObject[] = [
       { path: ROUTE_PATTERNS.planDetail, element: <PlanDetailPage /> },
       { path: ROUTES.benefits.list, element: <BenefitsPage /> },
       { path: ROUTES.planTiers.list, element: <PlanTiersPage /> },
+      { path: ROUTES.medicalNetworks.list, element: <MedicalNetworksPage /> },
       { path: ROUTE_PATTERNS.configurationDetail, element: <PlanConfigurationDetailPage /> },
 
       { path: ROUTES.comparison.new, element: <NewComparisonPage /> },

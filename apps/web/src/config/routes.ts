@@ -34,6 +34,10 @@ export const ROUTES = {
     /** Read-only: what Basic, Standard and Premium mean. Nothing to manage. */
     list: '/plan-tiers',
   },
+  medicalNetworks: {
+    /** The shared list plans are sold on, each with its provider list on file. */
+    list: '/medical-networks',
+  },
   configurations: {
     detail: (companyId: string, planId: string, configurationId: string) =>
       `/companies/${companyId}/plans/${planId}/configurations/${configurationId}`,

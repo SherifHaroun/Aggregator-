@@ -45,12 +45,12 @@ configuration endpoint and any future comparison output all update.
 
 **`packages/shared/src/config/`**
 
-| File                        | Contains                                          |
-| --------------------------- | ------------------------------------------------- |
-| `customer-types.ts`         | Individual, Family, SME                           |
-| `geographical-coverage.ts`  | Local, International                              |
-| `comparison-form.ts`        | The steps of the selection screen and their order |
-| `option-registry.ts`        | The generic option shape and its helpers          |
+| File                       | Contains                                          |
+| -------------------------- | ------------------------------------------------- |
+| `customer-types.ts`        | Individual, Family, SME                           |
+| `geographical-coverage.ts` | Local, International                              |
+| `comparison-form.ts`       | The steps of the selection screen and their order |
+| `option-registry.ts`       | The generic option shape and its helpers          |
 
 Every option has `id`, `label`, `description?`, `order` and `enabled`. Setting
 `enabled: false` retires an option from the UI without deleting it, so existing
@@ -116,9 +116,10 @@ Company ──< Plan >── InsuranceType ──< InsuranceOption ──< Optio
    │                                │                            │
    │                                └──< PlanOptionValue >───────┘
    │
-   └──< CompanyMedicalNetwork ──< NetworkProvider
-              ^
-              └── a variant names one of its own company's networks
+   └── (no networks of its own)
+
+MedicalNetwork ──< Plan          one SHARED list; a plan names one entry,
+   (providerListUrl …)           every variant of the plan inherits it
 ```
 
 **No benefit is ever a column.** There is no `dentalCare` or `maternity` field
@@ -166,7 +167,8 @@ column for it would read "not covered" against every plan.
 ```
 Company
   └── Plan          customerType = INDIVIDUAL | FAMILY | SME
-        └── Variant (PlanConfiguration)   coverage, network, room, ceiling
+        │           medicalNetworkId → the shared MedicalNetwork list
+        └── Variant (PlanConfiguration)   coverage, room, ceiling
               ├── benefits   valued ONCE for the whole variant
               └── price bands   one premium per age band
 ```
@@ -179,17 +181,42 @@ managing one should not be able to reach the others, and the comparison filters
 on this column.
 
 **A `PlanConfiguration` is one VARIANT** — the plan sold one way: one coverage
-scope, on one network, at one ceiling. "Gold+ Local" and "Gold+ International"
-are two variants of one plan, never two plans with the scope written into their
-names. Its display name is DERIVED from the plan's name and the coverage, never
-stored, so renaming the plan renames every variant with it — and the comparison
-filters on the columns, never on the name.
+scope, at one ceiling. "Gold+ Local" and "Gold+ International" are two variants
+of one plan, never two plans with the scope written into their names. Its
+display name is DERIVED from the plan's name and the coverage, never stored, so
+renaming the plan renames every variant with it — and the comparison filters on
+the columns, never on the name.
 
-`@@unique([planId, geographicalCoverage, medicalNetworkId, roomType, annualLimit])`
-is what makes one variant different from another. PostgreSQL treats NULLs as
-distinct, so two variants that leave the network, room and ceiling unstated slip
-past it; `plan-configurations.service.ts` refuses those and is the authority for
-the case the index cannot see.
+`@@unique([planId, geographicalCoverage, roomType, annualLimit])` is what makes
+one variant different from another. PostgreSQL treats NULLs as distinct, so two
+variants that leave the room and ceiling unstated slip past it;
+`plan-configurations.service.ts` refuses those and is the authority for the case
+the index cannot see.
+
+### Medical networks and their provider lists
+
+**A `MedicalNetwork` is SHARED**, like a benefit: GlobeMed is one network
+however many insurers sell on it, so the list belongs to no company and lives
+under `/medical-networks`. **The plan names it**, not the variant — every
+priced row of a plan gives access to the same estate — and a customer is told
+the network's NAME only. Which tier or card they bought is negotiated per deal
+and is recorded nowhere.
+
+**The provider list is the insurer's own file**, kept exactly as sent
+(`providerListUrl`, `providerListFileName`, `providerListUpdatedAt`). Every
+insurer lays its spreadsheet out differently and reissues it every few months,
+so nothing parses it: an employee uploads the new file on the Medical networks
+screen and it replaces the old one whole. **Every upload is kept**: each is a
+row in `MedicalNetworkProviderList`, downloadable by its own address under
+`/provider-list/versions/:id`, so the question "what was the list in May?" is
+answered by the file itself. Deleting the network deletes its files.
+
+**The download address is STABLE.** `GET /medical-networks/:id/provider-list`
+streams whatever file is current, under the insurer's own file name. It is
+keyed on the network, never on the file, and it is what the plan PDF's
+"Download medical network" button links to — so a PDF a customer saved months
+ago opens today's list. It is a read, so it needs no token: the customer
+holding the PDF is who it is for.
 
 **A `PlanPriceBand` is what the variant costs across one age band.** Age is the
 only thing that varies between them — the cover above is identical for all of
@@ -359,14 +386,14 @@ there is no separate endpoint. `DELETE` means permanent removal and is refused
 (409) whenever other records depend on the row, so historical comparisons and
 reports keep resolving:
 
-| Deleting           | Refused when                                                       |
-| ------------------ | ------------------------------------------------------------------ |
-| Company            | it has plans                                                        |
-| Insurance type     | it has plans or options                                             |
-| Option             | any configuration uses it, or it groups sub-benefits — see below    |
-| Option field       | any configuration has supplied a value for it                       |
-| Plan               | never — configurations, options and values cascade with it          |
-| Plan configuration | never — its options and values cascade with it                      |
+| Deleting           | Refused when                                                     |
+| ------------------ | ---------------------------------------------------------------- |
+| Company            | it has plans                                                     |
+| Insurance type     | it has plans or options                                          |
+| Option             | any configuration uses it, or it groups sub-benefits — see below |
+| Option field       | any configuration has supplied a value for it                    |
+| Plan               | never — configurations, options and values cascade with it       |
+| Plan configuration | never — its options and values cascade with it                   |
 
 `OptionField.dataType` cannot be changed once plans have supplied values for it,
 since existing values live in a column chosen by the old type.
@@ -397,11 +424,11 @@ at once — an attachment points at the record and nothing anywhere holds a copy
 Changing `valueKind` rewrites the benefit's one field in place, so every plan
 keeps pointing at the same field, and migrates the values already recorded:
 
-| Change | What happens to the figures |
-| ------ | --------------------------- |
+| Change             | What happens to the figures                                                                                                             |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
 | percentage ↔ limit | Both live in `numberValue`: every figure survives, except one over 100 becoming a percentage, which is cleared rather than left invalid |
-| number → text | Each figure is written out, grouped as it read on screen |
-| text → number | Text that reads as a number is converted (separators stripped); wording that cannot — a network name — is cleared |
+| number → text      | Each figure is written out, grouped as it read on screen                                                                                |
+| text → number      | Text that reads as a number is converted (separators stripped); wording that cannot — a network name — is cleared                       |
 
 The dialog states which of these applies, and how many configurations it
 touches, before the employee saves. Values are moved between the typed columns
@@ -562,13 +589,13 @@ refused without the token, and every public read still succeeds.
 
 ### What the public site already has
 
-| Need | Already available |
-| ---- | ----------------- |
-| Find matching plans | `GET /plan-configurations?customerType=&geographicalCoverage=&isActive=true` — customer type filters through the plan, backed by a matching index |
-| Company / plan detail | `GET /companies/:id`, `GET /plans/:id` (includes configurations, options and values) |
-| Benefit definitions | `GET /insurance-options` — employee-defined, with their own fields |
-| Business rules | `@aggregator/shared` — SME average age, customer types, coverage, labels, money formatting |
-| Contracts | `ApiResponse<T>`, `Paginated<T>` and every DTO in `@aggregator/shared` |
+| Need                  | Already available                                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Find matching plans   | `GET /plan-configurations?customerType=&geographicalCoverage=&isActive=true` — customer type filters through the plan, backed by a matching index |
+| Company / plan detail | `GET /companies/:id`, `GET /plans/:id` (includes configurations, options and values)                                                              |
+| Benefit definitions   | `GET /insurance-options` — employee-defined, with their own fields                                                                                |
+| Business rules        | `@aggregator/shared` — SME average age, customer types, coverage, labels, money formatting                                                        |
+| Contracts             | `ApiResponse<T>`, `Paginated<T>` and every DTO in `@aggregator/shared`                                                                            |
 
 `packages/shared` imports no React, Prisma or Express, so a second client can
 depend on it directly.

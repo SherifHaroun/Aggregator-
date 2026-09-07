@@ -85,6 +85,7 @@ function givenPlan(
     code: 'TIER-ONE',
     description: null,
     averageAge: resolveAverageAgeForCustomerType(customerType),
+    medicalNetworkId: null,
     isActive: true,
     ...timestamps,
   });
@@ -305,7 +306,6 @@ function givenConfiguration(
     id,
     planId,
     geographicalCoverage: 'LOCAL',
-    medicalNetworkId: null,
     roomType: null,
     // One variant, priced across a band — never one variant per band.
     priceBands: [{ id: `${id}_band`, ageFrom: 18, ageTo: 60, annualPrice: 7500 }],
@@ -324,7 +324,7 @@ function givenConfiguration(
 // ---------------------------------------------------------------------------
 
 describe('navigation', () => {
-  it('offers exactly Dashboard, Compare plans, Add Company, Companies and Benefits', async () => {
+  it('offers exactly Dashboard, Compare plans, Add Company, Companies, Benefits and Medical networks', async () => {
     renderApp(ROUTES.dashboard);
     const sidebar = await screen.findByRole('navigation');
     const links = within(sidebar)
@@ -332,9 +332,10 @@ describe('navigation', () => {
       .map((link) => link.textContent?.trim());
 
     /**
-     * Benefits earns its place at the top level: the catalogue belongs to no
-     * company — it is one list shared by all of them — so it cannot be reached
-     * by drilling into one. Everything else still is.
+     * Benefits and Medical networks earn their places at the top level: each
+     * is one list shared by every company — the catalogue, and the networks
+     * plans are sold on — so neither can be reached by drilling into one
+     * company. Everything else still is.
      */
     expect(links).toEqual([
       'Dashboard',
@@ -342,6 +343,7 @@ describe('navigation', () => {
       'Add Company',
       'Companies',
       'Benefits',
+      'Medical networks',
     ]);
   });
 
@@ -446,7 +448,9 @@ describe('navigation', () => {
     expect(
       screen.queryByRole('button', { name: /Add (insurance type|tier|plan tier)/i }),
     ).not.toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Add (insurance type|tier)/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('link', { name: /Add (insurance type|tier)/i }),
+    ).not.toBeInTheDocument();
   });
 
   it('sorts a variant into its tier by what the plan actually pays', async () => {
@@ -938,24 +942,41 @@ describe('editing a company', () => {
 });
 
 // ---------------------------------------------------------------------------
-// The provider networks a company sells
+// The shared list of medical networks
 // ---------------------------------------------------------------------------
 
-/** A network on one company's list, at the rank given. */
-function givenNetwork(id: string, companyId: string, name: string, sortOrder: number) {
+/** A network on the shared list, at the position given. */
+function givenNetwork(
+  id: string,
+  name: string,
+  sortOrder: number,
+  file: { name: string } | null = null,
+) {
   store.medicalNetworks.push({
     id,
-    companyId,
     name,
     description: null,
     sortOrder,
+    providerListUrl: file ? `/uploads/${id}.xlsx` : null,
+    providerListFileName: file?.name ?? null,
+    providerListUpdatedAt: file ? '2026-05-15T00:00:00.000Z' : null,
+    providerListHistory: file
+      ? [
+          {
+            id: `${id}_v1`,
+            fileName: file.name,
+            uploadedAt: '2026-05-15T00:00:00.000Z',
+            isCurrent: true,
+          },
+        ]
+      : [],
     isActive: true,
     ...timestamps,
   });
   return id;
 }
 
-/** The network names as the card renders them, top of the ranking first. */
+/** The network names as the list renders them, top first. */
 async function renderedNetworks() {
   const list = await screen.findByRole('list', { name: /medical networks/i });
   return within(list)
@@ -963,62 +984,96 @@ async function renderedNetworks() {
     .map((row) => row.textContent ?? '');
 }
 
-describe('company medical networks', () => {
-  it('shows a company only its OWN networks, never another company’s', async () => {
-    givenCompany('company_1', 'Northwind Assurance');
-    givenCompany('company_2', 'Southgate Mutual');
-    givenNetwork('net_a1', 'company_1', 'Golden Care Network', 0);
-    givenNetwork('net_a2', 'company_1', 'Silver Care Network', 1);
-    givenNetwork('net_b1', 'company_2', 'Harbour Hospitals', 0);
-
-    const northwind = renderApp(ROUTES.companies.detail('company_1'));
-    expect(await screen.findByText('Golden Care Network')).toBeInTheDocument();
-    expect(screen.getByText('Silver Care Network')).toBeInTheDocument();
-    // The other insurer's estate is absent, not merely ranked below.
-    expect(screen.queryByText('Harbour Hospitals')).not.toBeInTheDocument();
-    northwind.unmount();
-
-    renderApp(ROUTES.companies.detail('company_2'));
-    expect(await screen.findByText('Harbour Hospitals')).toBeInTheDocument();
-    expect(screen.queryByText('Golden Care Network')).not.toBeInTheDocument();
-    expect(screen.queryByText('Silver Care Network')).not.toBeInTheDocument();
-  });
-
-  it('reads the list in the company’s own ranking, not the order it was typed', async () => {
-    givenCompany();
+describe('medical networks', () => {
+  it('is one list, reached from its own screen, in the order it is ranked', async () => {
     // Seeded deliberately out of insertion order: rank is what the row is.
-    givenNetwork('net_3', 'company_1', 'Basic Network', 2);
-    givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
-    givenNetwork('net_2', 'company_1', 'Silver Care Network', 1);
+    givenNetwork('net_3', 'Basic Network', 2);
+    givenNetwork('net_1', 'GlobeMed', 0);
+    givenNetwork('net_2', 'AXA Providers', 1);
 
-    renderApp(ROUTES.companies.detail('company_1'));
+    renderApp(ROUTES.medicalNetworks.list);
 
     const rows = await renderedNetworks();
-    expect(rows[0]).toContain('Golden Care Network');
-    expect(rows[1]).toContain('Silver Care Network');
+    expect(rows[0]).toContain('GlobeMed');
+    expect(rows[1]).toContain('AXA Providers');
     expect(rows[2]).toContain('Basic Network');
     // Positions are shown, so the ranking is legible without dragging anything.
     expect(rows[0]).toContain('1.');
     expect(rows[2]).toContain('3.');
   });
 
-  it('persists a new ranking and re-reads the list from it', async () => {
-    givenCompany();
-    givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
-    givenNetwork('net_2', 'company_1', 'Silver Care Network', 1);
-    givenNetwork('net_3', 'company_1', 'Basic Network', 2);
+  it('shows what is on file for each network, and that nothing is for the rest', async () => {
+    givenNetwork('net_1', 'GlobeMed', 0, { name: 'GlobeMed Network May 2026.xlsx' });
+    givenNetwork('net_2', 'AXA Providers', 1);
 
-    const first = renderApp(ROUTES.companies.detail('company_1'));
+    renderApp(ROUTES.medicalNetworks.list);
+
+    const rows = await renderedNetworks();
+    expect(rows[0]).toContain('GlobeMed Network May 2026.xlsx');
+    expect(rows[0]).toContain('Updated 15 May 2026');
+    expect(rows[1]).toContain('No provider list yet.');
+
+    // The download is the STABLE address, keyed on the network, never the file.
+    const link = screen.getByRole('link', { name: /GlobeMed Network May 2026\.xlsx/ });
+    expect(link).toHaveAttribute(
+      'href',
+      expect.stringContaining('/medical-networks/net_1/provider-list'),
+    );
+    expect(link.getAttribute('href')).not.toContain('/uploads/');
+  });
+
+  it('replaces the provider list with the file the insurer sent', async () => {
+    const user = userEvent.setup();
+    givenNetwork('net_1', 'GlobeMed', 0, { name: 'GlobeMed May.xlsx' });
+
+    renderApp(ROUTES.medicalNetworks.list);
+    expect(await screen.findByText('GlobeMed May.xlsx')).toBeInTheDocument();
+
+    const input = screen.getByLabelText('Provider list file for GlobeMed');
+    await user.upload(
+      input,
+      new File(['rows'], 'GlobeMed September.xlsx', { type: 'application/vnd.ms-excel' }),
+    );
+
+    // Replaced whole: the new name is on record and is what the row shows.
+    await waitFor(() =>
+      expect(store.medicalNetworks[0]?.providerListFileName).toBe('GlobeMed September.xlsx'),
+    );
+    expect(await screen.findByText('GlobeMed September.xlsx')).toBeInTheDocument();
+    expect(screen.queryByText('GlobeMed May.xlsx')).not.toBeInTheDocument();
+
+    // But the old file is not gone: it is in the history, each issue with its
+    // own download, and only the newest is marked current.
+    await user.click(screen.getByRole('button', { name: /Provider list history for GlobeMed/i }));
+    const history = within(
+      await screen.findByRole('list', { name: /Provider list history for GlobeMed/i }),
+    );
+    const rows = history.getAllByRole('listitem').map((row) => row.textContent ?? '');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toContain('GlobeMed September.xlsx');
+    expect(rows[0]).toContain('Current');
+    expect(rows[1]).toContain('GlobeMed May.xlsx');
+    expect(rows[1]).not.toContain('Current');
+    const past = history.getByRole('link', { name: /GlobeMed May\.xlsx/ });
+    expect(past.getAttribute('href')).toMatch(
+      /\/medical-networks\/net_1\/provider-list\/versions\//,
+    );
+  });
+
+  it('persists a new ranking and re-reads the list from it', async () => {
+    givenNetwork('net_1', 'GlobeMed', 0);
+    givenNetwork('net_2', 'AXA Providers', 1);
+    givenNetwork('net_3', 'Basic Network', 2);
+
+    const first = renderApp(ROUTES.medicalNetworks.list);
 
     // Every row offers a handle, so any of them can be moved.
-    expect(
-      await screen.findByRole('button', { name: /Reorder Golden Care Network/i }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Reorder GlobeMed/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Reorder Basic Network/i })).toBeInTheDocument();
 
     // jsdom reports zero-sized rects, so dnd-kit cannot resolve a pointer drop
-    // target. The endpoint the card calls on drop is exercised directly.
-    await fetch('/api/v1/companies/company_1/medical-networks/reorder', {
+    // target. The endpoint the list calls on drop is exercised directly.
+    await fetch('/api/v1/medical-networks/reorder', {
       method: 'POST',
       body: JSON.stringify({ orderedIds: ['net_1', 'net_3', 'net_2'] }),
     });
@@ -1029,91 +1084,83 @@ describe('company medical networks', () => {
     expect(rankOf('net_3')).toBe(1);
     expect(rankOf('net_2')).toBe(2);
 
-    // And the saved ranking is what the card reads back.
     first.unmount();
-    renderApp(ROUTES.companies.detail('company_1'));
+    renderApp(ROUTES.medicalNetworks.list);
     const rows = await renderedNetworks();
-    expect(rows[0]).toContain('Golden Care Network');
+    expect(rows[0]).toContain('GlobeMed');
     expect(rows[1]).toContain('Basic Network');
-    expect(rows[2]).toContain('Silver Care Network');
+    expect(rows[2]).toContain('AXA Providers');
   });
 
-  it('refuses to reorder using a network belonging to another company', async () => {
-    givenCompany('company_1');
-    givenCompany('company_2', 'Southgate Mutual');
-    givenNetwork('net_a1', 'company_1', 'Golden Care Network', 0);
-    givenNetwork('net_b1', 'company_2', 'Harbour Hospitals', 0);
-
-    const response = await fetch('/api/v1/companies/company_1/medical-networks/reorder', {
-      method: 'POST',
-      body: JSON.stringify({ orderedIds: ['net_b1', 'net_a1'] }),
-    });
-
-    expect(response.status).toBe(400);
-    // Neither company's ranking moved.
-    expect(store.medicalNetworks.every((network) => network.sortOrder === 0)).toBe(true);
-  });
-
-  it('adds a network at the bottom of the ranking, with no Save button', async () => {
+  it('adds a network at the bottom of the list, with no Save button', async () => {
     const user = userEvent.setup();
-    givenCompany();
-    givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
+    givenNetwork('net_1', 'GlobeMed', 0);
 
-    renderApp(ROUTES.companies.detail('company_1'));
+    renderApp(ROUTES.medicalNetworks.list);
 
-    await user.type(
-      await screen.findByLabelText(/New medical network/i),
-      'Silver Care Network{Enter}',
-    );
+    await user.type(await screen.findByLabelText(/New medical network/i), 'AXA Providers{Enter}');
 
     await waitFor(() => expect(store.medicalNetworks).toHaveLength(2));
-    // The end, not the top: nobody has said it is better than what is there.
-    expect(store.medicalNetworks[1]).toMatchObject({
-      companyId: 'company_1',
-      name: 'Silver Care Network',
-      sortOrder: 1,
-    });
-    expect(await screen.findByText('Silver Care Network')).toBeInTheDocument();
+    expect(store.medicalNetworks[1]).toMatchObject({ name: 'AXA Providers', sortOrder: 1 });
+    expect(await screen.findByText('AXA Providers')).toBeInTheDocument();
   });
 
   it('renames a network in place', async () => {
     const user = userEvent.setup();
-    givenCompany();
-    givenNetwork('net_1', 'company_1', 'Golden Care Netwrok', 0);
+    givenNetwork('net_1', 'Globmed', 0);
 
-    renderApp(ROUTES.companies.detail('company_1'));
-    await user.click(await screen.findByRole('button', { name: /Edit Golden Care Netwrok/i }));
+    renderApp(ROUTES.medicalNetworks.list);
+    await user.click(await screen.findByRole('button', { name: /Edit Globmed/i }));
 
-    const input = await screen.findByLabelText(/Rename Golden Care Netwrok/i);
+    const input = await screen.findByLabelText(/Rename Globmed/i);
     await user.clear(input);
-    await user.type(input, 'Golden Care Network{Enter}');
+    await user.type(input, 'GlobeMed{Enter}');
 
-    await waitFor(() => expect(store.medicalNetworks[0]?.name).toBe('Golden Care Network'));
+    await waitFor(() => expect(store.medicalNetworks[0]?.name).toBe('GlobeMed'));
     // A plan points at the row, so the rank it was given is untouched.
     expect(store.medicalNetworks[0]?.sortOrder).toBe(0);
   });
 
-  it('deletes a network nothing is sold on, without asking', async () => {
+  it('deletes a network no plan is sold on, without asking', async () => {
     const user = userEvent.setup();
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    givenCompany();
-    givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
+    givenNetwork('net_1', 'GlobeMed', 0);
 
-    renderApp(ROUTES.companies.detail('company_1'));
-    await user.click(await screen.findByRole('button', { name: /Delete Golden Care Network/i }));
+    renderApp(ROUTES.medicalNetworks.list);
+    await user.click(await screen.findByRole('button', { name: /Delete GlobeMed/i }));
 
     await waitFor(() => expect(store.medicalNetworks).toHaveLength(0));
     expect(confirm).not.toHaveBeenCalled();
     confirm.mockRestore();
   });
 
-  it('sells a plan on a network chosen from the company’s list, never typed', async () => {
+  it('warns before deleting a network plans are sold on, and leaves them standing', async () => {
+    const user = userEvent.setup();
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    givenCompany();
+    givenInsuranceType();
+    givenPlan();
+    givenNetwork('net_1', 'GlobeMed', 0);
+    store.plans[0]!.medicalNetworkId = 'net_1';
+
+    renderApp(ROUTES.medicalNetworks.list);
+    await user.click(await screen.findByRole('button', { name: /Delete GlobeMed/i }));
+
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('1 plan is'));
+    await waitFor(() => expect(store.medicalNetworks).toHaveLength(0));
+
+    // The plan survives; it simply stops naming a network.
+    expect(store.plans).toHaveLength(1);
+    expect(store.plans[0]?.medicalNetworkId).toBeNull();
+    confirm.mockRestore();
+  });
+
+  it('sells a plan on a network chosen from the shared list, never typed', async () => {
     const user = userEvent.setup();
     givenCompany('company_1', 'Northwind Assurance');
-    givenCompany('company_2', 'Southgate Mutual');
     givenInsuranceType();
-    givenNetwork('net_a1', 'company_1', 'Golden Care Network', 0);
-    givenNetwork('net_b1', 'company_2', 'Harbour Hospitals', 0);
+    givenNetwork('net_1', 'GlobeMed', 0);
+    givenNetwork('net_2', 'AXA Providers', 1);
 
     renderApp(ROUTES.companies.detail('company_1'));
     await user.click((await screen.findAllByRole('button', { name: /Add plan/i }))[0]!);
@@ -1121,69 +1168,45 @@ describe('company medical networks', () => {
     const dialog = within(await screen.findByRole('dialog'));
     const network = await dialog.findByLabelText(/Medical network/i);
 
-    // A select, not a box: the name cannot be invented on the plan.
+    // A select, not a box: the name cannot be invented on the plan. And the
+    // whole list is offered — it belongs to no company.
     expect(network.tagName).toBe('SELECT');
     const offered = within(network)
       .getAllByRole('option')
       .map((o) => o.textContent);
-    expect(offered).toEqual([UNSPECIFIED_OPTION_LABEL, 'Golden Care Network']);
+    expect(offered).toEqual([UNSPECIFIED_OPTION_LABEL, 'GlobeMed', 'AXA Providers']);
 
     await user.type(dialog.getByLabelText(/Plan name/i), 'Tier One');
+    await user.selectOptions(network, 'net_2');
     await user.type(dialog.getByLabelText(/Annual \/ in-patient limit/i), '600000');
-    await user.selectOptions(network, 'net_a1');
     await user.type(dialog.getByLabelText('Variant 1 premium, ages 1 to 17'), '3681');
     await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
     await waitFor(() => expect(store.plans).toHaveLength(1));
-    // Recorded on the VARIANT: the same plan sold on another network is a
-    // second variant, not a second plan.
-    expect(store.configurations[0]?.medicalNetworkId).toBe('net_a1');
-    expect(store.medicalNetworks).toHaveLength(2);
+    // Recorded on the PLAN: every variant beneath it is sold on the network.
+    expect(store.plans[0]?.medicalNetworkId).toBe('net_2');
+    expect(store.configurations[0]).not.toHaveProperty('medicalNetworkId');
   });
 
-  it('refuses a variant sold on another company’s network', async () => {
-    givenCompany('company_1');
-    givenCompany('company_2', 'Southgate Mutual');
-    givenInsuranceType();
-    givenPlan();
-    givenNetwork('net_b1', 'company_2', 'Harbour Hospitals', 0);
-
-    const response = await fetch('/api/v1/plan-configurations', {
-      method: 'POST',
-      body: JSON.stringify({
-        planId: 'plan_1',
-        customerType: 'INDIVIDUAL',
-        geographicalCoverage: 'LOCAL',
-        ageFrom: 18,
-        ageTo: 60,
-        medicalNetworkId: 'net_b1',
-      }),
-    });
-
-    expect(response.status).toBe(400);
-    expect(store.configurations).toHaveLength(0);
-  });
-
-  it('warns before deleting a network variants are sold on, and leaves them standing', async () => {
+  it('shows the plan its network, and lets it be changed on the plan', async () => {
     const user = userEvent.setup();
-    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     givenCompany();
     givenInsuranceType();
     givenPlan();
-    givenConfiguration();
-    givenNetwork('net_1', 'company_1', 'Golden Care Network', 0);
-    store.configurations[0]!.medicalNetworkId = 'net_1';
+    givenNetwork('net_1', 'GlobeMed', 0);
+    givenNetwork('net_2', 'AXA Providers', 1);
+    store.plans[0]!.medicalNetworkId = 'net_1';
 
-    renderApp(ROUTES.companies.detail('company_1'));
-    await user.click(await screen.findByRole('button', { name: /Delete Golden Care Network/i }));
+    renderApp(ROUTES.plans.detail('company_1', 'plan_1'));
+    expect(await screen.findByText('GlobeMed')).toBeInTheDocument();
 
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining('1 priced variant is'));
-    await waitFor(() => expect(store.medicalNetworks).toHaveLength(0));
+    await user.click(screen.getByRole('button', { name: /Edit plan/i }));
+    const dialog = within(await screen.findByRole('dialog'));
+    await user.selectOptions(dialog.getByLabelText(/Medical network/i), 'net_2');
+    await user.click(dialog.getByRole('button', { name: /Save plan/i }));
 
-    // The variant survives; it simply stops naming a network.
-    expect(store.configurations).toHaveLength(1);
-    expect(store.configurations[0]?.medicalNetworkId).toBeNull();
-    confirm.mockRestore();
+    await waitFor(() => expect(store.plans[0]?.medicalNetworkId).toBe('net_2'));
+    expect(await screen.findByText('AXA Providers')).toBeInTheDocument();
   });
 });
 
@@ -1366,9 +1389,7 @@ describe('plans', () => {
     // A band with no premium is simply not sold, so no row is made for it.
     expect(variant.priceBands).toHaveLength(3);
 
-    const attached = store.planOptions.filter(
-      (item) => item.planConfigurationId === variant.id,
-    );
+    const attached = store.planOptions.filter((item) => item.planConfigurationId === variant.id);
     expect(attached).toHaveLength(1);
   });
 });
@@ -1759,8 +1780,9 @@ describe('another age', () => {
       ageTo: 65,
       annualPrice: 15984,
     });
-    expect(store.planOptions.filter((item) => item.planConfigurationId === configurationId))
-      .toHaveLength(1);
+    expect(
+      store.planOptions.filter((item) => item.planConfigurationId === configurationId),
+    ).toHaveLength(1);
   });
 
   it('says a band with no premium is not covered, and stores no zero', async () => {
@@ -1929,8 +1951,6 @@ describe('dynamic insurance options', () => {
     expect(store.values[0]?.value).toBe(80);
   });
 
-
-
   it('records a detail against a benefit, kept per variant', async () => {
     const user = userEvent.setup();
     givenCompany();
@@ -1958,9 +1978,7 @@ describe('dynamic insurance options', () => {
      * The detail belongs to this VARIANT, not to the benefit: the same benefit
      * is qualified differently on the next plan.
      */
-    await waitFor(() =>
-      expect(store.planOptions[0]?.note).toBe('1 in 10 members ratio'),
-    );
+    await waitFor(() => expect(store.planOptions[0]?.note).toBe('1 in 10 members ratio'));
   });
 
   /**
@@ -1970,7 +1988,6 @@ describe('dynamic insurance options', () => {
    * plans quoting the same figure scored the same. Ticking a catalogue record
    * instead is what makes the difference count.
    */
-
 
   /**
    * A catalogue of thirty benefits is a scroll, not a list. The search filters
@@ -2024,12 +2041,16 @@ describe('dynamic insurance options', () => {
     // The dialog re-reads the benefit so the list reflects the latest order.
     await screen.findByLabelText(/Benefit name/i);
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Reorder Golden Care Network' })).toBeInTheDocument(),
+      expect(
+        screen.getByRole('button', { name: 'Reorder Golden Care Network' }),
+      ).toBeInTheDocument(),
     );
     expect(screen.getByRole('button', { name: 'Reorder Orange Care Network' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Remove Orange Care Network' }));
-    await waitFor(() => expect(store.choices.find((c) => c.id === 'choice_orange')).toBeUndefined());
+    await waitFor(() =>
+      expect(store.choices.find((c) => c.id === 'choice_orange')).toBeUndefined(),
+    );
     expect(store.choices.find((c) => c.id === 'choice_gold')).toBeDefined();
   });
 
@@ -2048,7 +2069,6 @@ describe('dynamic insurance options', () => {
       expect(store.choices.some((c) => c.label === 'Out-of-network only')).toBe(true),
     );
   });
-
 
   it('renames a benefit, and the variant that carries it follows', async () => {
     const user = userEvent.setup();
@@ -2202,10 +2222,6 @@ describe('dynamic insurance options', () => {
     await waitFor(() => expect(store.options).toHaveLength(1));
     expect(store.options[0]?.name).toBe('Life & Accident Coverage');
   });
-
-
-
-
 });
 
 // ---------------------------------------------------------------------------
@@ -2269,7 +2285,6 @@ describe('plan coverage', () => {
     expect(store.planOptions).toHaveLength(0);
     expect(await screen.findByText(/database is not available/i)).toBeInTheDocument();
   });
-
 
   it('keeps each variant’s figures separate', async () => {
     const user = userEvent.setup();
@@ -2542,10 +2557,6 @@ const conditionsOffered = () =>
     .filter((label) => label.endsWith(`for ${PRE_EXISTING}`))
     .map((label) => label.replace(` for ${PRE_EXISTING}`, ''));
 
-
-
-
-
 // ---------------------------------------------------------------------------
 // Maternity — the same benefit, asked differently of each customer type
 // ---------------------------------------------------------------------------
@@ -2650,8 +2661,6 @@ const maternityConditions = () =>
     .filter((label) => label.endsWith(`for ${MATERNITY}`))
     .map((label) => label.replace(` for ${MATERNITY}`, ''));
 
-
-
 // ---------------------------------------------------------------------------
 // Optical — every customer type, no member ratio
 // ---------------------------------------------------------------------------
@@ -2749,7 +2758,6 @@ const opticalConditions = () =>
     .filter((label) => label.endsWith(`for ${OPTICAL}`))
     .map((label) => label.replace(` for ${OPTICAL}`, ''));
 
-
 // ---------------------------------------------------------------------------
 // Optical — provider restrictions the employee writes, ticks and ranks
 // ---------------------------------------------------------------------------
@@ -2777,7 +2785,6 @@ const restrictionsDefined = () =>
     .filter((choice) => choice.optionFieldId === 'opt_provider_restriction')
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((choice) => choice.label);
-
 
 // ---------------------------------------------------------------------------
 // Dental — two figures the documents always state, five conditions they may
@@ -2910,7 +2917,6 @@ const dentalConditions = () =>
     .filter((label) => label.endsWith(`for ${DENTAL}`))
     .map((label) => label.replace(` for ${DENTAL}`, ''));
 
-
 describe('empty means not specified, and zero means zero', () => {
   it('leaves a figure nobody stated empty, and stores nothing for it', async () => {
     const configurationId = givenDentalOnAPlan();
@@ -2948,7 +2954,6 @@ describe('empty means not specified, and zero means zero', () => {
       expect(store.values.find((value) => value.optionFieldId === 'den_limit')?.value).toBe(0),
     );
   });
-
 });
 
 // ---------------------------------------------------------------------------
@@ -2987,7 +2992,6 @@ function givenCoveredProcedures() {
 
 const procedureTicks = () =>
   store.planOptions.find((item) => item.id === 'planOption_den')?.tickedChoiceIds ?? [];
-
 
 // ---------------------------------------------------------------------------
 // Other Key Benefits — a name can be the whole benefit
@@ -3066,4 +3070,3 @@ function givenStatementOnAPlan(name = 'Covers Hepatitis') {
 
 const valueFor = (key: string) =>
   store.values.find((v) => v.optionFieldId === `option_stmt_${key}`);
-

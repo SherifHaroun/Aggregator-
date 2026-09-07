@@ -8,12 +8,14 @@
  */
 
 import {
+  PROVIDER_LIST_DOWNLOAD_LABEL,
   presentAnnualLimit,
   presentCoreBenefits,
   presentPremium,
   planDocumentFilename,
   type ComparisonPlanResult,
 } from '@aggregator/shared';
+import { providerListUrl } from '@/lib/api-url';
 import { PdfDocument, downloadBlob, rgb, widthOf, wrap } from '@/lib/pdf';
 
 /** The house colours, as the screen uses them. */
@@ -22,6 +24,7 @@ const INK = rgb(0.11, 0.13, 0.2);
 const MUTED = rgb(0.42, 0.45, 0.53);
 const RULE = rgb(0.85, 0.87, 0.91);
 const WASH = rgb(0.96, 0.97, 0.99);
+const WHITE = rgb(1, 1, 1);
 
 /** A benefit the plan states beyond the six, with whatever it says about it. */
 export interface DocumentBenefit {
@@ -74,6 +77,35 @@ function row(doc: PdfDocument, label: string, value: string, bold = false) {
   doc.textRight(value, right, 10, bold ? 'bold' : 'regular', bold ? NAVY : INK);
   doc.y += lines.length * 13 + 5;
   doc.line(doc.margin, doc.y - 3, right, RULE, 0.4);
+}
+
+/**
+ * A BUTTON THAT OPENS THE NETWORK'S PROVIDER LIST.
+ *
+ * The list cannot be printed here — it is thousands of rows, in Arabic, in a
+ * layout the insurer changes every few months — so the document carries a
+ * link instead. The address is the network's STABLE one: it hands out
+ * whatever file is current when the customer clicks, however long after this
+ * PDF was made.
+ */
+function providerListButton(doc: PdfDocument, url: string) {
+  const label = PROVIDER_LIST_DOWNLOAD_LABEL;
+  const width = widthOf(label, 10, 'bold') + 28;
+  const height = 26;
+
+  doc.ensure(height + 22);
+  doc.y += 6;
+  const top = doc.y;
+  const x = doc.width - doc.margin - width;
+
+  doc.rect(x, top, width, height, NAVY);
+  doc.y = top + 8;
+  doc.text(label, x + 14, 10, 'bold', WHITE);
+  doc.link(x, top, width, height, url);
+
+  doc.y = top + 9;
+  doc.text('Opens the current provider list for this network.', doc.margin, 8.5, 'regular', MUTED);
+  doc.y = top + height + 8;
 }
 
 /** Build the document. Returns the blob and the name it should be saved under. */
@@ -178,7 +210,13 @@ export function buildPlanDocument(input: PlanDocumentInput): { blob: Blob; filen
   row(doc, 'Currency', plan.currency ?? '—');
   row(doc, 'Annual premium', presentPremium(plan));
   row(doc, 'Annual limit', presentAnnualLimit(plan));
-  if (plan.medicalNetworkName) row(doc, 'Medical network', plan.medicalNetworkName);
+  if (plan.medicalNetworkName) {
+    row(doc, 'Medical network', plan.medicalNetworkName);
+    // The name only — never the tier. The list itself is a click away.
+    if (plan.medicalNetworkId && plan.medicalNetworkHasProviderList) {
+      providerListButton(doc, providerListUrl(plan.medicalNetworkId));
+    }
+  }
   if (plan.pricedEmployeeCount !== null) {
     row(doc, 'Employees priced', String(plan.pricedEmployeeCount));
   }

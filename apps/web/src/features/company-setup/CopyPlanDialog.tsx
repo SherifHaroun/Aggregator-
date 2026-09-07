@@ -1,8 +1,4 @@
-import {
-  derivePlanCode,
-  type PlanConfigurationDto,
-  type PlanDto,
-} from '@aggregator/shared';
+import { derivePlanCode, type PlanConfigurationDto, type PlanDto } from '@aggregator/shared';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, Callout, Dialog, Field, Input, Textarea, useToast } from '@/components/ui';
@@ -234,10 +230,6 @@ function ConfigurationChoice({
       <span className="min-w-0 flex-1">
         <span className="text-content block truncate text-sm font-medium">
           {configuration.displayName ?? coverageLabel(configuration.geographicalCoverage)}
-          <span className="text-content-muted font-normal">
-            {' '}
-            · {configuration.medicalNetworkName ?? 'no network'}
-          </span>
         </span>
         <span className="text-content-subtle block text-xs">
           {priceRangeLabel(configuration)} · {bandCountLabel(configuration.priceBands.length)} ·{' '}

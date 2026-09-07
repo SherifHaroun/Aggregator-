@@ -7,8 +7,9 @@ import {
 /**
  * One variant, as the entry form holds it before anything is saved.
  *
- * A variant is the plan sold one way — one coverage scope, one network, one
- * ceiling — with its own benefits and its own premium per age band. Two
+ * A variant is the plan sold one way — one coverage scope, one ceiling — with
+ * its own benefits and its own premium per age band. The network is the
+ * plan's and is not drafted here. Two
  * variants of a plan are still one product, which is why they are drafted
  * together here and saved as configurations of a single plan.
  */
@@ -33,7 +34,6 @@ export interface VariantDraft {
   /** Stable across renders so React keeps each editor's DOM as rows move. */
   key: string;
   geographicalCoverage: GeographicalCoverageId;
-  medicalNetworkId: string;
   annualLimit: string;
   entries: Record<string, BenefitEntry>;
   /** Optional benefits THIS variant states. Another may state none of them. */
@@ -70,7 +70,6 @@ export function newVariant(
   return {
     key: `variant_${sequence}`,
     geographicalCoverage: free ?? ENABLED_GEOGRAPHICAL_COVERAGE_IDS[0],
-    medicalNetworkId: '',
     annualLimit: '',
     entries: Object.fromEntries(coreBenefits.map((benefit) => [benefit.name, emptyEntry()])),
     extras: [],

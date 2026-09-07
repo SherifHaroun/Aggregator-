@@ -1,23 +1,19 @@
 import { resolveAverageAgeForCustomerType, type PlanDto } from '@aggregator/shared';
-import type {
-  CompanyMedicalNetwork,
-  Plan,
-  PlanConfiguration,
-  PlanPriceBand,
-} from '@prisma/client';
+import type { Plan, PlanConfiguration, PlanPriceBand } from '@prisma/client';
 import { toIso } from '../../lib/decimal.js';
 import { toPlanConfigurationDto } from '../plan-configurations/plan-configurations.mapper.js';
 import type { PlanOptionWithRelations } from '../plan-options/plan-options.mapper.js';
 
 export type PlanConfigurationWithOptions = PlanConfiguration & {
   options?: PlanOptionWithRelations[];
-  medicalNetwork?: CompanyMedicalNetwork | null;
   priceBands?: PlanPriceBand[];
 };
 
 export function toPlanDto(
   plan: Plan & {
     configurations?: PlanConfigurationWithOptions[];
+    /** The shared network, when the plan was read with it. */
+    medicalNetwork?: { name: string } | null;
   },
 ): PlanDto {
   return {
@@ -27,6 +23,12 @@ export function toPlanDto(
     name: plan.name,
     code: plan.code,
     description: plan.description,
+    medicalNetworkId: plan.medicalNetworkId,
+    // Resolved when the plan was read with its network, so a row renders
+    // without a second request.
+    ...(plan.medicalNetwork !== undefined
+      ? { medicalNetworkName: plan.medicalNetwork?.name ?? null }
+      : {}),
     isActive: plan.isActive,
     createdAt: toIso(plan.createdAt),
     updatedAt: toIso(plan.updatedAt),
@@ -37,7 +39,11 @@ export function toPlanDto(
      */
     averageAge: resolveAverageAgeForCustomerType(plan.customerType),
     ...(plan.configurations
-      ? { configurations: plan.configurations.map((configuration) => toPlanConfigurationDto(configuration)) }
+      ? {
+          configurations: plan.configurations.map((configuration) =>
+            toPlanConfigurationDto(configuration),
+          ),
+        }
       : {}),
   };
 }

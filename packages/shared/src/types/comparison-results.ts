@@ -136,10 +136,14 @@ export interface ComparisonPlanResult {
   companyName: string;
   companyLogoUrl: string | null;
   /**
-   * Which variant of the plan this is. Shown so two rows carrying the same plan
-   * name are distinguishable; neither takes part in scoring.
+   * The network the plan is sold on. The customer sees its NAME and may open
+   * its provider list; nothing about it takes part in scoring.
    */
+  medicalNetworkId: string | null;
   medicalNetworkName: string | null;
+  /** Whether a provider list is on file, so a screen can offer the download. */
+  medicalNetworkHasProviderList: boolean;
+  /** The room the variant buys, when stated. Shown, never scored. */
   roomType: string | null;
 
   currency: string | null;

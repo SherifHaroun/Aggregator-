@@ -97,6 +97,7 @@ function givenTwoPlans() {
       code: name.toUpperCase(),
       description: `${name} is written for this test and read back from it.`,
       averageAge: { value: null, source: 'NOT_SPECIFIED', label: null },
+      medicalNetworkId: null,
       isActive: true,
       ...timestamps,
     });
@@ -104,7 +105,6 @@ function givenTwoPlans() {
       id: `cfg_${id}`,
       planId: id,
       geographicalCoverage: 'LOCAL',
-      medicalNetworkId: null,
       roomType: null,
       priceBands: [{ id: `band_${id}`, ageFrom: 0, ageTo: 120, annualPrice: price }],
       currency: 'EGP',
@@ -298,9 +298,10 @@ describe('opening a plan', () => {
     const expand = within(dialog).getByRole('button', { name: 'Full screen' });
     expect(expand).toHaveAttribute('aria-pressed', 'false');
     await user.click(expand);
-    expect(
-      within(dialog).getByRole('button', { name: 'Exit full screen' }),
-    ).toHaveAttribute('aria-pressed', 'true');
+    expect(within(dialog).getByRole('button', { name: 'Exit full screen' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
 
     /**
      * A dialog filling the screen has hidden the results entirely, so the way
@@ -410,11 +411,11 @@ describe('the plan document', () => {
       return 'blob:plan';
     };
     (URL as unknown as { revokeObjectURL: (url: string) => void }).revokeObjectURL = () => {};
-    const click = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(function (this: HTMLAnchorElement) {
-        saved.filename = this.download;
-      });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      saved.filename = this.download;
+    });
     return { saved, click };
   }
 

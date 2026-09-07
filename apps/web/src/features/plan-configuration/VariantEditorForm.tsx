@@ -14,7 +14,6 @@ import {
   rebalanceBrackets,
   removeBracket,
   variantDisplayName,
-  type CompanyMedicalNetworkDto,
   type CoreValueKindId,
   type CustomerTypeId,
   type GeographicalCoverageId,
@@ -114,14 +113,12 @@ export function VariantEditorForm({
   planName,
   customerType,
   catalogue,
-  networks,
 }: {
   variant: PlanConfigurationDto;
   planName: string;
   /** The plan's, never the variant's — every variant beneath it shares it. */
   customerType: CustomerTypeId;
   catalogue: InsuranceOptionDto[];
-  networks: CompanyMedicalNetworkDto[];
 }) {
   const { notify } = useToast();
   const queryClient = useQueryClient();
@@ -176,7 +173,6 @@ export function VariantEditorForm({
   // --- the variant's own terms, saved together ------------------------------
 
   const [coverage, setCoverage] = useState<GeographicalCoverageId>(variant.geographicalCoverage);
-  const [networkId, setNetworkId] = useState(variant.medicalNetworkId ?? '');
   const [annualLimit, setAnnualLimit] = useState(
     variant.annualLimit === null ? '' : String(variant.annualLimit),
   );
@@ -278,7 +274,6 @@ export function VariantEditorForm({
   function reset() {
     setError(null);
     setCoverage(variant.geographicalCoverage);
-    setNetworkId(variant.medicalNetworkId ?? '');
     setAnnualLimit(variant.annualLimit === null ? '' : String(variant.annualLimit));
     setCurrency(variant.currency ?? '');
     setIsActive(variant.isActive);
@@ -460,7 +455,6 @@ export function VariantEditorForm({
 
       await api.patch(`/plan-configurations/${variant.id}`, {
         geographicalCoverage: coverage,
-        medicalNetworkId: networkId === '' ? null : networkId,
         annualLimit: annualLimit.trim() === '' ? null : Number(annualLimit.replace(/,/g, '')),
         currency: currency.trim() === '' ? null : currency.trim().toUpperCase(),
         isActive,
@@ -546,10 +540,9 @@ export function VariantEditorForm({
       }
 
       if (!planOptionByOptionId.has(optionId)) {
-        const rows = await api.post<PlanOptionDto[]>(
-          `/plan-configurations/${variant.id}/options`,
-          { optionId },
-        );
+        const rows = await api.post<PlanOptionDto[]>(`/plan-configurations/${variant.id}/options`, {
+          optionId,
+        });
         for (const row of rows) planOptionByOptionId.set(row.optionId, row);
       }
       const planOption = planOptionByOptionId.get(optionId);
@@ -601,31 +594,6 @@ export function VariantEditorForm({
                 {listEnabledOptions(GEOGRAPHICAL_COVERAGES).map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.label}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-
-          <Field
-            label="Medical network"
-            hint={
-              networks.length === 0
-                ? 'This company has no networks yet.'
-                : 'From this company’s own list.'
-            }
-          >
-            {(props) => (
-              <Select
-                {...props}
-                value={networkId}
-                disabled={networks.length === 0}
-                onChange={(event) => setNetworkId(event.target.value)}
-              >
-                <option value="">{UNSPECIFIED_OPTION_LABEL}</option>
-                {networks.map((network) => (
-                  <option key={network.id} value={network.id}>
-                    {network.name}
                   </option>
                 ))}
               </Select>
@@ -840,4 +808,3 @@ export function VariantEditorForm({
     </div>
   );
 }
-

@@ -5,6 +5,7 @@ import { Button, Dialog, IconChevronRight, IconDownload } from '@/components/ui'
 import { ROUTES } from '@/config/routes';
 import { cn } from '@/lib/cn';
 import { AnnualLimitPanel, CoreBenefitList, PlanFigures, PlanIdentity } from './PlanSummary';
+import { ProviderListLink } from './ProviderListLink';
 import { usePlanDocumentSource } from './usePlanDocument';
 import { downloadPlanDocument } from './plan-document';
 
@@ -142,19 +143,25 @@ export function PlanPreviewDialog({
         ) : null}
 
         {tab === 'coverage' ? (
-          <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-            {[
-              ['Plan type', plan.customerTypeLabel],
-              ['Coverage', plan.geographicalCoverageLabel],
-              ['Currency', plan.currency ?? '—'],
-              ['Medical network', plan.medicalNetworkName ?? 'Not specified in plan'],
-            ].map(([label, value]) => (
-              <div key={label} className="border-border-subtle flex justify-between border-b py-2">
-                <dt className="text-content-muted text-sm">{label}</dt>
-                <dd className="text-content text-sm font-medium">{value}</dd>
-              </div>
-            ))}
-          </dl>
+          <div className="space-y-3">
+            <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
+              {[
+                ['Plan type', plan.customerTypeLabel],
+                ['Coverage', plan.geographicalCoverageLabel],
+                ['Currency', plan.currency ?? '—'],
+                ['Medical network', plan.medicalNetworkName ?? 'Not specified in plan'],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="border-border-subtle flex justify-between border-b py-2"
+                >
+                  <dt className="text-content-muted text-sm">{label}</dt>
+                  <dd className="text-content text-sm font-medium">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <ProviderListLink plan={plan} />
+          </div>
         ) : null}
 
         <div className="flex flex-wrap justify-end gap-2 pt-1">

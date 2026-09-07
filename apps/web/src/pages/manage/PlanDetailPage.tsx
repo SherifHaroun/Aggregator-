@@ -76,7 +76,7 @@ export function PlanDetailPage() {
     <>
       <PageHeader
         title={plan.data?.name ?? 'Plan'}
-        description="Open a variant to edit its cover, its networks and its prices."
+        description="Open a variant to edit its cover and its prices. The network is the plan's."
         breadcrumbs={[
           { label: 'Companies', to: ROUTES.companies.list },
           {
@@ -132,13 +132,14 @@ export function PlanDetailPage() {
                 {/* Who it is sold to, which is what separates this plan from
                     the identically named one in the next section. The code is
                     database identity and is not shown. */}
+                <Detail label="Customer type" value={customerTypeLabel(current!.customerType)} />
+                {/* The network is the PLAN's: every variant beneath it gives
+                    access to the same estate, and the customer is told this
+                    name and offered its provider list. */}
                 <Detail
-                  label="Customer type"
-                  value={customerTypeLabel(current!.customerType)}
+                  label="Medical network"
+                  value={current!.medicalNetworkName ?? 'Not stated'}
                 />
-                {/* The network is a property of each VARIANT, not of the
-                    product: one plan is sold on two networks at two prices. It
-                    is shown on the variant rows below. */}
                 <Detail label="Variants" value={String(configurations.length)} />
               </CardBody>
             </Card>
@@ -146,7 +147,7 @@ export function PlanDetailPage() {
             <Card>
               <CardHeader
                 title="Variants"
-                description="One per coverage scope, network and ceiling. Open one to edit its benefits and prices."
+                description="One per coverage scope and ceiling. Open one to edit its benefits and prices."
                 icon={<IconUsers className="size-5" />}
                 action={
                   <Button size="sm" onClick={() => setEditingConfiguration(null)}>
@@ -204,7 +205,6 @@ export function PlanDetailPage() {
       {editingConfiguration !== undefined && planId ? (
         <ConfigurationDialog
           planId={planId}
-          companyId={companyId!}
           configuration={editingConfiguration}
           onClose={() => setEditingConfiguration(undefined)}
         />
@@ -271,17 +271,9 @@ function ConfigurationCard({
         </Badge>
       </div>
 
-      {/* The network this variant is sold on: the same plan on two networks is
-          two variants at two prices, and the name is what tells them apart. */}
-      <p className="text-content-muted mt-1 text-sm font-medium">
-        {configuration.medicalNetworkName ?? 'No network stated'}
-      </p>
-
       {/* What it costs across its whole rate table — one figure when a single
           band is priced, a range when the price climbs with age. */}
-      <p className="text-content mt-3 text-2xl font-bold">
-        {priceRangeLabel(configuration)}
-      </p>
+      <p className="text-content mt-3 text-2xl font-bold">{priceRangeLabel(configuration)}</p>
       <p className="text-content-muted text-sm">
         {benefitCountLabel(benefits)} · {bandCountLabel(configuration.priceBands.length)}
       </p>
