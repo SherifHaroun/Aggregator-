@@ -5,7 +5,7 @@ import {
   ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
   PLAN_TIER_IDS,
   formatNumber,
-  isSmeAgeBracketId,
+  resolveSmeAgeBracketId,
   type ComparisonRequestInput,
   type CustomerTypeId,
   type GeographicalCoverageId,
@@ -87,9 +87,9 @@ export function ComparisonResultsPage() {
     for (const entry of params.getAll('employees')) {
       const separator = entry.lastIndexOf(':');
       if (separator === -1) continue;
-      const bracketId = entry.slice(0, separator);
+      const bracketId = resolveSmeAgeBracketId(entry.slice(0, separator));
       const count = Number(entry.slice(separator + 1));
-      if (!isSmeAgeBracketId(bracketId)) continue;
+      if (bracketId === null) continue;
       if (!Number.isInteger(count) || count < 0) continue;
       smeEmployees[bracketId] = count;
     }

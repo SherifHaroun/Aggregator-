@@ -17,6 +17,7 @@ import {
   emptySmeEmployeeCounts,
   occupiedSmeBrackets,
   quoteSmeWorkforce,
+  resolveSmeAgeBracketId,
   smeBracketForAge,
   totalSmeEmployees,
   type SmeEmployeeCounts,
@@ -339,5 +340,45 @@ describe('the budget proposed to a business', () => {
      */
     expect(quoteSmeWorkforce(staff({ '50–54': 1 }), RATE).total).toBeNull();
     expect(quoteSmeWorkforce(staff({ '20–24': 10, '50–54': 1 }), RATE).total).toBeNull();
+  });
+});
+
+/**
+ * A BRACKET ID HAS TO SURVIVE THE JOURNEY.
+ *
+ * The workforce travels in a URL, keyed by the bracket's own label. A label is
+ * readable in a link and fragile in transit — and a bracket that fails to come
+ * back is not a visible error. It is an employer whose workforce is quietly
+ * smaller than they described, or empty, in which case the comparison prices a
+ * business as though it had one employee.
+ */
+describe('reading a bracket back', () => {
+  it('accepts the ids exactly as they are written', () => {
+    for (const bracket of SME_AGE_BRACKETS) {
+      expect(resolveSmeAgeBracketId(bracket.id)).toBe(bracket.id);
+    }
+  });
+
+  it('survives a plus that came back as a space', () => {
+    /**
+     * "65+" reaches a form-decoder as "65 ", because that is what a bare plus
+     * means there. Dropped, every employee aged 65 and over vanishes from the
+     * headcount and the total quietly falls.
+     */
+    expect(resolveSmeAgeBracketId('65 ')).toBe('65+');
+    expect(resolveSmeAgeBracketId('65')).toBe('65+');
+  });
+
+  it('survives a dash that was rewritten on the way', () => {
+    // An en dash is often normalised to a hyphen by whatever handled the link.
+    expect(resolveSmeAgeBracketId('20-24')).toBe('20–24');
+    expect(resolveSmeAgeBracketId('  30-34  ')).toBe('30–34');
+  });
+
+  it('still refuses an age group that does not exist', () => {
+    // Tolerance is for transport damage, not for inventing brackets.
+    expect(resolveSmeAgeBracketId('18-35')).toBeNull();
+    expect(resolveSmeAgeBracketId('')).toBeNull();
+    expect(resolveSmeAgeBracketId('nonsense')).toBeNull();
   });
 });

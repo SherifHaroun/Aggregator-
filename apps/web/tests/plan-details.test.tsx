@@ -220,6 +220,30 @@ describe('what a comparison card says', () => {
   });
 });
 
+describe('a business priced without a workforce', () => {
+  it('says the figure is per employee rather than calling it the year’s price', async () => {
+    givenTwoPlans();
+    // An SME plan reached with no headcounts — a link that lost them.
+    store.plans[0]!.customerType = 'SME';
+    store.plans[1]!.customerType = 'SME';
+
+    renderApp(
+      `${ROUTES.comparison.results}?customerTypeId=SME&geographicalCoverageId=LOCAL` +
+        `&currency=EGP&ageFrom=35&ageTo=35`,
+    );
+
+    await screen.findAllByText('Annual limit');
+
+    /**
+     * What comes back is ONE employee's premium. Printed under "per year" it
+     * reads as the whole bill, and an employer comparing twenty staff is shown
+     * a twentieth of the price with nothing to say so.
+     */
+    expect(screen.getAllByText(/per employee — no workforce entered/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText('per year')).not.toBeInTheDocument();
+  });
+});
+
 describe('opening a plan', () => {
   it('opens the plan that was clicked, recommended or not', async () => {
     const user = userEvent.setup();

@@ -2,7 +2,7 @@ import {
   CUSTOMER_TYPE_IDS,
   ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
   PLAN_TIER_IDS,
-  isSmeAgeBracketId,
+  resolveSmeAgeBracketId,
   presentAnnualLimit,
   presentCoreBenefits,
   presentPremium,
@@ -62,9 +62,9 @@ export function PlanDetailsPage() {
     for (const entry of params.getAll('employees')) {
       const separator = entry.lastIndexOf(':');
       if (separator === -1) continue;
-      const bracketId = entry.slice(0, separator);
+      const bracketId = resolveSmeAgeBracketId(entry.slice(0, separator));
       const count = Number(entry.slice(separator + 1));
-      if (!isSmeAgeBracketId(bracketId) || !Number.isInteger(count) || count < 0) continue;
+      if (bracketId === null || !Number.isInteger(count) || count < 0) continue;
       smeEmployees[bracketId] = count;
     }
 

@@ -263,6 +263,24 @@ describe('asking an SME who it insures', () => {
     expect(user).toBeDefined();
   });
 
+  it('reads a workforce back from a link that damaged the bracket ids', async () => {
+    givenAnSmePlanOnSale();
+
+    /**
+     * A hyphen where an en dash was, and a plus that arrived as a space —
+     * the two ways a shared link comes back altered. Dropped, the employer's
+     * workforce silently shrinks and the comparison prices a business as
+     * though it had one employee.
+     */
+    renderApp(
+      `${ROUTES.comparison.results}?customerTypeId=SME&geographicalCoverageId=LOCAL` +
+        `&currency=EGP&ageFrom=35&ageTo=35&employees=30-34:6&employees=65 :1`,
+    );
+
+    await waitFor(() => expect(requested).not.toHaveLength(0));
+    expect(requested.at(-1)!.smeEmployees).toEqual({ '30–34': 6, '65+': 1 });
+  });
+
   it('ignores an age group somebody invented in the link', async () => {
     givenAnSmePlanOnSale();
 

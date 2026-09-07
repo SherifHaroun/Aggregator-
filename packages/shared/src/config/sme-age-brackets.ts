@@ -95,6 +95,30 @@ export function isSmeAgeBracketId(id: string): boolean {
 }
 
 /**
+ * The bracket an id NAMES, however the id survived the journey.
+ *
+ * A bracket is identified by its own label — "20–24", "65+" — which reads well
+ * in a link and travels badly. An en dash may come back as a hyphen, and a "+"
+ * that reaches a form-decoder unescaped comes back as a SPACE, so "65+" arrives
+ * as "65 " and matches nothing.
+ *
+ * A dropped bracket is not a visible error: the workforce is simply smaller
+ * than the employer described, or empty, in which case an SME is quoted the
+ * price of ONE employee. So the id is matched on its shape rather than its
+ * exact characters.
+ */
+export function resolveSmeAgeBracketId(raw: string): string | null {
+  const normalise = (value: string) =>
+    value
+      .trim()
+      .replace(/[‐-―−]/g, '-')
+      .replace(/[\s+]+$/, '');
+  const wanted = normalise(raw);
+  if (!wanted) return null;
+  return SME_AGE_BRACKETS.find((bracket) => normalise(bracket.id) === wanted)?.id ?? null;
+}
+
+/**
  * The bracket an age falls in, or `null` for an age nobody can be insured at.
  *
  * The top bracket is open-ended, so every age from 65 to the oldest insurable

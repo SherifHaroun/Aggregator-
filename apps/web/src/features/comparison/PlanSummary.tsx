@@ -65,17 +65,30 @@ export function PlanFigures({
   plan: ComparisonPlanResult;
   align?: 'left' | 'right';
 }) {
-  const perYear = plan.pricedEmployeeCount === null;
+  const forAWorkforce = plan.pricedEmployeeCount !== null;
+  /**
+   * A BUSINESS PRICED WITHOUT A WORKFORCE IS PRICED PER HEAD.
+   *
+   * It happens when the headcounts never reached the engine — a link that lost
+   * them, a bracket that did not survive the URL — and the figure that comes
+   * back is what ONE employee costs. Printed under "per year" it reads as the
+   * whole bill, and an employer comparing twenty staff is shown a twentieth of
+   * the price with nothing to say so. Named for what it is instead.
+   */
+  const perHead = !forAWorkforce && plan.customerTypeLabel.toUpperCase() === 'SME';
+
   return (
     <div className={cn('shrink-0', align === 'right' ? 'text-right' : 'text-left')}>
-      {perYear ? null : (
+      {forAWorkforce ? (
         <p className="text-content-muted text-xs font-medium">Estimated annual price</p>
-      )}
+      ) : null}
       <p className="text-content text-2xl font-bold tabular-nums">{presentPremium(plan)}</p>
-      <p className="text-content-subtle text-xs">
-        {perYear
-          ? 'per year'
-          : `Based on ${plan.pricedEmployeeCount} ${plan.pricedEmployeeCount === 1 ? 'employee' : 'employees'}`}
+      <p className={cn('text-xs', perHead ? 'text-content font-semibold' : 'text-content-subtle')}>
+        {forAWorkforce
+          ? `Based on ${plan.pricedEmployeeCount} ${plan.pricedEmployeeCount === 1 ? 'employee' : 'employees'}`
+          : perHead
+            ? 'per employee — no workforce entered'
+            : 'per year'}
       </p>
     </div>
   );
