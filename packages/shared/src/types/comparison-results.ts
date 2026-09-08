@@ -28,10 +28,21 @@ export interface ComparisonRequestInput {
    * sees every tier.
    */
   planTierId?: PlanTierId | null;
+  /**
+   * THE ONE THING THAT MUST BE ANSWERED. Every other requirement may be left
+   * out and the system fills it with a standard assumption — but a company's
+   * Individual, Family and SME books are separate products, and "the best
+   * plan" for nobody in particular is not a question with an answer.
+   */
   customerTypeId: CustomerTypeId;
-  geographicalCoverageId: GeographicalCoverageId;
-  /** ISO 4217 code, e.g. "EGP". Configurations priced differently are excluded. */
-  currency: string;
+  /** Optional: left out, every scope on sale is compared. */
+  geographicalCoverageId?: GeographicalCoverageId | null;
+  /**
+   * ISO 4217 code, e.g. "EGP". Configurations priced differently are excluded.
+   * Optional: left out, the currency most matching plans are priced in is
+   * used, and the result says which.
+   */
+  currency?: string | null;
   /**
    * The ages to be covered, youngest to oldest.
    *
@@ -40,9 +51,12 @@ export interface ComparisonRequestInput {
    * its own band SPANS the whole request —
    * `config.ageFrom <= ageFrom && config.ageTo >= ageTo`. A family is not
    * offered a plan that would leave its youngest or eldest uncovered.
+   *
+   * Optional: left out, the standard comparison age is used and the result
+   * says it was assumed. See `resolveComparisonAges`.
    */
-  ageFrom: number;
-  ageTo: number;
+  ageFrom?: number | null;
+  ageTo?: number | null;
   /**
    * What the customer is comfortable paying per year, in `currency`.
    *
@@ -81,7 +95,13 @@ export interface ComparisonPriceRangeDto {
    * recommendation is decided purely on value. `null` when nothing matched.
    */
   suggestedBudget: number | null;
-  currency: string;
+  /**
+   * The currency the range is in — the one asked for, or the one worked out
+   * when none was. `null` only when nothing matched to price in any currency.
+   */
+  currency: string | null;
+  /** Whether that currency was chosen by the system rather than the customer. */
+  currencyAssumed: boolean;
 }
 
 /** One selected benefit as it applies to ONE plan configuration. */
@@ -191,11 +211,26 @@ export interface ResolvedComparisonRequest {
   planTierLabel: string | null;
   customerTypeId: CustomerTypeId;
   customerTypeLabel: string;
-  geographicalCoverageId: GeographicalCoverageId;
+  /** `null` when every scope was compared. */
+  geographicalCoverageId: GeographicalCoverageId | null;
+  /** Always printable — `ANY_COVERAGE_LABEL` when no scope was chosen. */
   geographicalCoverageLabel: string;
-  currency: string;
+  /**
+   * The currency the results are in. Chosen by the customer, or worked out as
+   * the one most matching plans are priced in; `null` only when nothing at all
+   * matched and there was nothing to work it out from.
+   */
+  currency: string | null;
+  /** Whether the currency was worked out rather than chosen. */
+  currencyAssumed: boolean;
+  /** The ages the comparison actually ran at. */
   ageFrom: number;
   ageTo: number;
+  /**
+   * Whether those ages were the standard assumption rather than the
+   * customer's answer, so the screen and the document can say so.
+   */
+  ageAssumed: boolean;
   /** `null` when no ceiling was applied. */
   budget: number | null;
   averageAge: ResolvedAverageAge;

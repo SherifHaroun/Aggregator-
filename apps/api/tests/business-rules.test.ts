@@ -13,7 +13,12 @@ import {
   ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
   GEOGRAPHICAL_COVERAGES,
   GEOGRAPHICAL_COVERAGE_IDS,
+  DEFAULT_COMPARISON_AGE,
+  MAX_INSURABLE_AGE,
+  NOT_SOLD_AT_AGE_LABEL,
   listEnabledOptions,
+  presentPriceBands,
+  resolveComparisonAges,
   variantDisplayName,
   NOT_SPECIFIED_LABEL,
   SME_FIXED_AVERAGE_AGE,
@@ -263,5 +268,107 @@ describe('geographical coverage', () => {
     for (const retired of ['LOCAL_AND_INTERNATIONAL', 'WORLDWIDE', 'OTHER']) {
       expect(geographicalCoverageSchema.safeParse(retired).success).toBe(false);
     }
+  });
+});
+
+describe('a comparison with the age left blank', () => {
+  it('runs at the standard age, and says the age was assumed', () => {
+    expect(resolveComparisonAges('INDIVIDUAL', null, null)).toEqual({
+      ageFrom: DEFAULT_COMPARISON_AGE,
+      ageTo: DEFAULT_COMPARISON_AGE,
+      assumed: true,
+    });
+    expect(resolveComparisonAges('FAMILY', undefined, undefined).assumed).toBe(true);
+  });
+
+  it('is the one standard age the business reasons about', () => {
+    // Not a second constant that could drift from the SME rule.
+    expect(DEFAULT_COMPARISON_AGE).toBe(SME_FIXED_AVERAGE_AGE);
+  });
+
+  it('reads one age as a range of one', () => {
+    expect(resolveComparisonAges('FAMILY', 4, null)).toEqual({
+      ageFrom: 4,
+      ageTo: 4,
+      assumed: false,
+    });
+    expect(resolveComparisonAges('FAMILY', null, 52)).toEqual({
+      ageFrom: 52,
+      ageTo: 52,
+      assumed: false,
+    });
+  });
+
+  it('keeps both ends when both were given', () => {
+    expect(resolveComparisonAges('FAMILY', 4, 52)).toEqual({
+      ageFrom: 4,
+      ageTo: 52,
+      assumed: false,
+    });
+  });
+
+  it('ages an SME by the rule whatever was sent, and never calls that an assumption', () => {
+    expect(resolveComparisonAges('SME', 50, 60)).toEqual({
+      ageFrom: SME_FIXED_AVERAGE_AGE,
+      ageTo: SME_FIXED_AVERAGE_AGE,
+      assumed: false,
+    });
+    expect(resolveComparisonAges('SME', null, null).assumed).toBe(false);
+  });
+});
+
+describe('the rate table as the customer reads it', () => {
+  const bands = [
+    { ageFrom: 18, ageTo: 64, annualPrice: 5701 },
+    { ageFrom: 0, ageTo: 17, annualPrice: 3000 },
+    { ageFrom: 65, ageTo: MAX_INSURABLE_AGE, annualPrice: null },
+  ];
+
+  it('lists the bands youngest first, however they were stored', () => {
+    const table = presentPriceBands(bands, 'EGP', { ageFrom: 35, ageTo: 35 }, MAX_INSURABLE_AGE);
+    expect(table.bands.map((band) => band.ageLabel)).toEqual(['0–17', '18–64', '65+']);
+  });
+
+  it('marks the band that priced the comparison, and only that one', () => {
+    const table = presentPriceBands(bands, 'EGP', { ageFrom: 35, ageTo: 35 }, MAX_INSURABLE_AGE);
+    expect(table.bands.map((band) => band.applies)).toEqual([false, true, false]);
+    // A family is priced by the band that spans ALL of them.
+    const family = presentPriceBands(bands, 'EGP', { ageFrom: 4, ageTo: 40 }, MAX_INSURABLE_AGE);
+    expect(family.bands.every((band) => !band.applies)).toBe(true);
+    // No ages, no band — an SME priced across its workforce.
+    const workforce = presentPriceBands(bands, 'EGP', null, MAX_INSURABLE_AGE);
+    expect(workforce.bands.every((band) => !band.applies)).toBe(true);
+    expect(workforce.marker).toBeNull();
+  });
+
+  it('says in words where the plan is not sold, and never a zero', () => {
+    const table = presentPriceBands(bands, 'EGP', null, MAX_INSURABLE_AGE);
+    expect(table.bands.map((band) => band.display)).toEqual([
+      'EGP 3,000',
+      'EGP 5,701',
+      NOT_SOLD_AT_AGE_LABEL,
+    ]);
+    expect(table.lowest).toBe(3000);
+    expect(table.highest).toBe(5701);
+  });
+
+  it('places every band on one axis so a bar can be drawn from it', () => {
+    const table = presentPriceBands(bands, 'EGP', { ageFrom: 35, ageTo: 35 }, MAX_INSURABLE_AGE);
+    expect(table.bands[0]!.start).toBe(0);
+    expect(table.bands[2]!.end).toBe(1);
+    for (const [index, band] of table.bands.entries()) {
+      expect(band.end).toBeGreaterThan(band.start);
+      if (index > 0) expect(band.start).toBeCloseTo(table.bands[index - 1]!.end, 6);
+    }
+    // The pin sits inside the band that applies.
+    const applying = table.bands.find((band) => band.applies)!;
+    expect(table.marker).toBeGreaterThan(applying.start);
+    expect(table.marker).toBeLessThan(applying.end);
+  });
+
+  it('has nothing to draw for a plan with no bands', () => {
+    const table = presentPriceBands([], 'EGP', null, MAX_INSURABLE_AGE);
+    expect(table.bands).toEqual([]);
+    expect(table.lowest).toBeNull();
   });
 });

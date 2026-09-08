@@ -253,6 +253,49 @@ That returns every matching variant across all companies and plans, each knowing
 its plan and company. Coverage details for scoring come from each variant's
 options and values.
 
+### Only the customer type is required
+
+A company's Individual, Family and SME books are three products, so "the best
+plan" needs a buyer — and needs nothing else. Every other requirement may be
+left blank, and `comparison.service.ts` fills each one before the query runs:
+
+| Left blank            | Resolved to                                               | Reported as                 |
+| --------------------- | --------------------------------------------------------- | --------------------------- |
+| Age                   | `DEFAULT_COMPARISON_AGE` via `resolveComparisonAges()`    | `ageAssumed: true`          |
+| Geographical coverage | no filter: every scope on sale                            | `ANY_COVERAGE_LABEL`        |
+| Currency              | the one most matching variants are priced in, ties A-to-Z | `currencyAssumed`           |
+| Budget, tier          | no ceiling, every tier (as before)                        | `null`                      |
+| SME workforce         | priced per employee, and the screen says so               | `pricedEmployeeCount: null` |
+
+`resolveComparisonAges()` in `rules/age.ts` is the only place that decides
+what a missing age means, and it still ages an SME by the fixed rule whatever
+was sent. `DEFAULT_COMPARISON_AGE` is defined AS the SME constant, so the
+business reasons about one standard age rather than two that could drift.
+
+The result echoes what was assumed, and every screen names it — "Age 35
+(assumed)", "EGP (assumed)", "Any coverage" — because an assumption that is
+not named reads as something the customer chose. The blockers never blame an
+assumed requirement: an assumed currency is by construction the one most plans
+use, so relaxing it could only mix currencies, never reveal a plan.
+
+The comparison screen therefore has two ways through: **Work it out for me**,
+which sends the customer type alone, and **Compare Plans**, which sends
+whatever else was answered. Both go through
+[`comparison-request.ts`](apps/web/src/features/comparison/comparison-request.ts),
+the one place a request becomes a link and a link becomes a request.
+
+### The whole rate table, on the plan
+
+A comparison prices a variant at ONE age and shows one figure. The plan page,
+the preview's "Price by age" tab and the PDF show every band the variant is
+sold at, with the band that priced this comparison marked and the customer's
+age pinned on a bar. `presentPriceBands()` in `rules/plan-presentation.ts`
+lays the table out once — sorted, labelled ("65+" for the open top band),
+each band placed on a 0..1 axis — so the screen's bar and the PDF's bar are
+the same drawing. A band with no premium reads `NOT_SOLD_AT_AGE_LABEL`, never
+a zero. An SME priced by its workforce was priced across several bands, so
+none is marked.
+
 ### Customer type and geographical coverage
 
 Application configuration, not insurance data — so unlike insurance types they

@@ -38,10 +38,19 @@ export function ComparisonBudgetChoice({
   const automaticSummary = isLoadingRange
     ? 'Reading the matching plans…'
     : !priceRange
-      ? 'Complete the questions above first.'
+      ? 'Choose who you want to insure first.'
       : priceRange.count === 0
         ? 'No plans match these requirements yet.'
-        : `${priceRange.count} matching ${priceRange.count === 1 ? 'plan' : 'plans'} from ${priceRange.companyCount} ${priceRange.companyCount === 1 ? 'company' : 'companies'} · ${money(priceRange.lowestPrice)} – ${money(priceRange.highestPrice)}`;
+        : `${priceRange.count} matching ${priceRange.count === 1 ? 'plan' : 'plans'} from ${priceRange.companyCount} ${priceRange.companyCount === 1 ? 'company' : 'companies'} · ${money(priceRange.lowestPrice)} – ${money(priceRange.highestPrice)}${
+            /**
+             * When no currency was chosen the range is in the one most of
+             * those plans use, and the employee is told which rather than
+             * left to guess what the figures are in.
+             */
+            priceRange.currencyAssumed && priceRange.currency
+              ? ` · in ${priceRange.currency}, which most of them use`
+              : ''
+          }`;
 
   return (
     <div className="border-border-subtle bg-surface-muted/40 rounded-(--radius-card) border p-4 sm:p-5">

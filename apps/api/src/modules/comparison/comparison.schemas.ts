@@ -30,21 +30,31 @@ export const comparisonRequestSchema = z
      * is shown every tier.
      */
     planTierId: z.enum(PLAN_TIER_IDS).optional(),
+    /**
+     * THE ONE REQUIRED ANSWER. Everything below it may be left blank and the
+     * service fills it with a standard assumption; who is being insured has
+     * no standard answer, because a company's three books are three products.
+     */
     customerTypeId: z.enum(CUSTOMER_TYPE_IDS),
     /**
      * Only a scope still on sale. A retired one cannot be asked for, whatever
      * the request was built by — there is nothing left to match it against.
+     * Left out, every scope on sale is compared.
      */
-    geographicalCoverageId: z.enum(ENABLED_GEOGRAPHICAL_COVERAGE_IDS),
-    /** ISO 4217, as stored on the configuration. */
-    currency: z.string().trim().length(3).toUpperCase(),
+    geographicalCoverageId: z.enum(ENABLED_GEOGRAPHICAL_COVERAGE_IDS).nullish(),
+    /**
+     * ISO 4217, as stored on the configuration. Left out, the currency most
+     * matching plans are priced in is used.
+     */
+    currency: z.string().trim().length(3).toUpperCase().nullish(),
     /**
      * The ages to cover, youngest to oldest. One person sends the same value
-     * twice. Compared numerically against each configuration's band, never as
-     * text.
+     * twice — or one value, or none: the standard comparison age stands in
+     * for whatever is missing (`resolveComparisonAges`). Compared numerically
+     * against each configuration's band, never as text.
      */
-    ageFrom: comparisonAge,
-    ageTo: comparisonAge,
+    ageFrom: comparisonAge.nullish(),
+    ageTo: comparisonAge.nullish(),
     /**
      * What the customer is comfortable paying per year. Omitted, no price
      * ceiling applies and every matching plan is considered.
@@ -85,7 +95,7 @@ export const comparisonRequestSchema = z
         message: 'Only an SME is priced by employee age bracket.',
       });
     }
-    if (value.ageFrom > value.ageTo) {
+    if (value.ageFrom != null && value.ageTo != null && value.ageFrom > value.ageTo) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['ageFrom'],

@@ -85,6 +85,13 @@ describe('the plan document', () => {
     const { blob, filename } = buildPlanDocument({
       plan: plan as never,
       additional,
+      /** A rate table with a band the plan does not sell, and the band this comparison read. */
+      priceBands: [
+        { ageFrom: 0, ageTo: 17, annualPrice: 3000 },
+        { ageFrom: 18, ageTo: 64, annualPrice: 5191 },
+        { ageFrom: 65, ageTo: 120, annualPrice: null },
+      ],
+      ages: { ageFrom: 35, ageTo: 35, assumed: true },
       waitingPeriods: ['Maternity: 10 months', 'Pre-existing: 12 months'],
       conditions: ['Group size 21-200 employees.', 'MetLife enforces 100% enrolment.'],
       exclusions: ['Cosmetic surgery.', 'Experimental treatment.'],
@@ -116,6 +123,18 @@ describe('the plan document', () => {
     expect(text).toContain('Medical network provider list');
     expect(text).toContain('View the current providers available through GlobeMed.');
     expect(text).toContain('DOWNLOAD PROVIDER LIST');
+
+    /**
+     * THE RATE TABLE, drawn as a bar and listed band by band, with the band
+     * that priced this comparison marked and the age it was priced at named
+     * — as an assumption, because it was one.
+     */
+    expect(text).toContain('PRICE BY AGE');
+    expect(text).toContain('EGP 3,000');
+    expect(text).toContain('Ages 18-64');
+    expect(text).toContain('this comparison');
+    expect(text).toContain('Not sold');
+    expect(text).toContain('age 35 \\(assumed\\)');
     expect(text).toContain('/Subtype /Link');
     expect(text).toMatch(/\/URI \([^)]*\/medical-networks\/net_1\/provider-list\)/);
     expect(text).toContain('/Annots [');

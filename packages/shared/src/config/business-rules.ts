@@ -26,6 +26,33 @@
 export const SME_FIXED_AVERAGE_AGE = 35;
 
 /**
+ * The age a comparison runs at when the customer states none.
+ *
+ * Every question on the comparison screen except "who do you want to insure"
+ * may be left blank, and a blank age has to be SOME age — a plan is priced by
+ * band, and a band cannot be read without one. It is the same standard age
+ * SME cover is quoted against, so the business reasons about one age, not
+ * two. Results built on it say so ("assumed"), because it is our assumption
+ * and not the customer's answer.
+ */
+export const DEFAULT_COMPARISON_AGE = SME_FIXED_AVERAGE_AGE;
+
+/**
+ * What the coverage criterion reads as when the customer expressed no
+ * preference and every scope was compared.
+ */
+export const ANY_COVERAGE_LABEL = 'Any coverage';
+
+/**
+ * What a price band reads as when the insurer left its premium blank.
+ *
+ * A blank premium is "not sold at this age" — an exclusion, never a free plan —
+ * and the rate table a customer is shown has to say so in words rather than
+ * leave a gap they might read as zero.
+ */
+export const NOT_SOLD_AT_AGE_LABEL = 'Not sold';
+
+/**
  * Wording used whenever a resolved average age is displayed or printed
  * (comparison screens, results, exports). Keep the phrasing here so it can be
  * changed in one place.

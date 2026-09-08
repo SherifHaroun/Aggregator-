@@ -11,10 +11,111 @@
  */
 
 import { CORE_MEDICAL_BENEFITS } from '../config/medical-benefits.js';
-import { NOT_SPECIFIED_LABEL } from '../config/business-rules.js';
+import { NOT_SOLD_AT_AGE_LABEL, NOT_SPECIFIED_LABEL } from '../config/business-rules.js';
 import { NOT_COVERED_LABEL } from './comparison-engine.js';
 import { formatNumberValue as formatNumber } from './number-format.js';
 import type { ComparisonBenefitCell, ComparisonPlanResult } from '../types/comparison-results.js';
+
+/** A price band as the variant records it — the part of the DTO this reads. */
+export interface PriceBandLike {
+  ageFrom: number;
+  ageTo: number;
+  annualPrice: number | null;
+}
+
+/** One age band of a plan's rate table, ready to draw and to print. */
+export interface PresentedPriceBand {
+  ageFrom: number;
+  ageTo: number;
+  /** "18–25", or "65+" when the band runs to the oldest insurable age. */
+  ageLabel: string;
+  annualPrice: number | null;
+  /** "EGP 3,100", or `NOT_SOLD_AT_AGE_LABEL` for a band with no premium. */
+  display: string;
+  /** Whether the band prices the comparison the plan was read in. */
+  applies: boolean;
+  /**
+   * Where the band sits on an axis running the full width of the table,
+   * 0..1 from the youngest age priced to the oldest. What a range bar draws.
+   */
+  start: number;
+  end: number;
+}
+
+/** The whole rate table, ready to draw as one bar and print as one list. */
+export interface PresentedPriceTable {
+  bands: PresentedPriceBand[];
+  /** The ages the axis runs between. */
+  minAge: number;
+  maxAge: number;
+  /** The cheapest and dearest premiums, for a caption. `null` when none priced. */
+  lowest: number | null;
+  highest: number | null;
+  /** Where on the axis the customer's own age falls, 0..1, or `null`. */
+  marker: number | null;
+}
+
+/**
+ * THE RATE TABLE, AS THE CUSTOMER READS IT.
+ *
+ * A comparison prices a plan at ONE age and shows one figure. The plan itself
+ * is sold across many, and a customer choosing it — or choosing it for a
+ * family — wants the whole table. This lays it out once for the page, the
+ * preview and the PDF: youngest band first, the band that priced this
+ * comparison marked, and each band placed on a 0..1 axis so any of them can
+ * draw the same bar.
+ *
+ * `ages` is what the comparison ran at; `null` where the figure was built
+ * some other way (an SME's workforce) and no single band applies.
+ */
+export function presentPriceBands(
+  bands: readonly PriceBandLike[],
+  currency: string | null,
+  ages: { ageFrom: number; ageTo: number } | null,
+  oldestInsurableAge: number,
+): PresentedPriceTable {
+  const sorted = [...bands].sort((a, b) => a.ageFrom - b.ageFrom || a.ageTo - b.ageTo);
+  if (sorted.length === 0) {
+    return { bands: [], minAge: 0, maxAge: 0, lowest: null, highest: null, marker: null };
+  }
+
+  const minAge = Math.min(...sorted.map((band) => band.ageFrom));
+  const maxAge = Math.max(...sorted.map((band) => band.ageTo));
+  // A table of one age still needs a span to be drawn on.
+  const span = Math.max(maxAge + 1 - minAge, 1);
+  const position = (age: number) => Math.min(Math.max((age - minAge) / span, 0), 1);
+
+  const prices = sorted
+    .map((band) => band.annualPrice)
+    .filter((price): price is number => typeof price === 'number');
+
+  return {
+    bands: sorted.map((band) => ({
+      ageFrom: band.ageFrom,
+      ageTo: band.ageTo,
+      ageLabel:
+        band.ageTo >= oldestInsurableAge ? `${band.ageFrom}+` : `${band.ageFrom}–${band.ageTo}`,
+      annualPrice: band.annualPrice,
+      display:
+        band.annualPrice === null
+          ? NOT_SOLD_AT_AGE_LABEL
+          : `${currency ? `${currency} ` : ''}${formatNumber(band.annualPrice)}`,
+      applies:
+        ages !== null &&
+        band.annualPrice !== null &&
+        band.ageFrom <= ages.ageFrom &&
+        band.ageTo >= ages.ageTo,
+      start: position(band.ageFrom),
+      end: position(band.ageTo + 1),
+    })),
+    minAge,
+    maxAge,
+    lowest: prices.length ? Math.min(...prices) : null,
+    highest: prices.length ? Math.max(...prices) : null,
+    // The middle of the customer's own range, which for one person is their age.
+    marker: ages === null ? null : position((ages.ageFrom + ages.ageTo) / 2 + 0.5),
+  };
+}
 
 /** The seven areas, in the order the business reads them. Never re-sorted. */
 export const CORE_BENEFIT_ORDER: readonly string[] = [...CORE_MEDICAL_BENEFITS]

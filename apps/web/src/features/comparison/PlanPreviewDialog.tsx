@@ -5,9 +5,10 @@ import { Button, Dialog, IconChevronRight, IconDownload } from '@/components/ui'
 import { ROUTES } from '@/config/routes';
 import { cn } from '@/lib/cn';
 import { AnnualLimitPanel, CoreBenefitList, PlanFigures, PlanIdentity } from './PlanSummary';
+import { PriceBandRange } from './PriceBandRange';
 import { ProviderListLink } from './ProviderListLink';
 import { usePlanDocumentSource } from './usePlanDocument';
-import { downloadPlanDocument } from './plan-document';
+import { downloadPlanDocument, type DocumentAges } from './plan-document';
 
 /**
  * A PLAN, OPENED WHERE IT SITS.
@@ -24,24 +25,33 @@ import { downloadPlanDocument } from './plan-document';
 export function PlanPreviewDialog({
   plan,
   criteria,
+  ages = null,
   onClose,
 }: {
   plan: ComparisonPlanResult | null;
   /** The comparison's own query string, so the full page opens on this plan. */
   criteria: string;
+  /**
+   * The ages the comparison ran at — what the premium shown was priced on —
+   * so the rate table can pick that band out and the PDF can say so.
+   */
+  ages?: DocumentAges | null;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<'overview' | 'benefits' | 'coverage'>('overview');
+  const [tab, setTab] = useState<'overview' | 'benefits' | 'prices' | 'coverage'>('overview');
   const document = usePlanDocumentSource(plan?.configurationId ?? null, plan?.planId ?? null);
 
   if (!plan) return null;
 
   const fullPage = `${ROUTES.comparison.plan(plan.configurationId)}?${criteria}`;
+  // A business priced by its workforce was priced across several bands.
+  const bandAges = plan.pricedEmployeeCount === null ? ages : null;
 
   const TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'benefits', label: 'Benefits' },
+    { id: 'prices', label: 'Price by age' },
     { id: 'coverage', label: 'Coverage details' },
   ] as const;
 
@@ -76,7 +86,7 @@ export function PlanPreviewDialog({
 
         <AnnualLimitPanel plan={plan} explain />
 
-        <div className="border-border-subtle flex gap-1 border-b" role="tablist">
+        <div className="border-border-subtle flex gap-1 overflow-x-auto border-b" role="tablist">
           {TABS.map((entry) => (
             <button
               key={entry.id}
@@ -85,7 +95,7 @@ export function PlanPreviewDialog({
               aria-selected={tab === entry.id}
               onClick={() => setTab(entry.id)}
               className={cn(
-                '-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+                '-mb-px shrink-0 border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors',
                 tab === entry.id
                   ? 'border-brand text-content'
                   : 'text-content-muted hover:text-content border-transparent',
@@ -142,6 +152,23 @@ export function PlanPreviewDialog({
           </div>
         ) : null}
 
+        {/*
+          EVERY AGE THE PLAN IS SOLD AT. The premium above is the premium at
+          one age; a customer choosing the plan wants the whole table, with
+          the band that produced that figure picked out.
+        */}
+        {tab === 'prices' ? (
+          <section>
+            <h4 className="text-content mb-2 text-sm font-semibold">Price by age</h4>
+            <PriceBandRange
+              bands={document.priceBands}
+              currency={plan.currency}
+              ages={bandAges}
+              compact
+            />
+          </section>
+        ) : null}
+
         {tab === 'coverage' ? (
           <div className="space-y-3">
             <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
@@ -165,7 +192,10 @@ export function PlanPreviewDialog({
         ) : null}
 
         <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <Button variant="secondary" onClick={() => downloadPlanDocument({ plan, ...document })}>
+          <Button
+            variant="secondary"
+            onClick={() => downloadPlanDocument({ plan, ...document, ages: bandAges })}
+          >
             <IconDownload className="size-4" />
             Download PDF
           </Button>

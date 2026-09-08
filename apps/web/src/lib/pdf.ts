@@ -100,6 +100,9 @@ export function wrap(text: string, width: number, size: number, face: Face): str
 /** Escape the three characters a PDF string cannot carry raw. */
 const escapeText = (text: string) =>
   text
+    // The dashes the screen uses - "18–64", "plan — continued" - are outside
+    // Latin-1, and a rate table reading "18?64" is not a rate table.
+    .replace(/[‐-―−]/g, '-')
     // Latin-1 is what the standard fonts hold; anything else is transliterated
     // to a question mark rather than emitted as a byte the reader misdraws.
     .replace(/[^\x20-\x7E -ÿ]/g, '?')

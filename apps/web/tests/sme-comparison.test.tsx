@@ -168,7 +168,7 @@ describe('asking an SME who it insures', () => {
     expect(screen.queryByText(String(SME_COMPARISON_AVERAGE_AGE))).not.toBeInTheDocument();
   });
 
-  it('will not compare a workforce of nobody', async () => {
+  it('prices a business per employee when no workforce is entered', async () => {
     const user = userEvent.setup();
     givenAnSmePlanOnSale();
     await chooseSme(user);
@@ -176,13 +176,17 @@ describe('asking an SME who it insures', () => {
     await user.click(screen.getByRole('button', { name: /Compare Plans/i }));
 
     /**
-     * Zero employees priced at zero would make every plan free and tie them
-     * all at the top — a comparison of nothing, presented as an answer.
+     * The workforce is optional, like every question but the first. Nothing
+     * entered is not a comparison of nothing — it is ONE employee at the
+     * standard age, sent with no headcounts so the engine prices per head,
+     * and the results say so rather than stopping the employer at the door.
      */
+    await waitFor(() => expect(requested).not.toHaveLength(0));
+    expect(requested.at(-1)!.customerTypeId).toBe('SME');
+    expect(requested.at(-1)!.smeEmployees).toBeUndefined();
     expect(
-      await screen.findByText(/Enter how many employees are in each age group/i),
-    ).toBeInTheDocument();
-    expect(requested).toHaveLength(0);
+      (await screen.findAllByText(/per employee — no workforce entered/i)).length,
+    ).toBeGreaterThan(0);
   });
 
   it('sends the workforce to be priced, and the standard age to match on', async () => {

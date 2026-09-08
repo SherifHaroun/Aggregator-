@@ -8,17 +8,22 @@
  */
 
 import {
+  MAX_INSURABLE_AGE,
+  NOT_SOLD_AT_AGE_LABEL,
   PROVIDER_LIST_DOWNLOAD_LABEL,
   PROVIDER_LIST_PANEL_TITLE,
+  formatNumber,
   providerListPanelSubtitle,
   presentAnnualLimit,
   presentCoreBenefits,
   presentPremium,
+  presentPriceBands,
   planDocumentFilename,
   type ComparisonPlanResult,
+  type PriceBandLike,
 } from '@aggregator/shared';
 import { providerListUrl } from '@/lib/api-url';
-import { PdfDocument, downloadBlob, rgb, widthOf, wrap } from '@/lib/pdf';
+import { PdfDocument, downloadBlob, rgb, widthOf, wrap, type Rgb } from '@/lib/pdf';
 
 /** The house colours, as the screen uses them. */
 const NAVY = rgb(0.1, 0.15, 0.36);
@@ -27,6 +32,17 @@ const MUTED = rgb(0.42, 0.45, 0.53);
 const RULE = rgb(0.85, 0.87, 0.91);
 const WASH = rgb(0.96, 0.97, 0.99);
 const WHITE = rgb(1, 1, 1);
+/** The navy at a third, for the bands a comparison did not price. */
+const NAVY_SOFT = rgb(0.64, 0.69, 0.86);
+/** The halo around the band that did. */
+const NAVY_HALO = rgb(0.82, 0.86, 0.95);
+
+/** The ages a comparison ran at, and whether they were the customer's. */
+export interface DocumentAges {
+  ageFrom: number;
+  ageTo: number;
+  assumed?: boolean;
+}
 
 /** A benefit the plan states beyond the six, with whatever it says about it. */
 export interface DocumentBenefit {
@@ -43,7 +59,21 @@ export interface PlanDocumentInput {
   waitingPeriods: string[];
   conditions: string[];
   exclusions: string[];
+  /** The whole rate table, so the customer sees every age the plan is sold at. */
+  priceBands: readonly PriceBandLike[];
+  /**
+   * The ages the comparison ran at, so the band that priced it can be picked
+   * out. `null` where no single band applies — an SME priced by workforce.
+   */
+  ages?: DocumentAges | null;
   description: string | null;
+}
+
+/** How the ages read in a sentence: "age 35", "ages 4–52", "age 35 (assumed)". */
+function describeAges(ages: DocumentAges): string {
+  const span =
+    ages.ageFrom === ages.ageTo ? `age ${ages.ageFrom}` : `ages ${ages.ageFrom}–${ages.ageTo}`;
+  return ages.assumed ? `${span} (assumed)` : span;
 }
 
 /** A heading with a rule under it, kept with at least one line of its section. */
@@ -127,10 +157,126 @@ function providerListPanel(doc: PdfDocument, networkName: string, url: string) {
   doc.y = top + height + 10;
 }
 
+/**
+ * THE RATE TABLE, AS A BAR AND A LIST.
+ *
+ * The premium the document leads with is the premium at ONE age. The plan is
+ * sold across many, and this is where the customer sees the whole table: a
+ * bar from the youngest age priced to the oldest, one segment per band, the
+ * band that priced this comparison in full navy with its figure above it and
+ * a pin at the customer's own age, then the figures band by band. The same
+ * shared presentation lays out the screen, so the two cannot disagree.
+ */
+function priceTablePanel(doc: PdfDocument, input: PlanDocumentInput) {
+  const { plan } = input;
+  // A business priced by its workforce was priced across several bands; none
+  // of them is "the" band, so none is picked out.
+  const ages = plan.pricedEmployeeCount === null ? (input.ages ?? null) : null;
+  const table = presentPriceBands(input.priceBands, plan.currency, ages, MAX_INSURABLE_AGE);
+  if (table.bands.length === 0) return;
+
+  section(doc, 'Price by age');
+
+  const money = (value: number) =>
+    `${plan.currency ? `${plan.currency} ` : ''}${formatNumber(value)}`;
+  const applying = table.bands.find((band) => band.applies);
+  const caption = [
+    'The premium changes with age.',
+    table.lowest !== null && table.highest !== null && table.lowest !== table.highest
+      ? `From ${money(table.lowest)} to ${money(table.highest)} a year across ${table.bands.length} age bands.`
+      : '',
+    applying && ages
+      ? `Highlighted: the band that priced this comparison at ${describeAges(ages)}.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  doc.paragraph(caption, 9, 'regular', MUTED);
+
+  // --- the bar --------------------------------------------------------------
+  const pillHeight = 16;
+  const pillRoom = pillHeight + 12;
+  const barHeight = 12;
+  const ageRoom = 14;
+  const legendRoom = 20;
+  doc.ensure(pillRoom + barHeight + ageRoom + legendRoom + 12);
+  doc.y += 6;
+
+  const left = doc.margin;
+  const width = doc.contentWidth;
+  const barTop = doc.y + pillRoom;
+
+  doc.rect(left, barTop, width, barHeight, WASH);
+
+  for (const band of table.bands) {
+    const x = left + band.start * width + 0.75;
+    const w = Math.max((band.end - band.start) * width - 1.5, 1);
+    const colour: Rgb = band.applies ? NAVY : band.annualPrice === null ? RULE : NAVY_SOFT;
+
+    if (band.applies) doc.rect(x - 2, barTop - 2.5, w + 4, barHeight + 5, NAVY_HALO);
+    doc.rect(x, barTop, w, barHeight, colour);
+
+    // The ages under the segment — only where they fit inside it.
+    const face = band.applies ? 'bold' : 'regular';
+    const labelWidth = widthOf(band.ageLabel, 7.5, face);
+    if (labelWidth <= w + 3) {
+      doc.y = barTop + barHeight + 4;
+      doc.text(band.ageLabel, x + w / 2 - labelWidth / 2, 7.5, face, band.applies ? NAVY : MUTED);
+    }
+
+    // The figure above the band that priced this comparison, as a navy pill
+    // with a stem down to its segment.
+    if (band.applies) {
+      const pillWidth = widthOf(band.display, 8, 'bold') + 14;
+      const centre = x + w / 2;
+      const pillLeft = Math.min(Math.max(centre - pillWidth / 2, left), left + width - pillWidth);
+      const pillTop = barTop - pillRoom + 2;
+      doc.rect(pillLeft, pillTop, pillWidth, pillHeight, NAVY);
+      doc.rect(centre - 1, pillTop + pillHeight, 2, pillRoom - pillHeight - 4, NAVY);
+      doc.y = pillTop + 4;
+      doc.text(band.display, pillLeft + 7, 8, 'bold', WHITE);
+    }
+  }
+
+  // The customer's own age, pinned on the bar: a white ring with a navy dot.
+  if (table.marker !== null) {
+    const cx = left + table.marker * width;
+    const cy = barTop + barHeight / 2;
+    doc.circle(cx, cy, 4.5, WHITE);
+    doc.circle(cx, cy, 2.75, NAVY);
+  }
+
+  // The legend.
+  doc.y = barTop + barHeight + ageRoom + 4;
+  let legendLeft = left;
+  const legend: [Rgb, string][] = [
+    [NAVY, 'This comparison'],
+    [NAVY_SOFT, 'Other ages'],
+    [RULE, NOT_SOLD_AT_AGE_LABEL],
+  ];
+  for (const [colour, label] of legend) {
+    doc.rect(legendLeft, doc.y + 1, 7, 7, colour);
+    doc.text(label, legendLeft + 11, 7.5, 'regular', MUTED);
+    legendLeft += 11 + widthOf(label, 7.5, 'regular') + 14;
+  }
+  doc.y += legendRoom;
+
+  // --- the list -------------------------------------------------------------
+  for (const band of table.bands) {
+    row(
+      doc,
+      band.applies ? `Ages ${band.ageLabel}  ·  this comparison` : `Ages ${band.ageLabel}`,
+      band.display,
+      band.applies,
+    );
+  }
+}
+
 /** Build the document. Returns the blob and the name it should be saved under. */
 export function buildPlanDocument(input: PlanDocumentInput): { blob: Blob; filename: string } {
   const { plan } = input;
   const benefits = presentCoreBenefits(plan);
+  const ages = plan.pricedEmployeeCount === null ? (input.ages ?? null) : null;
 
   const doc = new PdfDocument(
     48,
@@ -189,7 +335,17 @@ export function buildPlanDocument(input: PlanDocumentInput): { blob: Blob; filen
   doc.text(presentPremium(plan), doc.margin + 14, 16, 'bold', NAVY);
   doc.text(presentAnnualLimit(plan), doc.margin + half + 26, 16, 'bold', NAVY);
   doc.y += 20;
-  doc.text('per year', doc.margin + 14, 8, 'regular', MUTED);
+  doc.text(
+    plan.pricedEmployeeCount !== null
+      ? `estimated for ${plan.pricedEmployeeCount} ${plan.pricedEmployeeCount === 1 ? 'employee' : 'employees'}`
+      : ages
+        ? `per year at ${describeAges(ages)}`
+        : 'per year',
+    doc.margin + 14,
+    8,
+    'regular',
+    MUTED,
+  );
   doc.text('maximum payable per policy year', doc.margin + half + 26, 8, 'regular', MUTED);
   doc.y = boxTop + 62 + 8;
 
@@ -197,6 +353,9 @@ export function buildPlanDocument(input: PlanDocumentInput): { blob: Blob; filen
     section(doc, 'About this plan');
     doc.paragraph(input.description, 10, 'regular', INK);
   }
+
+  // --- every age the plan is sold at, with this comparison's band marked ---
+  priceTablePanel(doc, input);
 
   // --- the seven, always seven and always in order --------------------------
   section(doc, 'Core benefits & coverage');

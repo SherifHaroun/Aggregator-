@@ -10,7 +10,10 @@
 
 import {
   ALTERNATIVE_VALUE_KEY,
+  ANY_COVERAGE_LABEL,
   alternativeValueField,
+  resolveComparisonAges,
+  type CustomerTypeId,
   benefitValueField,
   PROVIDER_LIST_HISTORY_LIMIT,
   DEFAULT_BENEFIT_VALUE_KIND,
@@ -691,22 +694,58 @@ function route({
      * draws its boxes from and the real API prices with.
      */
     const employees = body.smeEmployees as Record<string, number> | undefined;
+    /**
+     * WHAT WAS LEFT BLANK IS FILLED IN, as the real API fills it: the ages by
+     * the shared rule, the coverage by comparing every scope, the currency by
+     * whichever one most of the matching variants are priced in.
+     */
+    const customerTypeId = String(body.customerTypeId ?? 'INDIVIDUAL') as CustomerTypeId;
+    const ages = resolveComparisonAges(
+      customerTypeId,
+      body.ageFrom as number | null | undefined,
+      body.ageTo as number | null | undefined,
+    );
+    const coverage = (body.geographicalCoverageId as string | null | undefined) ?? null;
+    const askedCurrency = (body.currency as string | null | undefined) ?? null;
+
     const priceOf = (configuration: PlanConfigurationDto): number | null => {
       const bands = configuration.priceBands ?? [];
       if (employees) return quoteSmeWorkforce(employees, bands).total;
-      const band = bands.find(
-        (row) => row.ageFrom <= Number(body.ageFrom ?? 0) && row.ageTo >= Number(body.ageTo ?? 0),
-      );
+      const band = bands.find((row) => row.ageFrom <= ages.ageFrom && row.ageTo >= ages.ageTo);
       return band?.annualPrice ?? null;
     };
 
+    const candidates = store.configurations.filter(
+      (configuration) =>
+        (coverage === null || configuration.geographicalCoverage === coverage) &&
+        (askedCurrency === null || configuration.currency === askedCurrency),
+    );
+
     const prices = new Map<string, number>();
-    for (const configuration of store.configurations) {
+    for (const configuration of candidates) {
       const price = priceOf(configuration);
       if (price !== null) prices.set(configuration.id, price);
     }
 
-    const priced = store.configurations.filter((c) => prices.has(c.id));
+    const currencyCounts = new Map<string, number>();
+    for (const configuration of candidates) {
+      if (prices.has(configuration.id) && configuration.currency) {
+        currencyCounts.set(
+          configuration.currency,
+          (currencyCounts.get(configuration.currency) ?? 0) + 1,
+        );
+      }
+    }
+    const currency =
+      askedCurrency ??
+      [...currencyCounts.entries()].sort(
+        (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+      )[0]?.[0] ??
+      null;
+
+    const priced = candidates.filter(
+      (c) => prices.has(c.id) && (currency === null || c.currency === currency),
+    );
     const within =
       budget === undefined ? priced : priced.filter((c) => prices.get(c.id)! <= budget);
     const above = budget === undefined ? [] : priced.filter((c) => prices.get(c.id)! > budget);
@@ -723,13 +762,15 @@ function route({
       criteria: {
         insuranceTypeId: String(body.insuranceTypeId ?? ''),
         insuranceTypeName: store.insuranceTypes[0]?.name ?? '',
-        customerTypeId: body.customerTypeId,
-        customerTypeLabel: String(body.customerTypeId ?? ''),
-        geographicalCoverageId: body.geographicalCoverageId,
-        geographicalCoverageLabel: String(body.geographicalCoverageId ?? ''),
-        currency: String(body.currency ?? ''),
-        ageFrom: Number(body.ageFrom ?? 0),
-        ageTo: Number(body.ageTo ?? 0),
+        customerTypeId,
+        customerTypeLabel: customerTypeId,
+        geographicalCoverageId: coverage,
+        geographicalCoverageLabel: coverage ?? ANY_COVERAGE_LABEL,
+        currency,
+        currencyAssumed: askedCurrency === null,
+        ageFrom: ages.ageFrom,
+        ageTo: ages.ageTo,
+        ageAssumed: ages.assumed,
         budget: budget ?? null,
         averageAge: { value: null, source: 'NOT_SPECIFIED', label: null },
         smeEmployeeCount: employees ? totalSmeEmployees(employees) : null,
@@ -776,7 +817,8 @@ function route({
       lowestPrice: prices.length ? Math.min(...prices) : null,
       highestPrice: prices.length ? Math.max(...prices) : null,
       suggestedBudget: prices.length ? Math.max(...prices) : null,
-      currency: String(body.currency ?? ''),
+      currency: (body.currency as string | null | undefined) ?? null,
+      currencyAssumed: !body.currency,
     });
   }
 

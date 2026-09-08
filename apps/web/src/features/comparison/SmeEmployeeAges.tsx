@@ -46,8 +46,7 @@ export function SmeEmployeeAges({
   return (
     <fieldset>
       <legend className="text-content mb-2 text-sm font-medium">
-        Employee ages
-        <span className="text-danger ml-0.5">*</span>
+        Employee ages <span className="text-content-subtle font-normal">(optional)</span>
       </legend>
 
       <div
@@ -63,7 +62,10 @@ export function SmeEmployeeAges({
           <p className="text-content text-sm font-semibold">
             {`${total} ${total === 1 ? 'employee' : 'employees'}`}
             {total === 0 ? (
-              <span className="text-content-subtle font-normal"> — nobody entered yet</span>
+              <span className="text-content-subtle font-normal">
+                {' '}
+                — nobody entered yet, so plans are priced per employee
+              </span>
             ) : null}
           </p>
           <Button

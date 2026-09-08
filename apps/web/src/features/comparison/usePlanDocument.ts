@@ -5,6 +5,7 @@ import {
   type PlanConfigurationDto,
   type PlanOptionDto,
   type PlanOptionValueDto,
+  type PlanPriceBandDto,
 } from '@aggregator/shared';
 import { useMemo } from 'react';
 import { usePlan, usePlanConfiguration } from '@/features/insurance-data/insurance-data.api';
@@ -37,6 +38,12 @@ export interface PlanDocumentSource {
   waitingPeriods: string[];
   conditions: string[];
   exclusions: string[];
+  /**
+   * The whole rate table, youngest band first. A comparison carries only the
+   * one band that priced it; a customer opening the plan is shown every age
+   * it is sold at.
+   */
+  priceBands: PlanPriceBandDto[];
   description: string | null;
   isLoading: boolean;
 }
@@ -136,6 +143,9 @@ export function readPlanDocument(
     waitingPeriods,
     conditions,
     exclusions,
+    priceBands: [...(variant?.priceBands ?? [])].sort(
+      (a, b) => a.ageFrom - b.ageFrom || a.ageTo - b.ageTo,
+    ),
   };
 }
 

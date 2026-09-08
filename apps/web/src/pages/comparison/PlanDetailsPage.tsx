@@ -1,16 +1,8 @@
 import {
-  CUSTOMER_TYPE_IDS,
-  ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
-  PLAN_TIER_IDS,
-  resolveSmeAgeBracketId,
   presentAnnualLimit,
   presentCoreBenefits,
   presentPremium,
   type ComparisonPlanResult,
-  type ComparisonRequestInput,
-  type CustomerTypeId,
-  type GeographicalCoverageId,
-  type PlanTierId,
 } from '@aggregator/shared';
 import { useMemo } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
@@ -25,9 +17,12 @@ import {
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
 import {
+  PriceBandRange,
   ProviderListLink,
   downloadPlanDocument,
+  parseComparisonRequest,
   usePlanDocumentSource,
+  type DocumentAges,
 } from '@/features/comparison';
 import { useComparison } from '@/features/insurance-data/insurance-data.api';
 
@@ -47,51 +42,26 @@ export function PlanDetailsPage() {
   const { configurationId } = useParams<{ configurationId: string }>();
   const [params] = useSearchParams();
 
-  const request = useMemo<ComparisonRequestInput | null>(() => {
-    const oneOf = <T extends string>(ids: readonly T[], value: string | null): T | null =>
-      value !== null && (ids as readonly string[]).includes(value) ? (value as T) : null;
-
-    const customerTypeId = oneOf<CustomerTypeId>(CUSTOMER_TYPE_IDS, params.get('customerTypeId'));
-    const geographicalCoverageId = oneOf<GeographicalCoverageId>(
-      ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
-      params.get('geographicalCoverageId'),
-    );
-    const currency = params.get('currency');
-    const ageFrom = Number(params.get('ageFrom'));
-    const ageTo = Number(params.get('ageTo'));
-    if (!customerTypeId || !geographicalCoverageId || !currency) return null;
-    if (!Number.isFinite(ageFrom) || !Number.isFinite(ageTo)) return null;
-
-    const smeEmployees: Record<string, number> = {};
-    for (const entry of params.getAll('employees')) {
-      const separator = entry.lastIndexOf(':');
-      if (separator === -1) continue;
-      const bracketId = resolveSmeAgeBracketId(entry.slice(0, separator));
-      const count = Number(entry.slice(separator + 1));
-      if (bracketId === null || !Number.isInteger(count) || count < 0) continue;
-      smeEmployees[bracketId] = count;
-    }
-
-    const planTierId = oneOf<PlanTierId>(PLAN_TIER_IDS, params.get('planTierId'));
-    const budget = params.get('budget');
-
-    return {
-      ...(planTierId === null ? {} : { planTierId }),
-      ...(Object.keys(smeEmployees).length ? { smeEmployees } : {}),
-      customerTypeId,
-      geographicalCoverageId,
-      currency,
-      ageFrom,
-      ageTo,
-      ...(budget === null || !Number.isFinite(Number(budget)) ? {} : { budget: Number(budget) }),
-    };
-  }, [params]);
+  const request = useMemo(() => parseComparisonRequest(params), [params]);
 
   const comparison = useComparison(request);
   const plan =
     [...(comparison.data?.plans ?? []), ...(comparison.data?.overBudgetPlans ?? [])].find(
       (candidate) => candidate.configurationId === configurationId,
     ) ?? null;
+
+  /**
+   * The ages the premium was priced at, as the engine resolved them — the
+   * customer's own, or the standard one it assumed — so the rate table can
+   * pick that band out and say which it is.
+   */
+  const ages: DocumentAges | null = comparison.data
+    ? {
+        ageFrom: comparison.data.criteria.ageFrom,
+        ageTo: comparison.data.criteria.ageTo,
+        assumed: comparison.data.criteria.ageAssumed,
+      }
+    : null;
 
   const document = usePlanDocumentSource(configurationId ?? null, plan?.planId ?? null);
   const backToResults = `${ROUTES.comparison.results}?${params.toString()}`;
@@ -123,7 +93,7 @@ export function PlanDetailsPage() {
           ),
         }}
       >
-        {() => (plan ? <PlanBody plan={plan} document={document} /> : null)}
+        {() => (plan ? <PlanBody plan={plan} document={document} ages={ages} /> : null)}
       </DataState>
     </div>
   );
@@ -132,11 +102,15 @@ export function PlanDetailsPage() {
 function PlanBody({
   plan,
   document,
+  ages,
 }: {
   plan: ComparisonPlanResult;
   document: ReturnType<typeof usePlanDocumentSource>;
+  ages: DocumentAges | null;
 }) {
   const benefits = presentCoreBenefits(plan);
+  // A business priced by its workforce was priced across several bands.
+  const bandAges = plan.pricedEmployeeCount === null ? ages : null;
 
   return (
     <div className="space-y-6">
@@ -154,11 +128,17 @@ function PlanBody({
             <div className="text-right">
               <p className="text-content text-3xl font-bold tabular-nums">{presentPremium(plan)}</p>
               <p className="text-content-subtle text-sm">
-                {plan.pricedEmployeeCount === null
-                  ? 'Annual premium'
-                  : `Estimated, based on ${plan.pricedEmployeeCount} ${
+                {plan.pricedEmployeeCount !== null
+                  ? `Estimated, based on ${plan.pricedEmployeeCount} ${
                       plan.pricedEmployeeCount === 1 ? 'employee' : 'employees'
-                    }`}
+                    }`
+                  : bandAges
+                    ? `Annual premium at ${
+                        bandAges.ageFrom === bandAges.ageTo
+                          ? `age ${bandAges.ageFrom}`
+                          : `ages ${bandAges.ageFrom}–${bandAges.ageTo}`
+                      }${bandAges.assumed ? ' (assumed)' : ''}`
+                    : 'Annual premium'}
               </p>
             </div>
           </div>
@@ -176,6 +156,15 @@ function PlanBody({
           </div>
         </CardBody>
       </Card>
+
+      {/*
+        EVERY AGE THE PLAN IS SOLD AT. The figure above is the premium at one
+        age; the plan is sold across many, and a customer choosing it wants
+        the whole table with the band that produced that figure picked out.
+      */}
+      <Section title="Price by age">
+        <PriceBandRange bands={document.priceBands} currency={plan.currency} ages={bandAges} />
+      </Section>
 
       {document.description ? (
         <Section title="Plan overview">
@@ -302,7 +291,7 @@ function PlanBody({
       ) : null}
 
       <div className="flex justify-end">
-        <Button onClick={() => downloadPlanDocument({ plan, ...document })}>
+        <Button onClick={() => downloadPlanDocument({ plan, ...document, ages: bandAges })}>
           <IconDownload className="size-4" />
           Download PDF
         </Button>

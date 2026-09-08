@@ -88,7 +88,16 @@ function givenTwoPlans() {
     fields: [],
   });
 
-  const plan = (id: string, name: string, price: number, limit: number) => {
+  const plan = (
+    id: string,
+    name: string,
+    price: number,
+    limit: number,
+    /** The rate table. One band across every age unless a test says otherwise. */
+    bands: { ageFrom: number; ageTo: number; annualPrice: number | null }[] = [
+      { ageFrom: 0, ageTo: 120, annualPrice: price },
+    ],
+  ) => {
     store.plans.push({
       id,
       companyId: 'company_1',
@@ -106,7 +115,7 @@ function givenTwoPlans() {
       planId: id,
       geographicalCoverage: 'LOCAL',
       roomType: null,
-      priceBands: [{ id: `band_${id}`, ageFrom: 0, ageTo: 120, annualPrice: price }],
+      priceBands: bands.map((band, index) => ({ id: `band_${id}_${index}`, ...band })),
       currency: 'EGP',
       annualLimit: limit,
       deductible: null,
@@ -148,7 +157,16 @@ function givenTwoPlans() {
     });
   };
 
-  plan('plan_elite', 'Elite', 5701, 600000);
+  /**
+   * Elite is priced across three bands — a child's price, the working-age
+   * price the comparison at 35 reads, and an age it is not sold at — so the
+   * screens can be checked for showing the whole table, not just one row.
+   */
+  plan('plan_elite', 'Elite', 5701, 600000, [
+    { ageFrom: 0, ageTo: 17, annualPrice: 3000 },
+    { ageFrom: 18, ageTo: 64, annualPrice: 5701 },
+    { ageFrom: 65, ageTo: 120, annualPrice: null },
+  ]);
   plan('plan_blue', 'Blue', 3100, 100000);
 }
 
@@ -515,5 +533,74 @@ describe('the plan document', () => {
     }
     expect(text).toContain('Road Ambulance');
     expect(text).toContain('ADDITIONAL BENEFITS');
+  });
+
+  it('carries the whole rate table, with the band that priced it marked', async () => {
+    const user = userEvent.setup();
+    const { saved, click } = captureDownload();
+    givenTwoPlans();
+    renderApp(`${ROUTES.comparison.results}?${CRITERIA}`);
+    await screen.findAllByText('Annual limit');
+    await user.click(screen.getByRole('button', { name: 'View details for Elite' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    await user.click(dialog.getByRole('button', { name: /Download PDF/i }));
+
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    const text = await readPdf(saved.blob!);
+
+    /**
+     * Every band the plan is sold at, not only the one this customer fell
+     * in — and that one named as the source of the premium at the top, so
+     * a reader can see what a younger or older person would pay.
+     */
+    expect(text).toContain('PRICE BY AGE');
+    expect(text).toContain('Ages 0-17');
+    expect(text).toContain('EGP 3,000');
+    expect(text).toContain('Ages 18-64');
+    expect(text).toContain('this comparison');
+    expect(text).toContain('Ages 65+');
+    expect(text).toContain('Not sold');
+    expect(text).toContain('per year at age 35');
+  });
+});
+
+describe('every age the plan is sold at', () => {
+  it('is drawn on the full page, with this comparison’s band picked out', async () => {
+    const user = userEvent.setup();
+    givenTwoPlans();
+    renderApp(`${ROUTES.comparison.results}?${CRITERIA}`);
+    await screen.findAllByText('Annual limit');
+    await user.click(screen.getByRole('button', { name: 'View details for Elite' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    await user.click(dialog.getByRole('button', { name: /View plan/i }));
+
+    await screen.findByRole('heading', { name: 'Elite', level: 1 });
+    expect(await screen.findByText('Price by age')).toBeInTheDocument();
+
+    // All three bands, the one that priced the comparison marked, and the
+    // age it is not sold at said in words rather than left as a gap.
+    expect(screen.getByText(/^Ages 0–17/)).toBeInTheDocument();
+    expect(screen.getByText('EGP 3,000')).toBeInTheDocument();
+    expect(screen.getByText(/^Ages 18–64/)).toBeInTheDocument();
+    expect(screen.getByText('this comparison')).toBeInTheDocument();
+    expect(screen.getByText(/^Ages 65\+/)).toBeInTheDocument();
+    expect(screen.getByText('Not sold')).toBeInTheDocument();
+    // The premium at the top says which age it is for.
+    expect(screen.getByText(/Annual premium at age 35/)).toBeInTheDocument();
+  });
+
+  it('has a tab of its own in the preview', async () => {
+    const user = userEvent.setup();
+    givenTwoPlans();
+    renderApp(`${ROUTES.comparison.results}?${CRITERIA}`);
+    await screen.findAllByText('Annual limit');
+    await user.click(screen.getByRole('button', { name: 'View details for Elite' }));
+
+    const dialog = within(await screen.findByRole('dialog'));
+    await user.click(dialog.getByRole('tab', { name: 'Price by age' }));
+
+    expect(await dialog.findByText(/^Ages 18–64/)).toBeInTheDocument();
+    expect(dialog.getByText('EGP 3,000')).toBeInTheDocument();
+    expect(dialog.getByText('Not sold')).toBeInTheDocument();
   });
 });

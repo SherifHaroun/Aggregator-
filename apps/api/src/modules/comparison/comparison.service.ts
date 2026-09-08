@@ -1,4 +1,5 @@
 import {
+  ANY_COVERAGE_LABEL,
   CUSTOMER_TYPES,
   GEOGRAPHICAL_COVERAGES,
   PLAN_TIERS,
@@ -9,6 +10,7 @@ import {
   quoteSmeWorkforce,
   rankValue,
   resolveAverageAgeForCustomerType,
+  resolveComparisonAges,
   scoreCandidates,
   tierLimitRange,
   totalSmeEmployees,
@@ -18,8 +20,11 @@ import {
   type ComparisonPlanResult,
   type ComparisonPriceRangeDto,
   type ComparisonResultDto,
+  type CustomerTypeId,
+  type GeographicalCoverageId,
+  type PlanTierId,
+  type ResolvedComparisonRequest,
 } from '@aggregator/shared';
-import { notFound } from '../../lib/errors.js';
 import { discoverComparisonColumns } from './comparison-columns.js';
 import type { Prisma } from '@prisma/client';
 import { toNumber } from '../../lib/decimal.js';
@@ -46,21 +51,50 @@ export async function listComparisonCurrencies(): Promise<string[]> {
 }
 
 /**
+ * A REQUEST WITH EVERY BLANK FILLED IN.
+ *
+ * The customer may answer only "who is being insured" and leave the rest. The
+ * query cannot run on blanks — a band cannot be read without an age, and two
+ * currencies cannot be ranked against each other — so each blank is resolved
+ * here, once, and the result remembers which answers were the customer's and
+ * which were ours. Everything below this point reads a query, never a payload.
+ */
+interface ComparisonQuery {
+  planTierId?: PlanTierId | undefined;
+  customerTypeId: CustomerTypeId;
+  /** `null` compares every scope on sale. */
+  geographicalCoverageId: GeographicalCoverageId | null;
+  /** `null` only when nothing matched to read a currency off. */
+  currency: string | null;
+  currencyAssumed: boolean;
+  ageFrom: number;
+  ageTo: number;
+  ageAssumed: boolean;
+  budget?: number | undefined;
+  smeEmployees?: Record<string, number> | undefined;
+}
+
+/**
+ * What the blockers relax: the same query with one requirement withdrawn.
+ * Withdrawn is `undefined`, and `undefined` is what Prisma reads as "no
+ * filter", so relaxing a requirement is simply not writing it.
+ */
+type RelaxedQuery = Omit<ComparisonQuery, 'customerTypeId'> & {
+  customerTypeId?: CustomerTypeId | undefined;
+};
+
+/**
  * Everything a configuration must satisfy EXCEPT the budget.
  *
- * The configuration's band must SPAN the ages requested: its `ageFrom` at or
- * below the youngest, its `ageTo` at or above the eldest. A single person is a
- * range of one, so this is the same rule for everybody — and a family is never
- * shown a plan that would leave one of its members outside the cover.
- *
  * Shared so the comparison and the price range can never drift into answering
- * slightly different questions.
+ * slightly different questions. A requirement the customer left blank is not
+ * written at all, which is how "any coverage" and "any currency" are asked.
  */
-function variantRequirements(input: ComparisonPriceRangePayload) {
+function variantRequirements(query: RelaxedQuery) {
   return {
     isActive: true,
-    geographicalCoverage: input.geographicalCoverageId,
-    currency: input.currency,
+    geographicalCoverage: query.geographicalCoverageId ?? undefined,
+    currency: query.currency ?? undefined,
     /**
      * HOW GOOD THE PLAN HAS TO BE, asked as what it actually pays.
      *
@@ -71,7 +105,7 @@ function variantRequirements(input: ComparisonPriceRangePayload) {
      * A variant that never stated a ceiling is excluded when a tier is asked
      * for: it cannot be shown to satisfy a bound nobody wrote down.
      */
-    ...(input.planTierId ? { annualLimit: tierLimitRange(input.planTierId) } : {}),
+    ...(query.planTierId ? { annualLimit: tierLimitRange(query.planTierId) } : {}),
     plan: {
       isActive: true,
       /**
@@ -80,7 +114,7 @@ function variantRequirements(input: ComparisonPriceRangePayload) {
        * merely share a name, so this filter is what keeps a family from ever
        * being shown an individual's product.
        */
-      customerType: input.customerTypeId,
+      customerType: query.customerTypeId ?? undefined,
       company: { isActive: true },
     },
   } as const;
@@ -99,12 +133,12 @@ function variantRequirements(input: ComparisonPriceRangePayload) {
  * than a free plan.
  */
 function bandRequirements(
-  input: ComparisonPriceRangePayload,
+  ages: { ageFrom: number; ageTo: number },
   price: Prisma.DecimalNullableFilter | { not: null } = { not: null },
 ) {
   return {
-    ageFrom: { lte: input.ageFrom },
-    ageTo: { gte: input.ageTo },
+    ageFrom: { lte: ages.ageFrom },
+    ageTo: { gte: ages.ageTo },
     annualPrice: price,
   } as const;
 }
@@ -118,6 +152,65 @@ function bandRequirements(
 const tightestBandFirst = [{ ageFrom: 'desc' as const }, { ageTo: 'asc' as const }];
 
 /**
+ * Fill in whatever the customer left blank.
+ *
+ * The ages come from the shared rule, so the API and the screen agree on what
+ * a blank age means. The currency is read off the plans: when the customer
+ * names none, the one most of the matching variants are priced in is the one
+ * they are compared in — the alternative, comparing 3,000 EGP against 300 USD
+ * as if they were the same scale, is not a comparison.
+ */
+async function resolveQuery(
+  input: ComparisonPriceRangePayload | ComparisonRequestPayload,
+): Promise<ComparisonQuery> {
+  const ages = resolveComparisonAges(input.customerTypeId, input.ageFrom, input.ageTo);
+
+  const query: ComparisonQuery = {
+    planTierId: input.planTierId,
+    customerTypeId: input.customerTypeId,
+    geographicalCoverageId: input.geographicalCoverageId ?? null,
+    currency: input.currency ?? null,
+    currencyAssumed: false,
+    ageFrom: ages.ageFrom,
+    ageTo: ages.ageTo,
+    ageAssumed: ages.assumed,
+    budget: 'budget' in input ? input.budget : undefined,
+    smeEmployees: input.smeEmployees,
+  };
+
+  if (query.currency) return query;
+
+  /**
+   * THE CURRENCY MOST MATCHING PLANS ARE PRICED IN.
+   *
+   * Counted over the variants that satisfy everything else and are actually
+   * sold at this age, so the choice is made among plans the customer could
+   * see. Ties go alphabetically, so the same data always picks the same
+   * currency. Nothing priced at all leaves it `null`, and nothing will match.
+   */
+  const rows = await getPrisma().planConfiguration.findMany({
+    where: {
+      ...variantRequirements(query),
+      currency: { not: null },
+      priceBands: { some: bandRequirements(query) },
+    },
+    select: { currency: true },
+  });
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    if (row.currency) counts.set(row.currency, (counts.get(row.currency) ?? 0) + 1);
+  }
+  const dominant =
+    [...counts.entries()].sort(
+      ([currencyA, countA], [currencyB, countB]) =>
+        countB - countA || currencyA.localeCompare(currencyB),
+    )[0]?.[0] ?? null;
+
+  return { ...query, currency: dominant, currencyAssumed: true };
+}
+
+/**
  * What the plans matching these requirements cost.
  *
  * One aggregate query. The suggested budget is the dearest matching plan, so
@@ -128,8 +221,9 @@ export async function getComparisonPriceRange(
   input: ComparisonPriceRangePayload,
 ): Promise<ComparisonPriceRangeDto> {
   const prisma = getPrisma();
-  const requirements = variantRequirements(input);
-  const band = bandRequirements(input);
+  const query = await resolveQuery(input);
+  const requirements = variantRequirements(query);
+  const band = bandRequirements(query);
 
   /**
    * AN SME IS PRICED BY ITS WORKFORCE HERE TOO.
@@ -139,7 +233,7 @@ export async function getComparisonPriceRange(
    * a budget put every plan over the ceiling and produced "no matching plans"
    * for a workforce every one of them could have quoted.
    */
-  if (input.smeEmployees) return workforcePriceRange(input, input.smeEmployees);
+  if (query.smeEmployees) return workforcePriceRange(query, query.smeEmployees);
 
   /**
    * Prices come from the BANDS, but the count is of VARIANTS — a variant whose
@@ -169,7 +263,8 @@ export async function getComparisonPriceRange(
     lowestPrice: toNumber(summary._min.annualPrice),
     highestPrice,
     suggestedBudget: highestPrice,
-    currency: input.currency,
+    currency: query.currency,
+    currencyAssumed: query.currencyAssumed,
   };
 }
 
@@ -183,13 +278,13 @@ export async function getComparisonPriceRange(
  * no floor at all.
  */
 async function workforcePriceRange(
-  input: ComparisonPriceRangePayload,
+  query: ComparisonQuery,
   employees: Record<string, number>,
 ): Promise<ComparisonPriceRangeDto> {
   const prisma = getPrisma();
 
   const configurations = await prisma.planConfiguration.findMany({
-    where: { ...variantRequirements(input), priceBands: { some: bandRequirements(input) } },
+    where: { ...variantRequirements(query), priceBands: { some: bandRequirements(query) } },
     select: {
       id: true,
       plan: { select: { companyId: true } },
@@ -222,7 +317,8 @@ async function workforcePriceRange(
     lowestPrice: totals.length ? Math.min(...totals) : null,
     highestPrice,
     suggestedBudget: highestPrice,
-    currency: input.currency,
+    currency: query.currency,
+    currencyAssumed: query.currencyAssumed,
   };
 }
 
@@ -234,12 +330,17 @@ async function workforcePriceRange(
  * the customer is told so by name instead of being asked to "widen the
  * selection" of six things at once.
  *
+ * Only what the CUSTOMER asked for can be blamed. A currency or an age the
+ * system assumed is not a requirement they can relax, so it is never named —
+ * and an assumed currency is by construction the one most plans are priced
+ * in, so dropping it could only ever mix currencies, never reveal a plan.
+ *
  * A requirement that changes nothing is not reported, and when no single one
  * explains the emptiness nothing is reported at all — several requirements
  * together can leave nothing, and naming a culprit that is not one is worse
  * than saying nothing.
  */
-async function findBlockers(input: ComparisonRequestPayload): Promise<ComparisonBlocker[]> {
+async function findBlockers(query: ComparisonQuery): Promise<ComparisonBlocker[]> {
   const prisma = getPrisma();
 
   /**
@@ -251,7 +352,7 @@ async function findBlockers(input: ComparisonRequestPayload): Promise<Comparison
    * promise a match that relaxing the requirement does not deliver, and send
    * the reader round the same loop again.
    */
-  const visible = async (requirements: ComparisonRequestPayload) => {
+  const visible = async (requirements: RelaxedQuery) => {
     const rows = await prisma.planConfiguration.findMany({
       where: {
         ...variantRequirements(requirements),
@@ -291,41 +392,46 @@ async function findBlockers(input: ComparisonRequestPayload): Promise<Comparison
     };
   };
 
-  const without = (drop: keyof ComparisonRequestPayload) =>
-    visible({ ...input, [drop]: undefined } as ComparisonRequestPayload);
+  const without = (drop: keyof RelaxedQuery) => visible({ ...query, [drop]: undefined });
 
   const candidates: {
     field: ComparisonBlocker['field'];
     drop: 'planTierId' | 'geographicalCoverageId' | 'customerTypeId' | 'currency' | 'budget';
     label: string;
   }[] = [
-    ...(input.planTierId
+    ...(query.planTierId
       ? [
           {
             field: 'planTier' as const,
             drop: 'planTierId' as const,
-            label: PLAN_TIERS[input.planTierId].label,
+            label: PLAN_TIERS[query.planTierId].label,
+          },
+        ]
+      : []),
+    ...(query.geographicalCoverageId
+      ? [
+          {
+            field: 'geographicalCoverage' as const,
+            drop: 'geographicalCoverageId' as const,
+            label: optionLabel(GEOGRAPHICAL_COVERAGES, query.geographicalCoverageId),
           },
         ]
       : []),
     {
-      field: 'geographicalCoverage',
-      drop: 'geographicalCoverageId',
-      label: optionLabel(GEOGRAPHICAL_COVERAGES, input.geographicalCoverageId),
-    },
-    {
       field: 'customerType',
       drop: 'customerTypeId',
-      label: optionLabel(CUSTOMER_TYPES, input.customerTypeId),
+      label: optionLabel(CUSTOMER_TYPES, query.customerTypeId),
     },
-    { field: 'currency', drop: 'currency', label: input.currency },
-    ...(input.budget === undefined
+    ...(query.currency && !query.currencyAssumed
+      ? [{ field: 'currency' as const, drop: 'currency' as const, label: query.currency }]
+      : []),
+    ...(query.budget === undefined
       ? []
       : [
           {
             field: 'budget' as const,
             drop: 'budget' as const,
-            label: `${formatNumber(input.budget)} ${input.currency}`,
+            label: `${formatNumber(query.budget)}${query.currency ? ` ${query.currency}` : ''}`,
           },
         ]),
   ];
@@ -352,8 +458,8 @@ async function findBlockers(input: ComparisonRequestPayload): Promise<Comparison
    * company simply is not there and nothing says why — which is the whole
    * fault this diagnosis exists to end.
    */
-  if (input.smeEmployees) {
-    const { unpriceable } = await visible(input);
+  if (query.smeEmployees) {
+    const { unpriceable } = await visible(query);
     if (unpriceable.length > 0) {
       const ages = [...new Set(unpriceable.flatMap((row) => row.quote!.unpricedBracketIds))];
       blockers.push({
@@ -373,13 +479,45 @@ async function findBlockers(input: ComparisonRequestPayload): Promise<Comparison
 }
 
 /**
+ * The selections echoed back, resolved to labels — including the ones the
+ * system filled in, marked as such. One place, so the two comparisons below
+ * cannot describe the same request differently.
+ */
+function describeCriteria(
+  query: ComparisonQuery,
+  benefits: { id: string; name: string }[],
+  smeEmployeeCount: number | null,
+): ResolvedComparisonRequest {
+  return {
+    planTierId: query.planTierId ?? null,
+    planTierLabel: query.planTierId ? PLAN_TIERS[query.planTierId].label : null,
+    customerTypeId: query.customerTypeId,
+    customerTypeLabel: optionLabel(CUSTOMER_TYPES, query.customerTypeId),
+    geographicalCoverageId: query.geographicalCoverageId,
+    geographicalCoverageLabel: query.geographicalCoverageId
+      ? optionLabel(GEOGRAPHICAL_COVERAGES, query.geographicalCoverageId)
+      : ANY_COVERAGE_LABEL,
+    currency: query.currency,
+    currencyAssumed: query.currencyAssumed,
+    ageFrom: query.ageFrom,
+    ageTo: query.ageTo,
+    ageAssumed: query.ageAssumed,
+    budget: query.budget ?? null,
+    averageAge: resolveAverageAgeForCustomerType(query.customerTypeId),
+    smeEmployeeCount,
+    benefits,
+  };
+}
+
+/**
  * Run a comparison.
  *
  * The order matters and is the order the business asked for: the database
- * narrows to the configurations that match WHO the customer is (insurance
- * type, customer type, coverage area, currency), HOW OLD they are — the
- * configuration's own `ageFrom..ageTo` band — and WHAT THEY CAN SPEND. Only
- * then are benefits looked at.
+ * narrows to the configurations that match WHO the customer is (customer
+ * type, coverage area, currency), HOW OLD they are — the configuration's own
+ * `ageFrom..ageTo` band — and WHAT THEY CAN SPEND. Only then are benefits
+ * looked at. Whatever the customer left blank was filled in by `resolveQuery`
+ * first, and the answer says what was assumed.
  *
  * The customer never picks benefits. Whatever the surviving plans carry is
  * what gets compared, so a benefit an employee adds tomorrow appears here with
@@ -390,10 +528,11 @@ async function findBlockers(input: ComparisonRequestPayload): Promise<Comparison
  */
 export async function runComparison(input: ComparisonRequestPayload): Promise<ComparisonResultDto> {
   const prisma = getPrisma();
+  const query = await resolveQuery(input);
 
-  const requirements = variantRequirements(input);
+  const requirements = variantRequirements(query);
   const ceiling: Prisma.DecimalNullableFilter | { not: null } =
-    input.budget === undefined ? { not: null } : { not: null, lte: input.budget };
+    query.budget === undefined ? { not: null } : { not: null, lte: query.budget };
 
   /**
    * A variant qualifies when it HAS a band that spans the customer and fits the
@@ -401,7 +540,7 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
    * included bands by the same rule is what makes `priceBands[0]` the price
    * this customer would actually pay.
    */
-  const withinBudget = bandRequirements(input, ceiling);
+  const withinBudget = bandRequirements(query, ceiling);
 
   /**
    * AN SME IS PRICED BY ITS WORKFORCE, not by the band it falls in.
@@ -412,7 +551,7 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
    * the standard comparison age, and the budget can only be applied once the
    * total exists.
    */
-  if (input.smeEmployees) return runWorkforceComparison(input, input.smeEmployees);
+  if (query.smeEmployees) return runWorkforceComparison(query, query.smeEmployees);
 
   const [configurations, overBudget] = await Promise.all([
     prisma.planConfiguration.findMany({
@@ -424,10 +563,10 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
      * the screen can show what the next bracket up actually buys. Without a
      * ceiling there is nothing above it.
      */
-    input.budget === undefined
+    query.budget === undefined
       ? Promise.resolve([])
       : (() => {
-          const dearer = bandRequirements(input, { gt: input.budget });
+          const dearer = bandRequirements(query, { gt: query.budget });
           return prisma.planConfiguration.findMany({
             where: { ...requirements, priceBands: { some: dearer } },
             include: comparisonInclude(dearer),
@@ -439,27 +578,13 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
   const dearer = compareConfigurations(overBudget);
 
   return {
-    criteria: {
-      planTierId: input.planTierId ?? null,
-      planTierLabel: input.planTierId ? PLAN_TIERS[input.planTierId].label : null,
-      customerTypeId: input.customerTypeId,
-      customerTypeLabel: optionLabel(CUSTOMER_TYPES, input.customerTypeId),
-      geographicalCoverageId: input.geographicalCoverageId,
-      geographicalCoverageLabel: optionLabel(GEOGRAPHICAL_COVERAGES, input.geographicalCoverageId),
-      currency: input.currency,
-      ageFrom: input.ageFrom,
-      ageTo: input.ageTo,
-      budget: input.budget ?? null,
-      averageAge: resolveAverageAgeForCustomerType(input.customerTypeId),
-      smeEmployeeCount: null,
-      benefits: affordable.benefits,
-    },
+    criteria: describeCriteria(query, affordable.benefits, null),
     plans: affordable.plans,
     recommendedConfigurationId: affordable.recommendedConfigurationId,
     recommendationReasons: affordable.reasons,
     matchedCount: affordable.plans.length,
     /* Only worth asking when there is nothing to show. */
-    blockers: affordable.plans.length === 0 ? await findBlockers(input) : [],
+    blockers: affordable.plans.length === 0 ? await findBlockers(query) : [],
 
     overBudgetPlans: dearer.plans,
     overBudgetBenefits: dearer.benefits,
@@ -493,19 +618,19 @@ export async function runComparison(input: ComparisonRequestPayload): Promise<Co
  * as before. It ages the SME; the headcounts price it.
  */
 async function runWorkforceComparison(
-  input: ComparisonRequestPayload,
+  query: ComparisonQuery,
   employees: Record<string, number>,
 ): Promise<ComparisonResultDto> {
   const prisma = getPrisma();
 
   const configurations = await prisma.planConfiguration.findMany({
     where: {
-      ...variantRequirements(input),
+      ...variantRequirements(query),
       // Eligibility is unchanged: the plan must be sold at the standard age.
-      priceBands: { some: bandRequirements(input) },
+      priceBands: { some: bandRequirements(query) },
     },
     include: {
-      ...comparisonInclude(bandRequirements(input)),
+      ...comparisonInclude(bandRequirements(query)),
       /** The whole rate table: the workforce spans more than one band. */
       priceBands: { orderBy: tightestBandFirst },
     },
@@ -529,10 +654,10 @@ async function runWorkforceComparison(
 
   /** Affordable is decided on what the workforce costs, not on one head. */
   const affordableConfigurations = quotable.filter(
-    (configuration) => input.budget === undefined || quotes.get(configuration.id)! <= input.budget,
+    (configuration) => query.budget === undefined || quotes.get(configuration.id)! <= query.budget,
   );
   const dearerConfigurations = quotable.filter(
-    (configuration) => input.budget !== undefined && quotes.get(configuration.id)! > input.budget,
+    (configuration) => query.budget !== undefined && quotes.get(configuration.id)! > query.budget,
   );
 
   const employeeCount = totalSmeEmployees(employees);
@@ -545,27 +670,13 @@ async function runWorkforceComparison(
   const dearer = withHeadcount(compareConfigurations(dearerConfigurations, quotes));
 
   return {
-    criteria: {
-      planTierId: input.planTierId ?? null,
-      planTierLabel: input.planTierId ? PLAN_TIERS[input.planTierId].label : null,
-      customerTypeId: input.customerTypeId,
-      customerTypeLabel: optionLabel(CUSTOMER_TYPES, input.customerTypeId),
-      geographicalCoverageId: input.geographicalCoverageId,
-      geographicalCoverageLabel: optionLabel(GEOGRAPHICAL_COVERAGES, input.geographicalCoverageId),
-      currency: input.currency,
-      ageFrom: input.ageFrom,
-      ageTo: input.ageTo,
-      budget: input.budget ?? null,
-      averageAge: resolveAverageAgeForCustomerType(input.customerTypeId),
-      smeEmployeeCount: employeeCount,
-      benefits: affordable.benefits,
-    },
+    criteria: describeCriteria(query, affordable.benefits, employeeCount),
     plans: affordable.plans,
     recommendedConfigurationId: affordable.recommendedConfigurationId,
     recommendationReasons: affordable.reasons,
     matchedCount: affordable.plans.length,
     /* Only worth asking when there is nothing to show. */
-    blockers: affordable.plans.length === 0 ? await findBlockers(input) : [],
+    blockers: affordable.plans.length === 0 ? await findBlockers(query) : [],
 
     overBudgetPlans: dearer.plans,
     overBudgetBenefits: dearer.benefits,

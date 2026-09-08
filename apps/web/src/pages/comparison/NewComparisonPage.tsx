@@ -1,5 +1,6 @@
 import {
   CUSTOMER_TYPES,
+  DEFAULT_COMPARISON_AGE,
   PLAN_TIERS,
   GEOGRAPHICAL_COVERAGES,
   MAX_INSURABLE_AGE,
@@ -7,24 +8,36 @@ import {
   describeSmeDistributionProblem,
   emptySmeEmployeeCounts,
   listEnabledOptions,
+  optionLabel,
   resolveAverageAgeForCustomerType,
   totalSmeEmployees,
   usesAgeRange,
   usesFixedAverageAge,
+  type ComparisonRequestInput,
   type CustomerTypeId,
   type SmeEmployeeCounts,
   type PlanTierId,
   type GeographicalCoverageId,
 } from '@aggregator/shared';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Card, Field, IconChevronRight, IconShield, Input, Select } from '@/components/ui';
+import {
+  Button,
+  Card,
+  Field,
+  IconChevronRight,
+  IconShield,
+  IconSparkle,
+  Input,
+  Select,
+} from '@/components/ui';
 import { ROUTES } from '@/config/routes';
 import { cn } from '@/lib/cn';
 import {
   ComparisonBudgetChoice,
   ComparisonSegmented,
   SmeEmployeeAges,
+  comparisonRequestParams,
   type BudgetMode,
 } from '@/features/comparison';
 import {
@@ -35,13 +48,21 @@ import {
 /**
  * The comparison requirements.
  *
- * The customer states WHO they are and WHAT THEY CAN SPEND; they never pick
- * benefits. Which benefits get compared is decided by the plans that match, so
- * this screen has no benefit list at all.
+ * ONE QUESTION MUST BE ANSWERED: who is being insured. A company's Individual,
+ * Family and SME books are separate products, so "the best plan" for nobody in
+ * particular is not a question with an answer. Everything else is optional —
+ * left blank, the system compares at the standard age, across every coverage
+ * area, in the currency most plans are priced in, with no budget ceiling —
+ * and the results say what was assumed.
  *
- * Insurance types and currencies come from the database. Customer types and
- * coverage areas come from the shared business configuration. Nothing here is
- * a hardcoded company, plan, benefit or price.
+ * So the screen offers two ways through. "Work it out for me" runs on the
+ * customer type alone. "Compare Plans" runs on whatever else was filled in.
+ *
+ * The customer never picks benefits. Which benefits get compared is decided by
+ * the plans that match, so this screen has no benefit list at all. Currencies
+ * come from the database; customer types and coverage areas from the shared
+ * business configuration. Nothing here is a hardcoded company, plan, benefit
+ * or price.
  */
 export function NewComparisonPage() {
   const navigate = useNavigate();
@@ -49,8 +70,8 @@ export function NewComparisonPage() {
 
   /**
    * How good a plan has to be, read off its annual limit rather than a
-   * category anybody filed it under. Optional on purpose: a customer with no
-   * view on it should see every tier rather than be made to pick one.
+   * category anybody filed it under. Optional: a customer with no view on it
+   * should see every tier rather than be made to pick one.
    */
   const [planTierId, setPlanTierId] = useState<PlanTierId | null>(null);
   const [customerTypeId, setCustomerTypeId] = useState<CustomerTypeId | null>(null);
@@ -106,39 +127,30 @@ export function NewComparisonPage() {
   const ageNumber = age.trim() === '' ? null : Number(age);
   const ageToNumber = ageTo.trim() === '' ? null : Number(ageTo);
 
-  const validAge = (value: number | null) =>
-    value !== null &&
-    Number.isInteger(value) &&
-    value >= MIN_INSURABLE_AGE &&
-    value <= MAX_INSURABLE_AGE;
+  const validAge = (value: number) =>
+    Number.isInteger(value) && value >= MIN_INSURABLE_AGE && value <= MAX_INSURABLE_AGE;
   const budgetNumber = budget.trim() === '' ? null : Number(budget);
 
   const outOfRange = `Enter a whole age between ${MIN_INSURABLE_AGE} and ${MAX_INSURABLE_AGE}.`;
 
   /**
-   * The workforce, where there is one. A comparison of nobody prices nothing,
-   * so at least one employee is what makes the question answered.
+   * The workforce, where there is one. Optional: a business that has not
+   * described its staff is priced per employee and told so, which is more
+   * useful than being stopped at the door.
    */
   const employeeCount = totalSmeEmployees(employees);
-  const employeesError = !ageIsFixed
-    ? null
-    : (describeSmeDistributionProblem(employees) ??
-      (employeeCount === 0 ? 'Enter how many employees are in each age group.' : null));
+  const employeesError = !ageIsFixed ? null : describeSmeDistributionProblem(employees);
 
-  const ageError = ageIsFixed
-    ? null
-    : ageNumber === null
-      ? ageIsRange
-        ? 'Enter the age of the youngest to cover.'
-        : 'Enter the age of the person being insured.'
-      : !validAge(ageNumber)
-        ? outOfRange
-        : null;
+  /**
+   * A BLANK AGE IS ALLOWED; a wrong one is not. Left blank, the comparison
+   * runs at the standard age and says so. Typed wrong, it says what an age is.
+   */
+  const ageError =
+    ageIsFixed || ageNumber === null ? null : !validAge(ageNumber) ? outOfRange : null;
 
-  const ageToError = !ageIsRange
-    ? null
-    : ageToNumber === null
-      ? 'Enter the age of the eldest to cover.'
+  const ageToError =
+    !ageIsRange || ageToNumber === null
+      ? null
       : !validAge(ageToNumber)
         ? outOfRange
         : ageNumber !== null && ageNumber > ageToNumber
@@ -155,16 +167,12 @@ export function NewComparisonPage() {
           : null;
 
   /**
-   * The requirements the budget is worked out from — complete only once every
-   * question above it has an answer, which is why the budget sits last.
+   * The requirements as answered so far — complete the moment the customer
+   * type is chosen, since nothing else is required. Only what was answered is
+   * sent; the API fills the rest and says what it assumed.
    */
-  const priceRangeRequest =
-    customerTypeId !== null &&
-    coverageId !== null &&
-    effectiveCurrency !== '' &&
-    ageError === null &&
-    ageToError === null &&
-    employeesError === null
+  const request: Omit<ComparisonRequestInput, 'budget'> | null =
+    customerTypeId !== null && ageError === null && ageToError === null && employeesError === null
       ? {
           ...(planTierId ? { planTierId } : {}),
           /**
@@ -174,33 +182,43 @@ export function NewComparisonPage() {
            */
           ...(ageIsFixed && employeeCount > 0 ? { smeEmployees: employees } : {}),
           customerTypeId,
-          geographicalCoverageId: coverageId,
-          currency: effectiveCurrency,
-          ageFrom: ageNumber!,
-          ageTo: ageToNumber!,
+          ...(coverageId ? { geographicalCoverageId: coverageId } : {}),
+          ...(effectiveCurrency ? { currency: effectiveCurrency } : {}),
+          ...(ageNumber !== null ? { ageFrom: ageNumber } : {}),
+          ...(ageToNumber !== null ? { ageTo: ageToNumber } : {}),
         }
       : null;
 
-  const priceRange = useComparisonPriceRange(priceRangeRequest);
+  const priceRange = useComparisonPriceRange(request);
+  /** The currency the figures are in: chosen, or read off the matching plans. */
+  const displayCurrency = effectiveCurrency || priceRange.data?.currency || '';
 
-  const ready =
-    customerTypeId !== null &&
-    coverageId !== null &&
-    effectiveCurrency !== '' &&
-    ageError === null &&
-    ageToError === null &&
-    employeesError === null &&
-    budgetError === null;
+  const ready = request !== null && budgetError === null;
+
+  // The selection travels in the URL, so a comparison can be shared and
+  // survives a refresh.
+  const go = (input: ComparisonRequestInput) =>
+    navigate(`${ROUTES.comparison.results}?${comparisonRequestParams(input).toString()}`);
+
+  /**
+   * THE SHORT WAY. Who is being insured, and nothing else: the API applies
+   * every standard assumption and the results name each one.
+   */
+  function workItOut() {
+    if (customerTypeId === null) {
+      setShowErrors(true);
+      return;
+    }
+    go({ customerTypeId });
+  }
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!ready) {
+    if (!ready || request === null) {
       setShowErrors(true);
       return;
     }
 
-    // The selection travels in the URL, so a comparison can be shared and
-    // survives a refresh.
     /**
      * Automatic resolves to the dearest matching plan, so nothing is excluded
      * on price. With nothing to price against, the budget is left out entirely
@@ -209,28 +227,12 @@ export function NewComparisonPage() {
     const resolvedBudget =
       budgetMode === 'MANUAL' ? budgetNumber : (priceRange.data?.suggestedBudget ?? null);
 
-    const params = new URLSearchParams({
-      ...(planTierId ? { planTierId } : {}),
-      customerTypeId: customerTypeId!,
-      geographicalCoverageId: coverageId!,
-      currency: effectiveCurrency,
-      ageFrom: String(ageNumber),
-      ageTo: String(ageToNumber),
-      ...(resolvedBudget === null ? {} : { budget: String(resolvedBudget) }),
-    });
-
-    /**
-     * The workforce travels as one parameter per occupied bracket, so the URL
-     * stays readable and a comparison of twenty people is still a link that can
-     * be sent to somebody. Empty brackets are left out: nobody being 55–59 is
-     * the default, and writing eleven zeroes down says no more than omitting
-     * them.
-     */
-    for (const [bracketId, count] of Object.entries(employees)) {
-      if (count > 0) params.append('employees', `${bracketId}:${count}`);
-    }
-    navigate(`${ROUTES.comparison.results}?${params.toString()}`);
+    go({ ...request, ...(resolvedBudget === null ? {} : { budget: resolvedBudget }) });
   }
+
+  const whoLabel = customerTypeId
+    ? optionLabel(CUSTOMER_TYPES, customerTypeId).toLowerCase()
+    : 'matching';
 
   return (
     <div className="w-full">
@@ -256,35 +258,8 @@ export function NewComparisonPage() {
             <div className="bg-brand h-full w-1/2 rounded-full" />
           </div>
 
-          <div className="mt-7 grid gap-x-8 gap-y-6 lg:grid-cols-2">
-            {/*
-              HOW GOOD A PLAN HAS TO BE, read off its annual limit rather than
-              a category anybody filed it under.
-
-              Optional, and the only optional question on this form: a customer
-              who has not decided should see every tier rather than be made to
-              rule two of them out before they know what they cost. So there is
-              an "Any" pill, chosen by default, and picking a tier again clears
-              it.
-            */}
-            <div className="lg:col-span-2">
-              <ComparisonSegmented
-                name="planTier"
-                legend="How much cover? (optional)"
-                options={listEnabledOptions(PLAN_TIERS).map((tier) => ({
-                  id: tier.id,
-                  label: tier.label,
-                  description: tier.description,
-                }))}
-                value={planTierId}
-                onChange={(id) => setPlanTierId(id as PlanTierId)}
-                onClear={() => setPlanTierId(null)}
-                noneLabel="Any"
-                error={null}
-              />
-            </div>
-
-            {/* Paired with the coverage area: both are short pill rows. */}
+          {/* THE ONE REQUIRED ANSWER, on its own and first. */}
+          <div className="mt-7">
             <ComparisonSegmented
               name="customerType"
               legend="Who do you want to insure?"
@@ -298,9 +273,70 @@ export function NewComparisonPage() {
                 showErrors && customerTypeId === null ? 'Select who you want to insure.' : null
               }
             />
+          </div>
 
-            {/* ONE age. The admin's configurations declare a band; this is the
-                single number matched against it. */}
+          {/*
+            WORK IT OUT FOR ME. The rest of the form is optional, and this is
+            the button that says so: one click, and the comparison runs on
+            the standard assumptions, each of which the results will name.
+          */}
+          <div className="border-brand-border bg-brand-soft/60 mt-6 flex flex-wrap items-center justify-between gap-4 rounded-(--radius-card) border p-4 sm:p-5">
+            <div className="flex min-w-0 gap-3">
+              <span
+                aria-hidden="true"
+                className="bg-brand text-content-inverted flex size-9 shrink-0 items-center justify-center rounded-(--radius-control)"
+              >
+                <IconSparkle className="size-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-content text-sm font-semibold">
+                  Not sure about the rest? Work it out for me.
+                </p>
+                <p className="text-content-muted mt-0.5 max-w-xl text-xs leading-relaxed">
+                  We compare every {whoLabel} plan on record at the standard assumptions — age{' '}
+                  {DEFAULT_COMPARISON_AGE}, any coverage area, the currency most plans are priced in
+                  and no budget limit — and recommend the best value.
+                </p>
+              </div>
+            </div>
+            <Button type="button" variant="secondary" onClick={workItOut}>
+              Work it out for me
+              <IconChevronRight className="size-4" />
+            </Button>
+          </div>
+
+          <div className="mt-8 flex items-center gap-3" aria-hidden="true">
+            <span className="bg-border-subtle h-px flex-1" />
+            <span className="text-content-subtle text-xs font-semibold tracking-wide uppercase">
+              Or tell us more — every question below is optional
+            </span>
+            <span className="bg-border-subtle h-px flex-1" />
+          </div>
+
+          <div className="mt-6 grid gap-x-8 gap-y-6 lg:grid-cols-2">
+            {/*
+              HOW GOOD A PLAN HAS TO BE, read off its annual limit rather than
+              a category anybody filed it under. An "Any" pill, chosen by
+              default, and picking a tier again clears it.
+            */}
+            <div className="lg:col-span-2">
+              <ComparisonSegmented
+                name="planTier"
+                legend="How much cover?"
+                options={listEnabledOptions(PLAN_TIERS).map((tier) => ({
+                  id: tier.id,
+                  label: tier.label,
+                  description: tier.description,
+                }))}
+                value={planTierId}
+                onChange={(id) => setPlanTierId(id as PlanTierId)}
+                onClear={() => setPlanTierId(null)}
+                noneLabel="Any"
+                error={null}
+              />
+            </div>
+
+            {/* Where the cover applies. "Any" compares every scope on sale. */}
             <ComparisonSegmented
               name="geographicalCoverage"
               legend="Geographical coverage"
@@ -310,8 +346,39 @@ export function NewComparisonPage() {
               }))}
               value={coverageId}
               onChange={(id) => setCoverageId(id as GeographicalCoverageId)}
-              error={showErrors && coverageId === null ? 'Select a coverage area.' : null}
+              onClear={() => setCoverageId(null)}
+              noneLabel="Any"
+              error={null}
             />
+
+            {/*
+              The currency the figures are in. Left blank, the comparison runs
+              in whichever one most of the matching plans are priced in, and
+              the budget card below says which.
+            */}
+            <Field
+              label="Currency"
+              hint={
+                !effectiveCurrency && priceRange.data?.currencyAssumed && priceRange.data.currency
+                  ? `Left blank: plans are priced in ${priceRange.data.currency}, which most of them use.`
+                  : 'Left blank, the currency most matching plans use is chosen for you.'
+              }
+            >
+              {(props) => (
+                <Select
+                  {...props}
+                  value={effectiveCurrency}
+                  onChange={(event) => setCurrency(event.target.value)}
+                >
+                  <option value="">Any — work it out from the plans</option>
+                  {availableCurrencies.map((code) => (
+                    <option key={code} value={code}>
+                      {code}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
 
             {/*
               A BUSINESS IS ASKED FOR ITS WORKFORCE, everybody else for an age.
@@ -331,10 +398,14 @@ export function NewComparisonPage() {
                 />
               </div>
             ) : (
-              <div className={cn(ageIsRange && 'grid gap-4 sm:grid-cols-2')}>
+              <div className={cn('lg:col-span-2', ageIsRange && 'grid gap-4 sm:grid-cols-2')}>
                 <Field
                   label={ageIsRange ? 'Age from' : 'Age'}
-                  required
+                  hint={
+                    ageIsRange
+                      ? `Left blank, the family is compared at age ${DEFAULT_COMPARISON_AGE}.`
+                      : `Left blank, plans are priced at age ${DEFAULT_COMPARISON_AGE}.`
+                  }
                   error={showErrors && ageError ? ageError : undefined}
                 >
                   {(props) => (
@@ -347,7 +418,7 @@ export function NewComparisonPage() {
                       step={1}
                       value={age}
                       onChange={(event) => setTypedAge(event.target.value)}
-                      placeholder={ageIsRange ? '4' : '35'}
+                      placeholder={ageIsRange ? '4' : String(DEFAULT_COMPARISON_AGE)}
                     />
                   )}
                 </Field>
@@ -357,7 +428,7 @@ export function NewComparisonPage() {
                 {ageIsRange ? (
                   <Field
                     label="Age to"
-                    required
+                    hint="The eldest to cover. Left blank, the same as the youngest."
                     error={showErrors && ageToError ? ageToError : undefined}
                   >
                     {(props) => (
@@ -378,27 +449,6 @@ export function NewComparisonPage() {
               </div>
             )}
 
-            <Field
-              label="Currency"
-              required
-              error={showErrors && effectiveCurrency === '' ? 'Select a currency.' : undefined}
-            >
-              {(props) => (
-                <Select
-                  {...props}
-                  value={effectiveCurrency}
-                  onChange={(event) => setCurrency(event.target.value)}
-                >
-                  <option value="">Select a currency…</option>
-                  {availableCurrencies.map((code) => (
-                    <option key={code} value={code}>
-                      {code}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-
             {/* Last, and full width: it is worked out from everything above. */}
             <div className="lg:col-span-2">
               <ComparisonBudgetChoice
@@ -406,9 +456,9 @@ export function NewComparisonPage() {
                 onModeChange={setBudgetMode}
                 budget={budget}
                 onBudgetChange={setBudget}
-                priceRange={priceRangeRequest ? (priceRange.data ?? null) : null}
-                isLoadingRange={priceRangeRequest !== null && priceRange.isLoading}
-                currency={effectiveCurrency}
+                priceRange={request ? (priceRange.data ?? null) : null}
+                isLoadingRange={request !== null && priceRange.isLoading}
+                currency={displayCurrency}
                 error={showErrors && budgetError ? budgetError : null}
               />
             </div>
