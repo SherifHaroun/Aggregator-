@@ -1,7 +1,7 @@
 /**
  * WHAT A COMPARISON PUTS SIDE BY SIDE.
  *
- * Six columns, one per core area, whatever the catalogue happens to call the
+ * Seven columns, one per core area, whatever the catalogue happens to call the
  * records underneath them. Everything else a plan carries is read when somebody
  * opens that plan, not when plans are ranked against each other.
  */
@@ -39,16 +39,17 @@ const everyCoreArea = () => [
   attached('den', 'Dental', ['CURRENCY']),
   attached('opt', 'Optical', ['CURRENCY']),
   attached('chr', 'Chronic / Pre-existing Conditions', ['CURRENCY']),
+  attached('med', 'Medication', ['CURRENCY']),
 ];
 
 describe('the columns a comparison has', () => {
-  it('is the six core areas, in the order the business reads them', () => {
+  it('is the seven core areas, in the order the business reads them', () => {
     const columns = discoverComparisonColumns([variant(...everyCoreArea())]);
 
     expect(columns.map((column) => column.name)).toEqual(
       [...CORE_MEDICAL_BENEFITS].sort((a, b) => a.order - b.order).map((benefit) => benefit.name),
     );
-    expect(columns).toHaveLength(6);
+    expect(columns).toHaveLength(7);
   });
 
   it('leaves additional benefits out of the ranking entirely', () => {
@@ -67,7 +68,7 @@ describe('the columns a comparison has', () => {
      * on how fully somebody typed them in rather than on what they pay.
      */
     expect(columns.map((column) => column.name)).not.toContain('Physiotherapy');
-    expect(columns).toHaveLength(6);
+    expect(columns).toHaveLength(7);
   });
 
   it('gives an area ONE column however many records its group holds', () => {

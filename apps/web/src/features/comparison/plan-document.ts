@@ -37,7 +37,7 @@ export interface DocumentBenefit {
 
 export interface PlanDocumentInput {
   plan: ComparisonPlanResult;
-  /** Everything the variant carries that is not one of the six core areas. */
+  /** Everything the variant carries that is not one of the seven core areas. */
   additional: DocumentBenefit[];
   /** Free text the plan attaches — waiting periods, conditions, exclusions. */
   waitingPeriods: string[];
@@ -198,7 +198,7 @@ export function buildPlanDocument(input: PlanDocumentInput): { blob: Blob; filen
     doc.paragraph(input.description, 10, 'regular', INK);
   }
 
-  // --- the six, always six and always in order -----------------------------
+  // --- the seven, always seven and always in order --------------------------
   section(doc, 'Core benefits & coverage');
   for (const benefit of benefits) {
     row(doc, benefit.name, benefit.display, true);

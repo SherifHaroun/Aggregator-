@@ -256,7 +256,7 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
       /**
        * Whether this area is quoted on a SCALE at all.
        *
-       * The six core areas are: a percentage of the bill, or a ceiling in
+       * The seven core areas are: a percentage of the bill, or a ceiling in
        * money. A benefit stated in words — a provider network, "covered at
        * authorized centres" — is not, and the difference decides what a
        * missing figure is worth.

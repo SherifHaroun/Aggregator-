@@ -30,13 +30,13 @@ export interface ComparisonColumn {
 }
 
 /**
- * THE SIX CORE AREAS, AND NOTHING ELSE.
+ * THE SEVEN CORE AREAS, AND NOTHING ELSE.
  *
  * A comparison ranks plans against each other, which only means anything where
- * every plan answers the same question. The six core areas are those questions
- * — in-patient and out-patient as a share of the bill, maternity, dental,
- * optical and chronic cover as a ceiling — and each is quoted one way by every
- * plan that states it.
+ * every plan answers the same question. The seven core areas are those
+ * questions — in-patient and out-patient as a share of the bill; maternity,
+ * dental, optical, chronic cover and medication as a ceiling — and each is
+ * quoted one way by every plan that states it.
  *
  * Everything else a plan carries is ADDITIONAL: stated in words, present on one
  * plan and absent from the next, and read when somebody opens a plan rather

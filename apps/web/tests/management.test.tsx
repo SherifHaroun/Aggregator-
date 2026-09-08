@@ -1394,7 +1394,7 @@ describe('plans', () => {
     await user.type(dialog.getByLabelText('In-patient Coverage'), '80');
     // Two areas are quoted as a percentage; both say so under their box.
     expect(dialog.getAllByText(/Accepts a percentage only/i)).toHaveLength(2);
-    expect(dialog.getAllByText(/Accepts a limit only/i)).toHaveLength(4);
+    expect(dialog.getAllByText(/Accepts a limit only/i)).toHaveLength(5);
 
     // And a ceiling area says the opposite, in the same place.
     expect(dialog.getByLabelText('Dental Limit')).toBeInTheDocument();
@@ -1843,7 +1843,7 @@ describe('another age', () => {
 // ---------------------------------------------------------------------------
 
 describe('dynamic insurance options', () => {
-  it('creates a benefit from a name alone, typed as a percentage', async () => {
+  it('creates a benefit from a name alone, recorded as text', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
@@ -1860,11 +1860,13 @@ describe('dynamic insurance options', () => {
 
     await waitFor(() => expect(store.options).toHaveLength(1));
     expect(store.options[0]?.name).toBe('Aurora Wellness Programme');
-    // The employee never chose this — the benefit is a percentage by definition.
-    expect(store.options[0]?.fields?.map((f) => f.dataType)).toEqual(['PERCENTAGE']);
+    // The employee never chose this: an invented benefit is what the plan
+    // says about it, in words, so whatever the document states can be kept.
+    expect(store.options[0]?.fields?.map((f) => f.dataType)).toEqual(['TEXT']);
+    expect(screen.queryByRole('group', { name: /What does it carry/i })).not.toBeInTheDocument();
   });
 
-  it('creates a benefit that carries a limit instead of a percentage', async () => {
+  it('quotes a benefit the business knows the way the business fixed', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
@@ -1874,13 +1876,9 @@ describe('dynamic insurance options', () => {
     renderApp(ROUTES.benefits.list);
 
     await user.click(await screen.findByRole('button', { name: /New benefit/i }));
-    await user.type(await screen.findByLabelText(/Benefit name/i), 'Optical Limit');
-
-    const kinds = await screen.findByRole('group', { name: /What does it carry/i });
-    const limit = within(kinds)
-      .getAllByRole('radio')
-      .find((radio) => (radio.closest('label')?.textContent ?? '').includes('Limit'))!;
-    await user.click(limit);
+    // A core area: a ceiling, decided from the name, with nothing to choose.
+    await user.type(await screen.findByLabelText(/Benefit name/i), 'Medication');
+    expect(screen.queryByRole('group', { name: /What does it carry/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /^Save$/ }));
 
     await waitFor(() => expect(store.options).toHaveLength(1));
@@ -1945,43 +1943,6 @@ describe('dynamic insurance options', () => {
 
     await user.click(additional.getByRole('button', { name: 'Remove Life & Accident Coverage' }));
     await waitFor(() => expect(store.planOptions).toHaveLength(1));
-  });
-
-  it('changes what a benefit carries, keeping the figures already entered', async () => {
-    const user = userEvent.setup();
-    givenCompany();
-    givenInsuranceType();
-    givenPlan();
-    const configurationId = givenConfiguration('cfg_1', 'plan_1');
-    givenOption();
-    store.planOptions.push({
-      id: 'planOption_1',
-      planConfigurationId: configurationId,
-      optionId: 'option_1',
-      sortOrder: 0,
-    });
-    store.values.push({
-      planOptionId: 'planOption_1',
-      optionFieldId: 'option_1_percentage',
-      value: 80,
-    });
-
-    renderApp(ROUTES.benefits.list);
-
-    await user.click(await screen.findByRole('button', { name: 'Edit Aurora Wellness Programme' }));
-    const kinds = await screen.findByRole('group', { name: /What does it carry/i });
-    const limit = within(kinds)
-      .getAllByRole('radio')
-      .find((radio) => (radio.closest('label')?.textContent ?? '').includes('Limit'))!;
-    await user.click(limit);
-
-    // The employee is told what becomes of the figures before they commit.
-    expect(await screen.findByText(/kept exactly as they are/i)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /^Save$/ }));
-
-    await waitFor(() => expect(store.options[0]?.fields?.[0]?.dataType).toBe('CURRENCY'));
-    // Percentage and limit are the same figure in the same place: 80 survives.
-    expect(store.values[0]?.value).toBe(80);
   });
 
   it('records a detail against a benefit, kept per variant', async () => {

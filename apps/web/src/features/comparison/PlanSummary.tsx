@@ -120,7 +120,7 @@ export function AnnualLimitPanel({
 }
 
 /**
- * The six core areas, always six and always in this order.
+ * The seven core areas, always seven and always in this order.
  *
  * An area the plan never mentioned still gets a row saying so — dropping it
  * would read as an area that does not exist, when it means nobody wrote a

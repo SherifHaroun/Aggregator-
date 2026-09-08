@@ -139,11 +139,11 @@ export const BENEFIT_INCLUDED_LABEL = 'Covered';
  * answers to one question.
  */
 /**
- * THE SIX AREAS A COMPARISON READS, each quoted ONE way.
+ * THE SEVEN AREAS A COMPARISON READS, each quoted ONE way.
  *
  * The way is fixed by the business, not chosen per plan: in-patient and
- * out-patient are always a share of the bill, and maternity, dental, optical
- * and chronic cover are always a ceiling. That is how the documents state them,
+ * out-patient are always a share of the bill, and maternity, dental, optical,
+ * chronic cover and medication are always a ceiling. That is how the documents state them,
  * and a comparison can only rank plans against each other when they are all
  * answering the same question.
  *
@@ -211,6 +211,22 @@ export const CORE_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
       'Chronic Conditions',
     ],
   },
+  /**
+   * Medication is cover a customer asks about by name, so it is compared
+   * rather than read as a footnote. A ceiling, because that is how the
+   * documents state it — "covered up to 3,000" — and a plan whose wording is
+   * "fully covered" or "not covered" says so with a blank or a zero, exactly as
+   * the other ceilings do. The old "Medicines" record is this area by another
+   * name.
+   */
+  {
+    name: 'Medication',
+    emoji: '💊',
+    valueKind: 'LIMIT',
+    coPayment: true,
+    order: 7,
+    aliases: ['Medicines', 'Medicine', 'Medication Details', 'Medicines Details', 'Pharmacy'],
+  },
 ];
 
 /**
@@ -234,7 +250,6 @@ export const OPTIONAL_MEDICAL_BENEFITS: readonly MedicalBenefitSpec[] = [
    */
   { name: 'Room Type', emoji: '🛏️', valueKind: 'TEXT', coPayment: false, order: 10 },
   { name: 'Consultations', emoji: '👩‍⚕️', valueKind: 'TEXT', coPayment: false, order: 11 },
-  { name: 'Medicines', emoji: '💊', valueKind: 'TEXT', coPayment: false, order: 12 },
   { name: 'Physiotherapy', emoji: '🤸', valueKind: 'TEXT', coPayment: false, order: 13 },
   { name: 'New Born Baby', emoji: '👶', valueKind: 'TEXT', coPayment: false, order: 14 },
   {

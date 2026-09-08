@@ -88,7 +88,7 @@ function targetsFor(option: InsuranceOptionDto): BenefitValueTarget[] {
 }
 
 /**
- * THE SIX CORE AREAS, MAPPED ONTO THE CATALOGUE THAT EXISTS.
+ * THE SEVEN CORE AREAS, MAPPED ONTO THE CATALOGUE THAT EXISTS.
  *
  * The labels are the business's; the records are the database's. A company
  * whose in-patient cover is filed as "Inpatient & Daycase" gets that record

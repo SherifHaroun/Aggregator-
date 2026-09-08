@@ -1,28 +1,23 @@
-import {
-  BENEFIT_VALUE_KINDS,
-  DEFAULT_BENEFIT_VALUE_KIND,
-  listEnabledOptions,
-  type BenefitValueKind,
-} from '@aggregator/shared';
+import { medicalBenefitSpec, type BenefitValueKind } from '@aggregator/shared';
 import { useState } from 'react';
-import { Button, Callout, ChoiceGroup, Dialog, Field, Input, useToast } from '@/components/ui';
-import { AlternativeChoice } from './AlternativeChoice';
+import { Button, Callout, Dialog, Field, Input, useToast } from '@/components/ui';
 import { useCreateInsuranceOption } from '@/features/insurance-data/insurance-data.api';
 import { useRecordForm } from '@/features/insurance-data/useRecordForm';
 
 /**
- * Create a benefit.
+ * Create a benefit. A benefit is a NAME, and nothing else is asked.
  *
- * A benefit is a name and ONE decision: what it carries. A percentage ("80%
- * coverage"), a limit ("600 EGP") or text ("Golden Care Network") — the field
- * behind each comes from the shared configuration, so no data type or unit is
- * ever put to an employee.
+ * What it carries is decided for the employee: a name the business already
+ * knows — a core area such as Maternity, or one of the standard extras — is
+ * quoted the way the business fixed for it, and anything else is TEXT, because
+ * an additional benefit is what a plan states in words and is read when
+ * somebody opens the plan rather than ranked. Nothing about data types or
+ * units is ever put on screen.
  *
  * A benefit may instead be a GROUP, which carries nothing and exists to hold
  * others under it — life and accident cover over death, disability and the
  * rest. Sub-benefits are created through this same dialog with `parent` set,
- * which is why the kind question disappears for a group and the group question
- * disappears for a sub-benefit: only one level of nesting exists.
+ * and only one level of nesting exists.
  *
  * Whatever is created is GLOBAL — it appears in the available list of every
  * company and every plan, and can be dragged onto any of them.
@@ -42,10 +37,7 @@ export function NewBenefitDialog({
   const create = useCreateInsuranceOption();
   const { values, setValue, fieldErrors, formError, applyError } = useRecordForm({
     name: '',
-    valueKind: DEFAULT_BENEFIT_VALUE_KIND as BenefitValueKind,
     isUmbrella: false,
-    /** `null` until the employee says the benefit is quoted two ways. */
-    alternativeKind: null as BenefitValueKind | null,
   });
   const [submitted, setSubmitted] = useState(false);
 
@@ -62,12 +54,7 @@ export function NewBenefitDialog({
         name,
         isUmbrella,
         ...(parent ? { parentId: parent.id } : {}),
-        ...(isUmbrella
-          ? {}
-          : {
-              valueKind: values.valueKind,
-              ...(values.alternativeKind ? { alternativeKind: values.alternativeKind } : {}),
-            }),
+        ...(isUmbrella ? {} : { valueKind: kindFor(name) }),
       },
       {
         onSuccess: (saved) => {
@@ -92,7 +79,7 @@ export function NewBenefitDialog({
       description={
         parent
           ? 'It becomes part of this group everywhere the group is used.'
-          : 'Name it and say what it carries.'
+          : 'Name it. Each plan then says what it covers for it.'
       }
       footer={
         <>
@@ -148,32 +135,23 @@ export function NewBenefitDialog({
                 This benefit groups others under it
               </span>
               <span className="text-content-subtle block text-xs leading-snug">
-                It carries no value of its own. You add the sub-benefits — each with its own value —
-                underneath it.
+                It carries no value of its own. You add the sub-benefits underneath it.
               </span>
             </span>
           </label>
         )}
-
-        {isUmbrella ? null : (
-          <>
-            <ChoiceGroup
-              name="valueKind"
-              legend="What does it carry?"
-              hint="Each plan sets this value separately."
-              options={listEnabledOptions(BENEFIT_VALUE_KINDS)}
-              value={values.valueKind}
-              onChange={(id) => setValue('valueKind', id as BenefitValueKind)}
-              error={fieldErrors.valueKind ?? null}
-            />
-
-            <AlternativeChoice
-              value={values.alternativeKind}
-              onChange={(kind) => setValue('alternativeKind', kind)}
-            />
-          </>
-        )}
       </div>
     </Dialog>
   );
+}
+
+/**
+ * What a benefit of this name carries.
+ *
+ * A name the business knows is quoted the way the business fixed — a core area
+ * keeps the figure a comparison reads. Anything else is text, so whatever the
+ * document says about it can be recorded as written.
+ */
+function kindFor(name: string): BenefitValueKind {
+  return medicalBenefitSpec(name)?.valueKind ?? 'TEXT';
 }

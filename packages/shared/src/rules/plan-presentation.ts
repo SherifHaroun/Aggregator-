@@ -16,7 +16,7 @@ import { NOT_COVERED_LABEL } from './comparison-engine.js';
 import { formatNumberValue as formatNumber } from './number-format.js';
 import type { ComparisonBenefitCell, ComparisonPlanResult } from '../types/comparison-results.js';
 
-/** The six areas, in the order the business reads them. Never re-sorted. */
+/** The seven areas, in the order the business reads them. Never re-sorted. */
 export const CORE_BENEFIT_ORDER: readonly string[] = [...CORE_MEDICAL_BENEFITS]
   .sort((a, b) => a.order - b.order)
   .map((benefit) => benefit.name);
@@ -62,10 +62,10 @@ export function presentBenefitValue(
 }
 
 /**
- * THE SIX ROWS, ALWAYS SIX AND ALWAYS IN ORDER.
+ * THE SEVEN ROWS, ALWAYS SEVEN AND ALWAYS IN ORDER.
  *
  * A comparison only opens a column for an area some plan states, so a plan may
- * carry fewer than six cells. The customer is still shown all six: an area
+ * carry fewer than seven cells. The customer is still shown all seven: an area
  * missing from the table would read as an area that does not exist, when what
  * it means is that nobody wrote a figure down.
  */

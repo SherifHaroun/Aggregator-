@@ -1,5 +1,5 @@
 /**
- * THE SIX CORE AREAS, AS THE NEW EDITOR ASKS FOR THEM.
+ * THE SEVEN CORE AREAS, AS THE NEW EDITOR ASKS FOR THEM.
  *
  * A core area is worth ONE figure, quoted a way the business fixes rather than
  * the employee chooses: in-patient and out-patient as a share of the bill,
@@ -29,6 +29,7 @@ const AREAS = [
   { label: 'Dental', field: 'Limit', dataType: 'CURRENCY' as const },
   { label: 'Optical', field: 'Limit', dataType: 'CURRENCY' as const },
   { label: 'Chronic / Pre-existing Conditions', field: 'Limit', dataType: 'CURRENCY' as const },
+  { label: 'Medication', field: 'Limit', dataType: 'CURRENCY' as const },
 ];
 
 /** One catalogue record per core area, each carrying the figure its area uses. */
@@ -114,7 +115,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-describe('the six core areas', () => {
+describe('the seven core areas', () => {
   it('are always asked for, with the kind each is quoted in fixed', async () => {
     givenCoreCatalogue();
     const configurationId = givenVariant();
@@ -125,7 +126,7 @@ describe('the six core areas', () => {
     /**
      * Every area, whether or not the plan says anything about it — a blank
      * box and an absent section are different statements, and a comparison
-     * reads all six.
+     * reads all seven.
      */
     for (const area of AREAS) {
       expect(await screen.findByLabelText(`${area.label} ${area.field}`)).toBeInTheDocument();
@@ -153,6 +154,7 @@ describe('the six core areas', () => {
       Dental: 'LIMIT',
       Optical: 'LIMIT',
       'Chronic / Pre-existing Conditions': 'LIMIT',
+      Medication: 'LIMIT',
     });
   });
 
@@ -170,13 +172,14 @@ describe('the six core areas', () => {
       'Dental Limit': '5000',
       'Optical Limit': '3000',
       'Chronic / Pre-existing Conditions Limit': '60000',
+      'Medication Limit': '2000',
     };
     for (const [label, value] of Object.entries(entered)) {
       await user.type(await screen.findByLabelText(label), value);
     }
     await user.click(screen.getByRole('button', { name: /Save changes/i }));
 
-    await waitFor(() => expect(store.values).toHaveLength(6));
+    await waitFor(() => expect(store.values).toHaveLength(7));
 
     /** Each figure sits on the record for its own area, on THIS variant. */
     const stored = new Map(
