@@ -755,17 +755,24 @@ function route({
   }
 
   if (resource === 'comparison' && first === 'price-range' && method === 'POST') {
-    const prices = store.configurations
-      .filter(
-        (configuration) =>
-          configuration.customerType === body.customerType ||
-          configuration.customerType === body.customerTypeId,
-      )
+    const matching = store.configurations.filter(
+      (configuration) =>
+        configuration.customerType === body.customerType ||
+        configuration.customerType === body.customerTypeId,
+    );
+    const prices = matching
       .map((configuration) => configuration.annualPrice)
       .filter((price): price is number => typeof price === 'number');
+    const companies = new Set(
+      matching.flatMap((configuration) => {
+        const plan = store.plans.find((item) => item.id === configuration.planId);
+        return plan ? [plan.companyId] : [];
+      }),
+    );
 
     return ok({
       count: prices.length,
+      companyCount: companies.size,
       lowestPrice: prices.length ? Math.min(...prices) : null,
       highestPrice: prices.length ? Math.max(...prices) : null,
       suggestedBudget: prices.length ? Math.max(...prices) : null,

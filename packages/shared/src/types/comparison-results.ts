@@ -71,6 +71,8 @@ export interface ComparisonRequestInput {
 export interface ComparisonPriceRangeDto {
   /** Configurations matching the other requirements. */
   count: number;
+  /** How many insurers those configurations come from. */
+  companyCount: number;
   lowestPrice: number | null;
   highestPrice: number | null;
   /**

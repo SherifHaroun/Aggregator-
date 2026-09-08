@@ -41,7 +41,7 @@ export function ComparisonBudgetChoice({
       ? 'Complete the questions above first.'
       : priceRange.count === 0
         ? 'No plans match these requirements yet.'
-        : `${priceRange.count} matching ${priceRange.count === 1 ? 'plan' : 'plans'} · ${money(priceRange.lowestPrice)} – ${money(priceRange.highestPrice)}`;
+        : `${priceRange.count} matching ${priceRange.count === 1 ? 'plan' : 'plans'} from ${priceRange.companyCount} ${priceRange.companyCount === 1 ? 'company' : 'companies'} · ${money(priceRange.lowestPrice)} – ${money(priceRange.highestPrice)}`;
 
   return (
     <div className="border-border-subtle bg-surface-muted/40 rounded-(--radius-card) border p-4 sm:p-5">

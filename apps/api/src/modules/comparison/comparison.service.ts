@@ -146,14 +146,18 @@ export async function getComparisonPriceRange(
    * overlapping bands both span the customer is still one plan on the screen,
    * and counting bands would quietly inflate "how many plans match".
    */
-  const [summary, count] = await Promise.all([
+  const matching = { ...requirements, priceBands: { some: band } };
+  const [summary, count, companyCount] = await Promise.all([
     prisma.planPriceBand.aggregate({
       where: { ...band, variant: requirements },
       _min: { annualPrice: true },
       _max: { annualPrice: true },
     }),
-    prisma.planConfiguration.count({
-      where: { ...requirements, priceBands: { some: band } },
+    prisma.planConfiguration.count({ where: matching }),
+    // Insurers, not plans: the same company selling three matching plans is
+    // one company the customer can go to.
+    prisma.company.count({
+      where: { plans: { some: { configurations: { some: matching } } } },
     }),
   ]);
 
@@ -161,6 +165,7 @@ export async function getComparisonPriceRange(
 
   return {
     count,
+    companyCount,
     lowestPrice: toNumber(summary._min.annualPrice),
     highestPrice,
     suggestedBudget: highestPrice,
@@ -185,10 +190,15 @@ async function workforcePriceRange(
 
   const configurations = await prisma.planConfiguration.findMany({
     where: { ...variantRequirements(input), priceBands: { some: bandRequirements(input) } },
-    select: { id: true, priceBands: { select: { ageFrom: true, ageTo: true, annualPrice: true } } },
+    select: {
+      id: true,
+      plan: { select: { companyId: true } },
+      priceBands: { select: { ageFrom: true, ageTo: true, annualPrice: true } },
+    },
   });
 
   const totals: number[] = [];
+  const companies = new Set<string>();
   for (const configuration of configurations) {
     const quote = quoteSmeWorkforce(
       employees,
@@ -198,13 +208,17 @@ async function workforcePriceRange(
         annualPrice: toNumber(band.annualPrice),
       })),
     );
-    if (quote.total !== null) totals.push(quote.total);
+    if (quote.total !== null) {
+      totals.push(quote.total);
+      companies.add(configuration.plan.companyId);
+    }
   }
 
   const highestPrice = totals.length ? Math.max(...totals) : null;
 
   return {
     count: totals.length,
+    companyCount: companies.size,
     lowestPrice: totals.length ? Math.min(...totals) : null,
     highestPrice,
     suggestedBudget: highestPrice,
