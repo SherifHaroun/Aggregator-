@@ -372,3 +372,39 @@ describe('the rate table as the customer reads it', () => {
     expect(table.lowest).toBeNull();
   });
 });
+
+describe('an open-ended top band on the rate-table bar', () => {
+  it('is drawn no wider than the widest ordinary band', () => {
+    const table = presentPriceBands(
+      [
+        { ageFrom: 0, ageTo: 20, annualPrice: 4030 },
+        { ageFrom: 21, ageTo: 25, annualPrice: 4154 },
+        { ageFrom: 26, ageTo: 64, annualPrice: 6669 },
+        // "65+", recorded as running to the oldest insurable age.
+        { ageFrom: 65, ageTo: MAX_INSURABLE_AGE, annualPrice: null },
+      ],
+      'EGP',
+      null,
+      MAX_INSURABLE_AGE,
+    );
+    const widths = table.bands.map((band) => band.end - band.start);
+    // Its label still says what it is; only its drawn width is capped.
+    expect(table.bands[3]!.ageLabel).toBe('65+');
+    expect(widths[3]).toBeLessThanOrEqual(Math.max(widths[0]!, widths[1]!, widths[2]!) + 1e-9);
+    expect(table.bands[3]!.end).toBe(1);
+    // The real bounds are still reported.
+    expect(table.maxAge).toBe(MAX_INSURABLE_AGE);
+  });
+
+  it('is drawn to scale when it is the only band', () => {
+    const table = presentPriceBands(
+      [{ ageFrom: 0, ageTo: MAX_INSURABLE_AGE, annualPrice: 4000 }],
+      'EGP',
+      { ageFrom: 35, ageTo: 35 },
+      MAX_INSURABLE_AGE,
+    );
+    expect(table.bands[0]!.start).toBe(0);
+    expect(table.bands[0]!.end).toBe(1);
+    expect(table.marker).toBeCloseTo(35.5 / 121, 6);
+  });
+});

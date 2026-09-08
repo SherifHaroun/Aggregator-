@@ -36,6 +36,38 @@ const WHITE = rgb(1, 1, 1);
 const NAVY_SOFT = rgb(0.64, 0.69, 0.86);
 /** The halo around the band that did. */
 const NAVY_HALO = rgb(0.82, 0.86, 0.95);
+/** The wash the highlighted row sits on — the screen's brand-soft. */
+const HIGHLIGHT = rgb(0.86, 0.91, 0.98);
+
+/**
+ * THE ROW THAT PRICED THIS COMPARISON, picked out.
+ *
+ * A pill-shaped row on the brand wash with a navy outline, the label in bold
+ * navy and the figure in a navy pill of its own — the same treatment the
+ * screen gives it, so the customer finds the same row in both.
+ */
+function highlightedRow(doc: PdfDocument, label: string, value: string) {
+  const height = 24;
+  doc.ensure(height + 8);
+  const left = doc.margin;
+  const width = doc.contentWidth;
+  const top = doc.y - 2;
+
+  doc.roundedRect(left, top, width, height, height / 2, HIGHLIGHT, { color: NAVY, width: 0.9 });
+
+  doc.y = top + 7;
+  doc.text(label, left + 12, 10, 'bold', NAVY);
+
+  const pillHeight = 17;
+  const pillWidth = widthOf(value, 10, 'bold') + 18;
+  const pillLeft = left + width - 4 - pillWidth;
+  const pillTop = top + (height - pillHeight) / 2;
+  doc.roundedRect(pillLeft, pillTop, pillWidth, pillHeight, pillHeight / 2, NAVY);
+  doc.y = pillTop + 3.5;
+  doc.text(value, pillLeft + 9, 10, 'bold', WHITE);
+
+  doc.y = top + height + 5;
+}
 
 /** The ages a comparison ran at, and whether they were the customer's. */
 export interface DocumentAges {
@@ -263,12 +295,11 @@ function priceTablePanel(doc: PdfDocument, input: PlanDocumentInput) {
 
   // --- the list -------------------------------------------------------------
   for (const band of table.bands) {
-    row(
-      doc,
-      band.applies ? `Ages ${band.ageLabel}  ·  this comparison` : `Ages ${band.ageLabel}`,
-      band.display,
-      band.applies,
-    );
+    if (band.applies) {
+      highlightedRow(doc, `Ages ${band.ageLabel}  ·  this comparison`, band.display);
+    } else {
+      row(doc, `Ages ${band.ageLabel}`, band.display);
+    }
   }
 }
 

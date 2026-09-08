@@ -81,8 +81,24 @@ export function presentPriceBands(
 
   const minAge = Math.min(...sorted.map((band) => band.ageFrom));
   const maxAge = Math.max(...sorted.map((band) => band.ageTo));
+
+  /**
+   * WHERE THE AXIS ENDS. An open-ended top band — "65+", recorded as running
+   * to the oldest insurable age — is not sixty years of cover, it is "and
+   * older". Drawn to scale it would take most of the bar and squash the ten
+   * bands that carry the real prices into the rest, so it is given the width
+   * of the widest ordinary band instead. The label already says "+".
+   */
+  const closed = sorted.filter((band) => band.ageTo < oldestInsurableAge);
+  const widest = closed.length
+    ? Math.max(...closed.map((band) => band.ageTo - band.ageFrom + 1))
+    : 0;
+  const axisEnd =
+    maxAge >= oldestInsurableAge && closed.length
+      ? Math.min(maxAge, Math.max(...sorted.map((band) => band.ageFrom)) + widest - 1)
+      : maxAge;
   // A table of one age still needs a span to be drawn on.
-  const span = Math.max(maxAge + 1 - minAge, 1);
+  const span = Math.max(axisEnd + 1 - minAge, 1);
   const position = (age: number) => Math.min(Math.max((age - minAge) / span, 0), 1);
 
   const prices = sorted

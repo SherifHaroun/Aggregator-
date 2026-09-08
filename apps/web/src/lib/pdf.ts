@@ -200,6 +200,40 @@ export class PdfDocument {
   }
 
   /**
+   * A rectangle with rounded corners, filled and optionally outlined — the
+   * pill a highlighted row is drawn as. Each corner is one Bézier arc, the
+   * same construction `circle` uses.
+   */
+  roundedRect(
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    radius: number,
+    fill: Rgb,
+    stroke?: { color: Rgb; width: number },
+  ) {
+    const r = Math.min(radius, w / 2, h / 2);
+    const k = 0.5523 * r;
+    const top = A4.height - y;
+    const bottom = A4.height - y - h;
+    const p = (px: number, py: number) => `${px.toFixed(2)} ${py.toFixed(2)}`;
+    const path =
+      `${p(x + r, top)} m ${p(x + w - r, top)} l ` +
+      `${p(x + w - r + k, top)} ${p(x + w, top - r + k)} ${p(x + w, top - r)} c ` +
+      `${p(x + w, bottom + r)} l ` +
+      `${p(x + w, bottom + r - k)} ${p(x + w - r + k, bottom)} ${p(x + w - r, bottom)} c ` +
+      `${p(x + r, bottom)} l ` +
+      `${p(x + r - k, bottom)} ${p(x, bottom + r - k)} ${p(x, bottom + r)} c ` +
+      `${p(x, top - r)} l ` +
+      `${p(x, top - r + k)} ${p(x + r - k, top)} ${p(x + r, top)} c h`;
+    const paint = stroke
+      ? `${fill.r} ${fill.g} ${fill.b} rg ${stroke.color.r} ${stroke.color.g} ${stroke.color.b} RG ${stroke.width} w ${path} B`
+      : `${fill.r} ${fill.g} ${fill.b} rg ${path} f`;
+    this.op(paint);
+  }
+
+  /**
    * Make a rectangle of the current page clickable.
    *
    * `y` is measured down from the top like everything else here; the PDF
