@@ -18,15 +18,7 @@ import {
 } from '@aggregator/shared';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Button,
-  Card,
-  Field,
-  IconChevronRight,
-  IconShield,
-  Input,
-  Select,
-} from '@/components/ui';
+import { Button, Card, Field, IconChevronRight, IconShield, Input, Select } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
 import { cn } from '@/lib/cn';
 import {
@@ -271,8 +263,9 @@ export function NewComparisonPage() {
 
               Optional, and the only optional question on this form: a customer
               who has not decided should see every tier rather than be made to
-              rule two of them out before they know what they cost. Picking one
-              again clears it.
+              rule two of them out before they know what they cost. So there is
+              an "Any" pill, chosen by default, and picking a tier again clears
+              it.
             */}
             <div className="lg:col-span-2">
               <ComparisonSegmented
@@ -284,7 +277,9 @@ export function NewComparisonPage() {
                   description: tier.description,
                 }))}
                 value={planTierId}
-                onChange={(id) => setPlanTierId((current) => (current === id ? null : (id as PlanTierId)))}
+                onChange={(id) => setPlanTierId(id as PlanTierId)}
+                onClear={() => setPlanTierId(null)}
+                noneLabel="Any"
                 error={null}
               />
             </div>
@@ -336,34 +331,11 @@ export function NewComparisonPage() {
                 />
               </div>
             ) : (
-            <div className={cn(ageIsRange && 'grid gap-4 sm:grid-cols-2')}>
-              <Field
-                label={ageIsRange ? 'Age from' : 'Age'}
-                required
-                error={showErrors && ageError ? ageError : undefined}
-              >
-                {(props) => (
-                  <Input
-                    {...props}
-                    type="number"
-                    inputMode="numeric"
-                    min={MIN_INSURABLE_AGE}
-                    max={MAX_INSURABLE_AGE}
-                    step={1}
-                    value={age}
-                    onChange={(event) => setTypedAge(event.target.value)}
-                    placeholder={ageIsRange ? '4' : '35'}
-                  />
-                )}
-              </Field>
-
-              {/* The eldest to cover. A plan qualifies only when its own band
-                  reaches both ends of this range. */}
-              {ageIsRange ? (
+              <div className={cn(ageIsRange && 'grid gap-4 sm:grid-cols-2')}>
                 <Field
-                  label="Age to"
+                  label={ageIsRange ? 'Age from' : 'Age'}
                   required
-                  error={showErrors && ageToError ? ageToError : undefined}
+                  error={showErrors && ageError ? ageError : undefined}
                 >
                   {(props) => (
                     <Input
@@ -373,14 +345,37 @@ export function NewComparisonPage() {
                       min={MIN_INSURABLE_AGE}
                       max={MAX_INSURABLE_AGE}
                       step={1}
-                      value={typedAgeTo}
-                      onChange={(event) => setTypedAgeTo(event.target.value)}
-                      placeholder="52"
+                      value={age}
+                      onChange={(event) => setTypedAge(event.target.value)}
+                      placeholder={ageIsRange ? '4' : '35'}
                     />
                   )}
                 </Field>
-              ) : null}
-            </div>
+
+                {/* The eldest to cover. A plan qualifies only when its own band
+                  reaches both ends of this range. */}
+                {ageIsRange ? (
+                  <Field
+                    label="Age to"
+                    required
+                    error={showErrors && ageToError ? ageToError : undefined}
+                  >
+                    {(props) => (
+                      <Input
+                        {...props}
+                        type="number"
+                        inputMode="numeric"
+                        min={MIN_INSURABLE_AGE}
+                        max={MAX_INSURABLE_AGE}
+                        step={1}
+                        value={typedAgeTo}
+                        onChange={(event) => setTypedAgeTo(event.target.value)}
+                        placeholder="52"
+                      />
+                    )}
+                  </Field>
+                ) : null}
+              </div>
             )}
 
             <Field
