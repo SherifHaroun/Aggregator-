@@ -1398,7 +1398,8 @@ describe('plans', () => {
 
     // And a ceiling area says the opposite, in the same place.
     expect(dialog.getByLabelText('Dental Limit')).toBeInTheDocument();
-    expect(dialog.queryByLabelText(/co-payment/i)).not.toBeInTheDocument();
+    // And beside every figure, the member's share — one box per area.
+    expect(dialog.getAllByLabelText(/ Co-payment$/)).toHaveLength(7);
 
     // Three bands, three premiums, one benefit entry.
     await user.type(dialog.getByLabelText('Variant 1 premium, ages 1 to 17'), '3681');

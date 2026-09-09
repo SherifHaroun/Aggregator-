@@ -15,6 +15,11 @@ import {
   GEOGRAPHICAL_COVERAGE_IDS,
   DEFAULT_COMPARISON_AGE,
   MAX_INSURABLE_AGE,
+  MISSING_CORE_LIMIT_FALLBACK,
+  MISSING_CORE_LIMIT_NEEDS_CONFIRMATION,
+  importReviewWarnings,
+  readyToPublish,
+  reviewWarningKey,
   NOT_SOLD_AT_AGE_LABEL,
   listEnabledOptions,
   presentPriceBands,
@@ -406,5 +411,67 @@ describe('an open-ended top band on the rate-table bar', () => {
     expect(table.bands[0]!.start).toBe(0);
     expect(table.bands[0]!.end).toBe(1);
     expect(table.marker).toBeCloseTo(35.5 / 121, 6);
+  });
+});
+
+describe('an imported plan with an unstated core limit waits to be confirmed', () => {
+  const draft = {
+    name: 'Elite',
+    currency: 'EGP',
+    annualLimit: 600000,
+    coreBenefits: [
+      { name: 'In-patient', value: 100 },
+      { name: 'Out-patient', value: 100 },
+      { name: 'Maternity', value: 10000 },
+      { name: 'Dental', value: null },
+      { name: 'Optical', value: 0 },
+      // Medication absent altogether: the document was silent.
+    ],
+  };
+
+  it('is the decided policy: annual limit, confirmed by a person', () => {
+    expect(MISSING_CORE_LIMIT_FALLBACK).toBe('ANNUAL_LIMIT');
+    expect(MISSING_CORE_LIMIT_NEEDS_CONFIRMATION).toBe(true);
+  });
+
+  it('flags each LIMIT area with no figure, and nothing else', () => {
+    const warnings = importReviewWarnings(draft);
+    /**
+     * Dental (null), Chronic (absent) and Medication (absent) are silent.
+     * Optical at 0 is declined, which the document said; Maternity has a
+     * figure; the coverage areas are percentages and never fall back.
+     */
+    expect(warnings.map((warning) => warning.benefit)).toEqual([
+      'Dental',
+      'Chronic / Pre-existing Conditions',
+      'Medication',
+    ]);
+    for (const warning of warnings) {
+      expect(warning.plan).toBe('Elite');
+      expect(warning.blocksPublish).toBe(true);
+      // Says which figure will stand in, and that it is an assumption.
+      expect(warning.message).toContain('600,000 EGP');
+      expect(warning.message).toContain('(annual limit)');
+    }
+  });
+
+  it('says so when there is no annual limit to fall back on either', () => {
+    const [warning] = importReviewWarnings({ ...draft, annualLimit: null });
+    expect(warning?.message).toContain('no annual limit');
+    expect(warning?.blocksPublish).toBe(true);
+  });
+
+  it('publishes only once every flagged area is confirmed', () => {
+    const warnings = importReviewWarnings(draft);
+    expect(readyToPublish(warnings, new Set())).toBe(false);
+
+    const twoOfThree = new Set(warnings.slice(0, 2).map(reviewWarningKey));
+    expect(readyToPublish(warnings, twoOfThree)).toBe(false);
+
+    const all = new Set(warnings.map(reviewWarningKey));
+    expect(readyToPublish(warnings, all)).toBe(true);
+
+    // A plan with nothing unstated has nothing to confirm.
+    expect(readyToPublish([], new Set())).toBe(true);
   });
 });

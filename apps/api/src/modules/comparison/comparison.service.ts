@@ -1,11 +1,14 @@
 import {
   ANY_COVERAGE_LABEL,
+  CO_PAYMENT_FIELD,
   CUSTOMER_TYPES,
   GEOGRAPHICAL_COVERAGES,
+  MISSING_CORE_LIMIT_FALLBACK,
   PLAN_TIERS,
   OPTION_FIELD_DATA_TYPES,
   explainRecommendation,
   formatNumber,
+  medicalBenefitSpec,
   optionLabel,
   quoteSmeWorkforce,
   rankValue,
@@ -757,9 +760,43 @@ function compareConfigurations(
        * text is ranked on its limitations instead — see `carried` below.
        */
       const cell = planOption?.values.find(
-        (value) => OPTION_FIELD_DATA_TYPES[value.dataType].comparison !== 'NOT_COMPARABLE',
+        (value) =>
+          OPTION_FIELD_DATA_TYPES[value.dataType].comparison !== 'NOT_COMPARABLE' &&
+          // The co-payment is a percentage too, and it is the member's share,
+          // not the cover: it is read on its own below.
+          value.fieldKey !== CO_PAYMENT_FIELD.key,
       );
       const wording = planOption?.values.find((value) => typeof value.value === 'string');
+
+      /**
+       * THE MEMBER'S SHARE, beside the figure. A number when the plan states
+       * one; `null` when it does not, which the engine reads as none.
+       */
+      const coPaymentValue = planOption?.values.find(
+        (value) => value.fieldKey === CO_PAYMENT_FIELD.key,
+      )?.value;
+      const coPayment = typeof coPaymentValue === 'number' ? coPaymentValue : null;
+
+      const stated = typeof cell?.value === 'number' ? cell.value : null;
+
+      /**
+       * A CORE AREA THE PLAN NAMES BUT PUTS NO LIMIT ON is paid up to the
+       * variant's annual limit — the reading insurers' own tables give it
+       * ("Covered in full, up to the maximum plan benefit"), and the one
+       * `MISSING_CORE_LIMIT_FALLBACK` selects. It is marked as assumed so no
+       * screen prints it as a figure the document gave. Only a LIMIT area
+       * qualifies: a percentage area with no figure has nothing to fall
+       * back on, and a zero is the plan declining, never a blank.
+       */
+      const annualLimit = toNumber(configuration.annualLimit);
+      const spec = medicalBenefitSpec(benefit.name);
+      const fallsBackToAnnualLimit =
+        MISSING_CORE_LIMIT_FALLBACK === 'ANNUAL_LIMIT' &&
+        planOption !== undefined &&
+        stated === null &&
+        cell?.dataType !== 'RANK' &&
+        spec?.valueKind === 'LIMIT' &&
+        annualLimit !== null;
 
       /**
        * A ranked answer becomes a number here, from its place in the list the
@@ -775,9 +812,13 @@ function compareConfigurations(
       return {
         optionId: benefit.id,
         optionName: benefit.name,
-        value: ranked ?? (typeof cell?.value === 'number' ? cell.value : null),
-        dataType: cell?.dataType ?? null,
+        value: ranked ?? (fallsBackToAnnualLimit ? annualLimit : stated),
+        // The fallback is a ceiling in money even when the record itself has
+        // never carried a figure, so it is quoted the way a limit is.
+        dataType: cell?.dataType ?? (fallsBackToAnnualLimit ? 'CURRENCY' : null),
         unit: cell?.unit ?? null,
+        coPayment,
+        limitAssumed: fallsBackToAnnualLimit,
         /**
          * Whether this plan carries the benefit AT ALL — which is simply
          * whether it is attached. A plan listing "Physiotherapy: covered at

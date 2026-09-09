@@ -112,8 +112,19 @@ export interface ComparisonBenefitCell {
   covered: boolean;
   /** Numeric value used for ranking. `null` when not covered or not numeric. */
   value: number | null;
-  /** Ready to render, e.g. "85%" or "Not covered". */
+  /** Ready to render, e.g. "85%", "EGP 1,500 · 10% co-pay" or "Not covered". */
   display: string;
+  /**
+   * The share of the bill the member pays, as a percentage. `null` when the
+   * document states none, which the engine scores as 0 — no co-payment.
+   */
+  coPayment: number | null;
+  /**
+   * `true` when `value` is the variant's ANNUAL LIMIT standing in for a limit
+   * the document never gave (`MISSING_CORE_LIMIT_FALLBACK`), so a screen can
+   * say so rather than print it as the plan's own figure.
+   */
+  limitAssumed: boolean;
   dataType: OptionFieldDataType | null;
   unit: string | null;
   direction: ComparisonDirection;

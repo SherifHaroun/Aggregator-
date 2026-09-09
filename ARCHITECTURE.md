@@ -393,6 +393,51 @@ the age-band copy, it runs a fixed number of statements — configurations, then
 attachments, then values — rather than one per row, because the plans worth
 copying are exactly the ones with hundreds of rows.
 
+### A core area is a figure AND a co-payment
+
+Every one of the seven core areas carries two boxes side by side: the figure
+the area is quoted in (a percentage of the bill, or a ceiling in money) and
+the **co-payment**, the share of the bill the member pays. Both are read by
+the comparison. A document that says "Dental: 1,500 EGP, 10% co-payment" is
+making one statement, and a plan asking the member for 20% of every bill is
+not the equal of one paying in full at the same ceiling.
+
+The co-payment is an ordinary `OptionField` on the same record as the figure,
+keyed `CO_PAYMENT_FIELD.key`, created the first time a plan states one. It
+is told apart from a coverage percentage by its **key**, never by its type,
+because both are percentages.
+
+Two rules in `business-rules.ts` decide what a blank means:
+
+| Blank                        | Read as                                             | Constant                      |
+| ---------------------------- | --------------------------------------------------- | ----------------------------- |
+| Co-payment on a covered area | No co-payment (0%)                                  | `CO_PAYMENT_WHEN_NOT_STATED`  |
+| Limit on a named LIMIT area  | The variant's annual limit, marked "(annual limit)" | `MISSING_CORE_LIMIT_FALLBACK` |
+
+The second follows insurers' own tables — Allianz's Egypt table writes
+"Covered in full, up to the maximum plan benefit", AXA Egypt writes a bare
+"Co-insurance 30%" for medication with no cap — and the Indian comparison
+guides state the same rule: no sub-limit means cover up to the sum insured.
+The engine marks such a figure `limitAssumed` so every screen and the PDF
+print it as the annual limit rather than as a figure the document gave. The
+constant is a switch: 'NOT_STATED' restores the older reading, where the
+area scores at the floor and prints "Not specified in plan".
+
+The assumption is the industry's, not the insurer's figure, so an imported
+plan does not publish on it silently. `importReviewWarnings()` in
+`rules/import-review.ts` lists every LIMIT area the document left blank,
+with the figure that will stand in ("compared at the plan's annual limit of
+EGP 600,000"), and `readyToPublish()` holds the plan until a person has
+confirmed each one. `MISSING_CORE_LIMIT_NEEDS_CONFIRMATION` is the switch
+for that. The variant editor says the same thing under a blank ceiling
+("Blank means the plan's annual limit"), so a hand-entered plan and an
+imported one are read alike.
+
+The engine scores the pair as `figure × (1 − co-payment)`, alongside the
+limitation factor, and `coverTermsSuffix` is the one place the two are
+written after a figure: "EGP 1,500 · 10% co-pay", "EGP 200,000 (annual
+limit)".
+
 ### Figures the plan never stated
 
 A blank deductible does not mean zero. `NOT_SPECIFIED_LABEL` in

@@ -390,6 +390,40 @@ export function PlanSetupForm({
             });
           }
 
+          /**
+           * THE MEMBER'S SHARE, beside the figure, for a core area. The record
+           * grows the co-payment field the first time a plan states one, on
+           * the same row that holds the figure. Blank is left unwritten: the
+           * comparison reads no co-payment.
+           */
+          const typedShare = isExtra ? '' : entry.coPayment.trim();
+          if (typedShare !== '') {
+            const share = Number(typedShare.replace(/,/g, ''));
+            if (!Number.isFinite(share)) {
+              throw new Error(
+                `${spec.name} co-payment must be a percentage, but "${typedShare}" is not one.`,
+              );
+            }
+            let shareFieldId = row.values.find(
+              (value) => value.fieldKey === CO_PAYMENT_FIELD.key,
+            )?.optionFieldId;
+            if (!shareFieldId) {
+              const created = await api.post<OptionFieldDto>(
+                `/insurance-options/${row.optionId}/fields`,
+                {
+                  label: CO_PAYMENT_FIELD.label,
+                  key: CO_PAYMENT_FIELD.key,
+                  dataType: CO_PAYMENT_FIELD.dataType,
+                  unit: CO_PAYMENT_FIELD.unit,
+                },
+              );
+              shareFieldId = created.id;
+            }
+            if (shareFieldId) {
+              await api.put(`/plan-options/${row.id}/values/${shareFieldId}`, { value: share });
+            }
+          }
+
           const details = entry.details.map((line) => line.trim()).filter((line) => line !== '');
           if (details.length > 0) {
             await api.patch(`/plan-options/${row.id}/note`, {

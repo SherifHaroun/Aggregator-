@@ -53,6 +53,55 @@ export const ANY_COVERAGE_LABEL = 'Any coverage';
 export const NOT_SOLD_AT_AGE_LABEL = 'Not sold';
 
 /**
+ * WHAT A CORE AREA IS WORTH WHEN THE PLAN NAMES IT BUT STATES NO LIMIT.
+ *
+ * Insurers' own tables treat a covered benefit with no sub-limit as paid up
+ * to the plan's overall ceiling — Allianz's Egypt table writes "Covered in
+ * full, up to the maximum plan benefit", AXA Egypt writes a bare "Co-insurance
+ * 30%" with no cap for medication — so that is the reading applied here:
+ * the variant's annual limit stands in for the missing figure, and every
+ * screen marks it as the annual limit rather than a figure the document gave.
+ *
+ * A blank limit is therefore never "not covered" and never "not specified":
+ * AXA's tables state a co-payment on an area with no sub-limit of its own,
+ * and that area is covered, up to the plan's ceiling.
+ *
+ * 'NOT_STATED' is the other defensible reading (score the area at the floor
+ * and print "Not specified in plan"). One switch, so the business can change
+ * its mind without a code change elsewhere.
+ *
+ * Decided 2026-09-09: annual limit, AND the import review flags every such
+ * area for the employee to confirm before the plan can be published
+ * (`MISSING_CORE_LIMIT_NEEDS_CONFIRMATION`). The assumption is the
+ * industry's, but the insurer did not write the figure, so a person says
+ * "yes, that is what this document means" before a customer sees it.
+ */
+export const MISSING_CORE_LIMIT_FALLBACK: 'ANNUAL_LIMIT' | 'NOT_STATED' = 'ANNUAL_LIMIT';
+
+/** How a limit that came from the annual limit is marked: "EGP 200,000 (annual limit)". */
+export const ASSUMED_LIMIT_LABEL = 'annual limit';
+
+/**
+ * Whether an imported plan with an unstated core limit waits for a person to
+ * confirm the assumption before it can be published. The review screen reads
+ * this; `importReviewWarnings()` in the rules decides which areas.
+ */
+export const MISSING_CORE_LIMIT_NEEDS_CONFIRMATION = true;
+
+/**
+ * A CO-PAYMENT THE DOCUMENT DOES NOT STATE IS NO CO-PAYMENT.
+ *
+ * Every core area carries a co-payment beside its figure. Left blank, the
+ * plan pays in full for that area — the same reading a customer gives a
+ * table that shows "EGP 2,000" with nothing beside it. So blank is 0, never
+ * unknown, and the comparison scores it as such.
+ */
+export const CO_PAYMENT_WHEN_NOT_STATED = 0;
+
+/** How a co-payment reads beside a figure: "EGP 1,500 · 10% co-pay". */
+export const CO_PAYMENT_LABEL = 'co-pay';
+
+/**
  * Wording used whenever a resolved average age is displayed or printed
  * (comparison screens, results, exports). Keep the phrasing here so it can be
  * changed in one place.

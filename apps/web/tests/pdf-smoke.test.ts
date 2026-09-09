@@ -15,6 +15,8 @@ const cell = (name: string, value: number | null, pct: boolean) => ({
   covered: value !== null && value !== 0,
   value,
   display: String(value),
+  coPayment: null,
+  limitAssumed: false,
   dataType: (pct ? 'PERCENTAGE' : 'CURRENCY') as const,
   unit: pct ? '%' : null,
   direction: 'HIGHER_IS_BETTER' as const,

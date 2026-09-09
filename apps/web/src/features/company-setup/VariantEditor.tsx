@@ -8,6 +8,7 @@ import {
   UNSPECIFIED_OPTION_LABEL,
   listEnabledOptions,
   CORE_VALUE_KINDS,
+  CO_PAYMENT_FIELD,
   medicalBenefitSpec,
   variantDisplayName,
   type GeographicalCoverageId,
@@ -406,21 +407,41 @@ function BenefitRow({
           <span className="text-content text-sm font-medium">{spec.name}</span>
         </div>
 
-        <div>
-          <NumberInput
-            aria-label={`${spec.name} ${kind.fieldLabel}`}
-            value={entry.coverage}
-            onChange={(value) => onChange({ coverage: value })}
-            suffix={kind.unit ?? undefined}
-            placeholder={UNSPECIFIED_OPTION_LABEL}
-          />
-          {/* Said under the box, so nobody types a ceiling into a percentage. */}
-          <p className="text-content-subtle mt-1 text-xs">
-            {spec.valueKind === 'PERCENTAGE'
-              ? 'Accepts a percentage only.'
-              : 'Accepts a limit only.'}
-            {entry.coverage.trim() === '0' ? ' Not covered.' : ' Enter 0 if not covered.'}
-          </p>
+        <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] gap-3">
+          <div>
+            <NumberInput
+              aria-label={`${spec.name} ${kind.fieldLabel}`}
+              value={entry.coverage}
+              onChange={(value) => onChange({ coverage: value })}
+              suffix={kind.unit ?? undefined}
+              placeholder={UNSPECIFIED_OPTION_LABEL}
+            />
+            {/* Said under the box, so nobody types a ceiling into a percentage. */}
+            <p className="text-content-subtle mt-1 text-xs">
+              {spec.valueKind === 'PERCENTAGE'
+                ? 'Accepts a percentage only.'
+                : 'Accepts a limit only.'}
+              {entry.coverage.trim() === '0' ? ' Not covered.' : ' Enter 0 if not covered.'}
+            </p>
+          </div>
+
+          {/*
+            THE MEMBER'S SHARE, BESIDE THE FIGURE. "1,500 EGP, 10% co-payment"
+            is one statement, so both boxes sit on one row and the comparison
+            reads the pair. Blank means the document states none: no co-payment.
+          */}
+          <div>
+            <NumberInput
+              aria-label={`${spec.name} ${CO_PAYMENT_FIELD.label}`}
+              value={entry.coPayment}
+              onChange={(coPayment) => onChange({ coPayment })}
+              suffix={CO_PAYMENT_FIELD.unit}
+              placeholder={CO_PAYMENT_FIELD.label}
+            />
+            <p className="text-content-subtle mt-1 text-xs">
+              {entry.coPayment.trim() === '' ? 'Blank: no co-payment.' : 'Paid by the member.'}
+            </p>
+          </div>
         </div>
       </div>
 

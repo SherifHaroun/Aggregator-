@@ -14,9 +14,13 @@ import {
  * together here and saved as configurations of a single plan.
  */
 export interface BenefitEntry {
-  /** What the plan covers. The only part a comparison reads. */
+  /** What the plan covers: the figure a comparison reads. */
   coverage: string;
-  /** Percentage as typed. Blank means the plan states no co-payment. */
+  /**
+   * The share the member pays, as a percentage, as typed. Core areas only.
+   * Blank means the plan states no co-payment — which is none, never unknown.
+   */
+  coPayment: string;
   /**
    * Lines the plan states about this benefit — shown wherever the plan is
    * read, never scored. Saved as the attachment's note, one line each.
@@ -41,7 +45,7 @@ export interface VariantDraft {
   bands: BandRow[];
 }
 
-export const emptyEntry = (): BenefitEntry => ({ coverage: '', details: [] });
+export const emptyEntry = (): BenefitEntry => ({ coverage: '', coPayment: '', details: [] });
 
 export function blankBands(): BandRow[] {
   return DEFAULT_AGE_BANDS.map((band) => ({

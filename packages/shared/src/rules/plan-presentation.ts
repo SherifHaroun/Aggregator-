@@ -12,7 +12,7 @@
 
 import { CORE_MEDICAL_BENEFITS } from '../config/medical-benefits.js';
 import { NOT_SOLD_AT_AGE_LABEL, NOT_SPECIFIED_LABEL } from '../config/business-rules.js';
-import { NOT_COVERED_LABEL } from './comparison-engine.js';
+import { NOT_COVERED_LABEL, coverTermsSuffix } from './comparison-engine.js';
 import { formatNumberValue as formatNumber } from './number-format.js';
 import type { ComparisonBenefitCell, ComparisonPlanResult } from '../types/comparison-results.js';
 
@@ -146,6 +146,10 @@ export interface PresentedBenefit {
   fraction: number | null;
   /** Whether the plan states anything at all about this area. */
   stated: boolean;
+  /** The share the member pays, or `null` for none. Already in `display`. */
+  coPayment: number | null;
+  /** The figure is the annual limit standing in for one the plan never gave. */
+  limitAssumed: boolean;
   /** The qualifications the plan attaches to this figure. */
   limitations: string[];
 }
@@ -157,7 +161,10 @@ export interface PresentedBenefit {
  * two different facts, and the whole reason this is not a `?? 0`.
  */
 export function presentBenefitValue(
-  cell: Pick<ComparisonBenefitCell, 'value' | 'dataType' | 'unit' | 'display'> | undefined,
+  cell:
+    | (Pick<ComparisonBenefitCell, 'value' | 'dataType' | 'unit' | 'display'> &
+        Partial<Pick<ComparisonBenefitCell, 'coPayment' | 'limitAssumed'>>)
+    | undefined,
   currency: string | null,
 ): { display: string; fraction: number | null } {
   if (!cell) return { display: NOT_SPECIFIED_LABEL, fraction: null };
@@ -166,12 +173,17 @@ export function presentBenefitValue(
     // A benefit quoted in words keeps its wording; a blank figure says so.
     return { display: cell.display || NOT_SPECIFIED_LABEL, fraction: null };
   }
+  // The terms that qualify the figure travel with it wherever it is printed.
+  const terms = coverTermsSuffix(cell.coPayment ?? null, cell.limitAssumed ?? false);
   if (cell.dataType === 'PERCENTAGE') {
-    return { display: `${formatNumber(cell.value)}%`, fraction: Math.min(cell.value / 100, 1) };
+    return {
+      display: `${formatNumber(cell.value)}%${terms}`,
+      fraction: Math.min(cell.value / 100, 1),
+    };
   }
   if (cell.dataType === 'CURRENCY') {
     return {
-      display: `${currency ? `${currency} ` : ''}${formatNumber(cell.value)}`,
+      display: `${currency ? `${currency} ` : ''}${formatNumber(cell.value)}${terms}`,
       fraction: null,
     };
   }
@@ -197,6 +209,8 @@ export function presentCoreBenefits(plan: ComparisonPlanResult): PresentedBenefi
       display,
       fraction,
       stated: cell !== undefined && cell.value !== null,
+      coPayment: cell?.coPayment ?? null,
+      limitAssumed: cell?.limitAssumed ?? false,
       limitations: cell?.limitations.map((limitation) => limitation.name) ?? [],
     };
   });

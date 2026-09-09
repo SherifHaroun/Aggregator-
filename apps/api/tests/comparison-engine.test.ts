@@ -39,6 +39,7 @@ const pct = (
   unit: '%',
   carried: value !== null,
   textValue: null,
+  coPayment: null,
   limitations,
 });
 
@@ -56,6 +57,7 @@ const money = (
   unit: null,
   carried: value !== null,
   textValue: null,
+  coPayment: null,
   limitations,
 });
 
@@ -825,6 +827,58 @@ describe('a figure the plan never stated', () => {
 
     expect(results.find((r) => r.configurationId === 'a')!.benefits[0]!.display).toBe(
       NOT_SPECIFIED_LABEL,
+    );
+  });
+});
+
+describe('the member’s share of the bill', () => {
+  it('marks a plan down for a co-payment, and reads a blank one as none', () => {
+    /**
+     * Two plans quoting the same 1,500 for dental are not equal when one
+     * asks the member for 20% of every bill. The one that pays in full
+     * wins, and the one whose document never mentioned a co-payment is
+     * read as paying in full too — blank is none, never unknown.
+     */
+    const results = scoreCandidates([
+      plan('full', 'Company A', 700, [{ ...money('dental', 'Dental', 1500), coPayment: null }]),
+      plan('shared', 'Company B', 700, [{ ...money('dental', 'Dental', 1500), coPayment: 20 }]),
+    ]);
+
+    const full = results.find((r) => r.configurationId === 'full')!;
+    const shared = results.find((r) => r.configurationId === 'shared')!;
+    expect(full.benefits[0]!.score).toBeGreaterThan(shared.benefits[0]!.score);
+    expect(shared.benefits[0]!.score).toBeCloseTo(full.benefits[0]!.score * 0.8, 6);
+    expect(recommended(results)?.configurationId).toBe('full');
+  });
+
+  it('prints the share beside the figure, and the annual limit as what it is', () => {
+    const results = scoreCandidates([
+      plan('a', 'Company A', 700, [
+        { ...money('dental', 'Dental', 1500), coPayment: 10 },
+        { ...money('optical', 'Optical', 200000), coPayment: null, limitAssumed: true },
+        { ...pct('in', 'In-patient', 100), coPayment: null },
+      ]),
+    ]);
+
+    const [dental, optical, inpatient] = results[0]!.benefits;
+    expect(dental!.display).toBe('1,500 · 10% co-pay');
+    expect(dental!.coPayment).toBe(10);
+    expect(optical!.display).toBe('200,000 (annual limit)');
+    expect(optical!.limitAssumed).toBe(true);
+    // No share and a figure of its own: the figure reads plain.
+    expect(inpatient!.display).toBe('100%');
+  });
+
+  it('never lets a co-payment drop cover below the floor a covered area keeps', () => {
+    const results = scoreCandidates([
+      plan('a', 'Company A', 700, [{ ...money('dental', 'Dental', 100), coPayment: 100 }]),
+      plan('b', 'Company B', 700, [{ ...money('dental', 'Dental', 5000), coPayment: null }]),
+    ]);
+    const a = results.find((r) => r.configurationId === 'a')!;
+    // Covered, so still above nothing — however much the member pays.
+    expect(a.benefits[0]!.score).toBeGreaterThan(0);
+    expect(a.benefits[0]!.score).toBeLessThan(
+      results.find((r) => r.configurationId === 'b')!.benefits[0]!.score,
     );
   });
 });

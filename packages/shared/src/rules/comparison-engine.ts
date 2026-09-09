@@ -29,7 +29,12 @@ import {
   type ComparisonDirection,
   type PlanAttributeId,
 } from '../config/comparison-scoring.js';
-import { NOT_SPECIFIED_LABEL } from '../config/business-rules.js';
+import {
+  ASSUMED_LIMIT_LABEL,
+  CO_PAYMENT_LABEL,
+  CO_PAYMENT_WHEN_NOT_STATED,
+  NOT_SPECIFIED_LABEL,
+} from '../config/business-rules.js';
 import { OPTION_FIELD_DATA_TYPES } from '../config/option-field-types.js';
 import type { OptionFieldDataType } from '../config/option-field-types.js';
 import { describeLimitations, limitationFactor, type AppliedLimitation } from './limitations.js';
@@ -48,6 +53,13 @@ export interface CandidateBenefit {
   value: number | null;
   dataType: OptionFieldDataType | null;
   unit: string | null;
+  /**
+   * The share of the bill the member pays, as a percentage, or `null` when
+   * the document states none — which is scored as no co-payment.
+   */
+  coPayment?: number | null;
+  /** `value` is the variant's annual limit standing in for an unstated one. */
+  limitAssumed?: boolean;
   /**
    * The qualifications this plan attaches to the benefit. An empty list is
    * unrestricted cover, not missing information.
@@ -171,7 +183,32 @@ function displayBenefit(benefit: CandidateBenefit): string {
     return benefit.textValue?.trim() || NOT_SPECIFIED_LABEL;
   }
   const unit = benefit.unit ?? (benefit.dataType === 'PERCENTAGE' ? '%' : '');
-  return unit ? `${formatNumber(benefit.value)}${unit}` : formatNumber(benefit.value);
+  const figure = unit ? `${formatNumber(benefit.value)}${unit}` : formatNumber(benefit.value);
+  return figure + coverTermsSuffix(benefit.coPayment ?? null, benefit.limitAssumed ?? false);
+}
+
+/**
+ * What follows a figure wherever it is printed: that it is the annual limit
+ * standing in, and what share the member pays. "EGP 1,500 · 10% co-pay",
+ * "EGP 200,000 (annual limit)". Empty when neither applies, so a plain figure
+ * stays a plain figure.
+ */
+export function coverTermsSuffix(coPayment: number | null, limitAssumed: boolean): string {
+  const parts: string[] = [];
+  if (limitAssumed) parts.push(` (${ASSUMED_LIMIT_LABEL})`);
+  if (coPayment !== null && coPayment > 0) {
+    parts.push(` · ${formatNumber(coPayment)}% ${CO_PAYMENT_LABEL}`);
+  }
+  return parts.join('');
+}
+
+/**
+ * What the member's share does to a benefit's worth: a 10% co-payment leaves
+ * 90% of the cover. A co-payment the document never stated is none.
+ */
+export function coPaymentFactor(coPayment: number | null): number {
+  const share = coPayment ?? CO_PAYMENT_WHEN_NOT_STATED;
+  return 1 - Math.min(Math.max(share, 0), 100) / 100;
 }
 
 /** Shown wherever a plan does not carry a selected benefit. Never "0" or "100%". */
@@ -291,19 +328,28 @@ export function scoreCandidates(candidates: ComparisonCandidate[]): ComparisonPl
        */
       const factor = limitationFactor(benefit.limitations);
 
+      /**
+       * And the member's own share. Two plans quoting the same 1,500 for
+       * dental are not equal when one asks the member for 20% of every
+       * bill; what the plan actually pays is the figure less that share.
+       */
+      const share = coPaymentFactor(benefit.coPayment ?? null);
+
       return {
         optionId: benefit.optionId,
         optionName: benefit.optionName,
         covered,
         value: benefit.value,
         display: displayBenefit(benefit),
+        coPayment: benefit.coPayment ?? null,
+        limitAssumed: benefit.limitAssumed ?? false,
         dataType: benefit.dataType,
         unit: benefit.unit,
         direction,
         // Missing cover scores zero. It is never treated as full cover, and
         // never ties with the weakest plan that does provide the benefit —
         // however heavily that plan's cover is qualified.
-        score: covered ? Math.max(COVERED_SCORE_FLOOR, rawScore * factor) : 0,
+        score: covered ? Math.max(COVERED_SCORE_FLOOR, rawScore * factor * share) : 0,
         // Decided below, once every candidate's conditions have been applied.
         isBest: false,
         limitations: benefit.limitations.map((limitation) => ({

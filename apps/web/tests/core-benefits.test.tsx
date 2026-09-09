@@ -201,6 +201,39 @@ describe('the seven core areas', () => {
     }
   });
 
+  it('asks for a co-payment beside every figure, and saves it on the same record', async () => {
+    const user = userEvent.setup();
+    givenCoreCatalogue();
+    const configurationId = givenVariant();
+
+    renderApp(ROUTES.configurations.detail('company_1', 'plan_1', configurationId));
+    await screen.findByLabelText('Dental Limit');
+
+    /**
+     * Seven areas, seven co-payment boxes. A document that says "1,500 EGP,
+     * 10% co-payment" is one statement, so the two boxes sit on one row and
+     * are saved to the same benefit record.
+     */
+    expect(screen.getAllByLabelText(/ Co-payment$/)).toHaveLength(CORE_MEDICAL_BENEFITS.length);
+
+    await user.type(screen.getByLabelText('Dental Limit'), '5000');
+    await user.type(screen.getByLabelText('Dental Co-payment'), '10');
+    await user.click(screen.getByRole('button', { name: /Save changes/i }));
+
+    await waitFor(() => expect(store.values).toHaveLength(2));
+
+    const dental = store.options.find((option) => option.name === 'Dental')!;
+    const share = (dental.fields ?? []).find((field) => field.key === 'co_payment')!;
+    expect(share.dataType).toBe('PERCENTAGE');
+    const byField = new Map(store.values.map((value) => [value.optionFieldId, value.value]));
+    expect(byField.get(share.id)).toBe(10);
+    // The figure went to its own field, untouched by the share beside it.
+    expect([...byField.values()]).toContain(5000);
+    // Both rows sit on this variant's Dental attachment.
+    const owners = new Set(store.values.map((value) => value.planOptionId));
+    expect(owners.size).toBe(1);
+  });
+
   it('treats a typed 0 as the plan declining the area', async () => {
     const user = userEvent.setup();
     givenCoreCatalogue();

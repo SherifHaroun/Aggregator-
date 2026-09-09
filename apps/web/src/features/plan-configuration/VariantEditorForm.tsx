@@ -2,6 +2,7 @@ import {
   BENEFIT_DETAIL_SEPARATOR,
   CORE_MEDICAL_BENEFITS,
   CORE_VALUE_KINDS,
+  CO_PAYMENT_FIELD,
   DEFAULT_AGE_BANDS,
   GEOGRAPHICAL_COVERAGES,
   MAX_INSURABLE_AGE,
@@ -18,6 +19,7 @@ import {
   type CustomerTypeId,
   type GeographicalCoverageId,
   type InsuranceOptionDto,
+  type OptionFieldDto,
   type PlanConfigurationDto,
   type PlanOptionDto,
 } from '@aggregator/shared';
@@ -52,6 +54,7 @@ import {
   AdditionalBenefitEntry,
   CoreBenefitEntry,
   emptyBenefitDraft,
+  locateCoPaymentField,
   locateValueField,
   type BenefitDraft,
 } from './BenefitEntry';
@@ -223,9 +226,17 @@ export function VariantEditorForm({
         const money = planOption.values.find(
           (value) => value.dataType === 'CURRENCY' && value.value !== null,
         );
+        // The co-payment is a percentage too; it is never the cover.
         const share = planOption.values.find(
-          (value) => value.dataType === 'PERCENTAGE' && value.value !== null,
+          (value) =>
+            value.dataType === 'PERCENTAGE' &&
+            value.value !== null &&
+            value.fieldKey !== CO_PAYMENT_FIELD.key,
         );
+        const coPayment = planOption.values.find(
+          (value) => value.fieldKey === CO_PAYMENT_FIELD.key && value.value !== null,
+        );
+        if (coPayment && draft.coPayment === '') draft.coPayment = String(coPayment.value);
         /**
          * Read the figure the AREA is quoted in. A record may hold both a
          * ceiling and a share from an older entry; the business decides which
@@ -526,16 +537,14 @@ export function VariantEditorForm({
         const kind = CORE_VALUE_KINDS[draft.kind];
         const host = record.isUmbrella ? (record.children ?? [])[0] : record;
         if (host) {
-          const updated = await api.post<InsuranceOptionDto>(
-            `/insurance-options/${host.id}/fields`,
-            {
-              label: kind.fieldLabel,
-              key: kind.key,
-              dataType: kind.dataType,
-              ...(kind.unit ? { unit: kind.unit } : {}),
-            },
-          );
-          target = locateValueField([updated], draft.kind);
+          const updated = await api.post<OptionFieldDto>(`/insurance-options/${host.id}/fields`, {
+            label: kind.fieldLabel,
+            key: kind.key,
+            dataType: kind.dataType,
+            ...(kind.unit ? { unit: kind.unit } : {}),
+          });
+          // The API answers with the FIELD it created, on the record it was asked to grow.
+          target = { option: host, field: updated };
         }
       }
 
@@ -556,6 +565,40 @@ export function VariantEditorForm({
             // Blank is the document saying nothing — never a zero.
             value: figure === '' ? null : Number(figure.replace(/,/g, '')),
           });
+        }
+      }
+
+      /**
+       * THE MEMBER'S SHARE, beside the figure. It lives on the same record
+       * as the figure, and the record grows the field the first time a plan
+       * states one — the way it grows the figure's own field above. Blank
+       * is written as blank: the comparison reads that as no co-payment.
+       */
+      if (isCore) {
+        const typedShare = draft.coPayment.trim();
+        let shareTarget = locateCoPaymentField(family);
+        if (!shareTarget && typedShare !== '') {
+          const host = target?.option ?? (record.isUmbrella ? (record.children ?? [])[0] : record);
+          if (host) {
+            const updated = await api.post<OptionFieldDto>(`/insurance-options/${host.id}/fields`, {
+              label: CO_PAYMENT_FIELD.label,
+              key: CO_PAYMENT_FIELD.key,
+              dataType: CO_PAYMENT_FIELD.dataType,
+              unit: CO_PAYMENT_FIELD.unit,
+            });
+            shareTarget = { option: host, field: updated };
+          }
+        }
+        if (shareTarget) {
+          const owner =
+            shareTarget.option.id === optionId
+              ? planOption
+              : planOptionByOptionId.get(shareTarget.option.id);
+          if (owner) {
+            await api.put(`/plan-options/${owner.id}/values/${shareTarget.field.id}`, {
+              value: typedShare === '' ? null : Number(typedShare.replace(/,/g, '')),
+            });
+          }
         }
       }
 

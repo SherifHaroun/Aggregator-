@@ -11,7 +11,10 @@
 import {
   ALTERNATIVE_VALUE_KEY,
   ANY_COVERAGE_LABEL,
+  CO_PAYMENT_FIELD,
+  MISSING_CORE_LIMIT_FALLBACK,
   alternativeValueField,
+  coverTermsSuffix,
   resolveComparisonAges,
   type CustomerTypeId,
   benefitValueField,
@@ -624,7 +627,15 @@ function route({
         geographicalCoverageLabel: configuration.geographicalCoverage,
         benefits: options.map((planOption) => {
           const option = store.options.find((item) => item.id === planOption.optionId);
-          const value = store.values.find((v) => v.planOptionId === planOption.id)?.value ?? null;
+          /**
+           * The figure and the co-payment are told apart by the field they
+           * were written to, exactly as the real service reads them.
+           */
+          const coPaymentFieldId = option?.fields?.find((f) => f.key === CO_PAYMENT_FIELD.key)?.id;
+          const rows = store.values.filter((v) => v.planOptionId === planOption.id);
+          const value = rows.find((v) => v.optionFieldId !== coPaymentFieldId)?.value ?? null;
+          const coPaymentRaw = rows.find((v) => v.optionFieldId === coPaymentFieldId)?.value;
+          const coPayment = typeof coPaymentRaw === 'number' ? coPaymentRaw : null;
           /**
            * The kind is the one the BUSINESS fixed for the area, as the real
            * engine reads it — a ceiling carries no percent sign, and a double
@@ -633,7 +644,14 @@ function route({
            */
           const spec = medicalBenefitSpec(option?.name ?? '');
           const percentage = spec?.valueKind !== 'LIMIT';
-          const figure = typeof value === 'number' ? value : null;
+          const stated = typeof value === 'number' ? value : null;
+          /** A named LIMIT area with no figure is paid up to the annual limit. */
+          const limitAssumed =
+            MISSING_CORE_LIMIT_FALLBACK === 'ANNUAL_LIMIT' &&
+            stated === null &&
+            spec?.valueKind === 'LIMIT' &&
+            configuration.annualLimit !== null;
+          const figure = limitAssumed ? configuration.annualLimit : stated;
           return {
             optionId: planOption.optionId,
             optionName: spec?.name ?? option?.name ?? '',
@@ -644,9 +662,10 @@ function route({
                 ? 'Not specified in plan'
                 : figure === 0
                   ? 'Not covered'
-                  : percentage
-                    ? `${figure}%`
-                    : String(figure),
+                  : (percentage ? `${figure}%` : String(figure)) +
+                    coverTermsSuffix(coPayment, limitAssumed),
+            coPayment,
+            limitAssumed,
             dataType: percentage ? 'PERCENTAGE' : 'CURRENCY',
             unit: percentage ? '%' : null,
             direction: 'HIGHER_IS_BETTER',
