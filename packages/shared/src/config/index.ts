@@ -10,3 +10,4 @@ export * from './option-field-types.js';
 export * from './plan-tiers.js';
 export * from './sme-age-brackets.js';
 export * from './option-registry.js';
+export * from './plan-import.js';

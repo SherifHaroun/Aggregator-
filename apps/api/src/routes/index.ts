@@ -19,6 +19,7 @@ import {
 } from '../modules/insurance-options/insurance-options.routes.js';
 import { planConfigurationsRouter } from '../modules/plan-configurations/plan-configurations.routes.js';
 import { planOptionsRouter } from '../modules/plan-options/plan-options.routes.js';
+import { planImportsRouter } from '../modules/plan-imports/plan-imports.routes.js';
 import { plansRouter } from '../modules/plans/plans.routes.js';
 import { uploadsRouter } from '../modules/uploads/uploads.routes.js';
 
@@ -46,3 +47,5 @@ apiRouter.use('/plans', plansRouter);
 apiRouter.use('/plan-configurations', planConfigurationsRouter);
 apiRouter.use('/plan-options', planOptionsRouter);
 apiRouter.use('/uploads', uploadsRouter);
+/** A Word document read into plans for review; publishing goes through the routes above. */
+apiRouter.use('/plan-imports', planImportsRouter);

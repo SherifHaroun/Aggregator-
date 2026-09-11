@@ -27,7 +27,9 @@ import {
   totalSmeEmployees,
   type BenefitValueKind,
   type CompanyDto,
+  type ImportedDocument,
   type InsuranceOptionDto,
+  type PlanImportJobDto,
   type InsuranceTypeDto,
   type MedicalNetworkDto,
   type OptionChoiceDto,
@@ -67,6 +69,13 @@ export interface FakeStore {
   planOptions: StoredPlanOption[];
   values: StoredValue[];
   /**
+   * Document imports started through the fake. A job is READING when it is
+   * started and settles on the second look, so a screen that polls sees both.
+   */
+  planImports: { job: PlanImportJobDto; polls: number }[];
+  /** What the next import settles to: an answer, or a reason it failed. */
+  importAnswer: { result: ImportedDocument | null; error: string | null };
+  /**
    * Set to make the next matching request fail, e.g. to test error states.
    * `delayMs` holds the response back, which is what makes an optimistic UI
    * state observable before the failure arrives.
@@ -91,6 +100,8 @@ export function createStore(): FakeStore {
     configurations: [],
     planOptions: [],
     values: [],
+    planImports: [],
+    importAnswer: { result: null, error: 'No answer was scripted for this import.' },
     failNext: null,
   };
 }
@@ -298,6 +309,58 @@ function route({
       });
       store.medicalNetworks = store.medicalNetworks.filter((item) => item.id !== network.id);
       return noContent();
+    }
+  }
+
+  // --- plan imports: a document in, a job out, the answer when polled ------
+  if (resource === 'plan-imports') {
+    if (method === 'POST' && !first) {
+      const file = form?.get('file');
+      if (!(file instanceof File)) return fail(400, 'VALIDATION_ERROR', 'No file was uploaded.');
+      if (!file.name.toLowerCase().endsWith('.docx')) {
+        return fail(400, 'VALIDATION_ERROR', 'Only Word documents (.docx) are accepted.');
+      }
+      const companyId = search.get('companyId') ?? '';
+      const customerType = search.get('customerType') as CustomerTypeId | null;
+      if (!store.companies.some((company) => company.id === companyId)) {
+        return fail(404, 'NOT_FOUND', 'The record was not found.');
+      }
+      if (!customerType) return fail(400, 'VALIDATION_ERROR', 'The request payload is invalid.');
+      const job: PlanImportJobDto = {
+        id: id('import'),
+        companyId,
+        customerType,
+        fileName: file.name,
+        status: 'READING',
+        percent: 15,
+        planNames: store.importAnswer.result?.planNames ?? [],
+        plansCompleted: 0,
+        result: null,
+        error: null,
+        createdAt: now(),
+      };
+      store.planImports.push({ job, polls: 0 });
+      return ok(job, 202);
+    }
+    const entry = store.planImports.find((item) => item.job.id === first);
+    if (!entry) return fail(404, 'NOT_FOUND', 'The record was not found.');
+    if (method === 'GET') {
+      entry.polls += 1;
+      if (entry.polls >= 2 && entry.job.status === 'READING') {
+        const { result, error } = store.importAnswer;
+        entry.job =
+          result !== null
+            ? {
+                ...entry.job,
+                status: 'DONE',
+                percent: 100,
+                planNames: result.planNames,
+                plansCompleted: result.plans.length,
+                result,
+              }
+            : { ...entry.job, status: 'FAILED', error: error ?? 'The document could not be read.' };
+      }
+      return ok(entry.job);
     }
   }
 

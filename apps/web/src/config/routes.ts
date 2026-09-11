@@ -42,6 +42,14 @@ export const ROUTES = {
     detail: (companyId: string, planId: string, configurationId: string) =>
       `/companies/${companyId}/plans/${planId}/configurations/${configurationId}`,
   },
+  imports: {
+    /**
+     * One document being read into a company's section: the progress while
+     * it is read, then the plans for review, then Publish. Its own page
+     * because reading takes a minute or two and the review is a long form.
+     */
+    detail: (companyId: string, jobId: string) => `/companies/${companyId}/imports/${jobId}`,
+  },
   comparison: {
     new: '/comparison/new',
     results: '/comparison/results',
@@ -60,5 +68,6 @@ export const ROUTE_PATTERNS = {
   companyDetail: '/companies/:companyId',
   planDetail: '/companies/:companyId/plans/:planId',
   configurationDetail: '/companies/:companyId/plans/:planId/configurations/:configurationId',
+  planImport: '/companies/:companyId/imports/:jobId',
   comparisonPlan: '/comparison/plan/:configurationId',
 } as const;

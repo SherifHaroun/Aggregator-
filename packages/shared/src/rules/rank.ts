@@ -28,7 +28,10 @@ export interface RankedChoice {
  * value recorded before the benefit was ranked. Unrankable rather than worst,
  * because the two are different and only one of them is the plan's fault.
  */
-export function rankValue(choiceId: string | null, choices: readonly RankedChoice[]): number | null {
+export function rankValue(
+  choiceId: string | null,
+  choices: readonly RankedChoice[],
+): number | null {
   if (choiceId === null) return null;
 
   const ordered = [...choices].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -39,7 +42,10 @@ export function rankValue(choiceId: string | null, choices: readonly RankedChoic
 }
 
 /** The wording of a chosen answer, or `null` when it is no longer on the list. */
-export function rankLabel(choiceId: string | null, choices: readonly RankedChoice[]): string | null {
+export function rankLabel(
+  choiceId: string | null,
+  choices: readonly RankedChoice[],
+): string | null {
   if (choiceId === null) return null;
   return choices.find((choice) => choice.id === choiceId)?.label ?? null;
 }

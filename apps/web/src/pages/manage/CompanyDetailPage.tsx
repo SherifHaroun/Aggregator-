@@ -26,6 +26,7 @@ import {
   IconEdit,
   IconLayers,
   IconTrash,
+  IconUpload,
   Input,
   LogoUploader,
   PageHeader,
@@ -35,6 +36,7 @@ import {
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
 import { PlanSetupForm } from '@/features/company-setup/PlanSetupForm';
+import { ImportDocumentDialog } from '@/features/plan-import/ImportDocumentDialog';
 import { CustomerTypeTabs } from '@/features/companies/CustomerTypeTabs';
 import {
   useCompany,
@@ -69,6 +71,8 @@ export function CompanyDetailPage() {
 
   const [editingCompany, setEditingCompany] = useState(false);
   const [addingPlan, setAddingPlan] = useState(false);
+  /** The document import, into the section that is open. */
+  const [importing, setImporting] = useState(false);
   const [pendingPlanDelete, setPendingPlanDelete] = useState<PlanDto | null>(null);
   const [confirmCompanyDelete, setConfirmCompanyDelete] = useState(false);
 
@@ -144,10 +148,18 @@ export function CompanyDetailPage() {
                 icon={<IconLayers className="size-5" />}
                 description="Open a plan to manage its variants and benefits."
                 action={
-                  <Button size="sm" onClick={() => setAddingPlan(true)}>
-                    <IconAdd className="size-4" />
-                    Add plan
-                  </Button>
+                  <div className="flex gap-2">
+                    {/* The insurer's own document, read into this section for
+                        review; nothing is added until Publish on that page. */}
+                    <Button size="sm" variant="secondary" onClick={() => setImporting(true)}>
+                      <IconUpload className="size-4" />
+                      Insert company plans document
+                    </Button>
+                    <Button size="sm" onClick={() => setAddingPlan(true)}>
+                      <IconAdd className="size-4" />
+                      Add plan
+                    </Button>
+                  </div>
                 }
               />
               <CardBody className="space-y-4">
@@ -196,6 +208,15 @@ export function CompanyDetailPage() {
 
       {editingCompany && company.data ? (
         <EditCompanyDialog company={company.data} onClose={() => setEditingCompany(false)} />
+      ) : null}
+
+      {importing && companyId && company.data ? (
+        <ImportDocumentDialog
+          companyId={companyId}
+          companyName={company.data.name}
+          customerType={customerType}
+          onClose={() => setImporting(false)}
+        />
       ) : null}
 
       {addingPlan && companyId ? (

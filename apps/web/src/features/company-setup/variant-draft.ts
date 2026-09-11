@@ -43,6 +43,15 @@ export interface VariantDraft {
   /** Optional benefits THIS variant states. Another may state none of them. */
   extras: string[];
   bands: BandRow[];
+  /**
+   * Stated by a document, never asked by the form. Absent on a typed draft:
+   * the form prices in the default currency and asks for neither a room nor
+   * a plan-wide deductible or co-payment. Saved when present and not blank.
+   */
+  currency?: string;
+  roomType?: string;
+  deductible?: string;
+  coPayment?: string;
 }
 
 export const emptyEntry = (): BenefitEntry => ({ coverage: '', coPayment: '', details: [] });

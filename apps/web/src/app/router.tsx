@@ -14,6 +14,7 @@ import { PlanTiersPage } from '@/pages/manage/PlanTiersPage';
 import { MedicalNetworksPage } from '@/pages/manage/MedicalNetworksPage';
 import { PlanConfigurationDetailPage } from '@/pages/manage/PlanConfigurationDetailPage';
 import { PlanDetailPage } from '@/pages/manage/PlanDetailPage';
+import { PlanImportPage } from '@/pages/manage/PlanImportPage';
 import { PlansPage } from '@/pages/manage/PlansPage';
 
 /**
@@ -40,6 +41,8 @@ export const routes: RouteObject[] = [
       { path: ROUTES.planTiers.list, element: <PlanTiersPage /> },
       { path: ROUTES.medicalNetworks.list, element: <MedicalNetworksPage /> },
       { path: ROUTE_PATTERNS.configurationDetail, element: <PlanConfigurationDetailPage /> },
+      /* A document being read into a company's section, then reviewed. */
+      { path: ROUTE_PATTERNS.planImport, element: <PlanImportPage /> },
 
       { path: ROUTES.comparison.new, element: <NewComparisonPage /> },
       { path: ROUTES.comparison.results, element: <ComparisonResultsPage /> },

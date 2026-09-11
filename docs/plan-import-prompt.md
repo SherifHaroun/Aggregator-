@@ -20,7 +20,7 @@ returns is exactly what the review screen shows, plan by plan, before
 | Output               | Structured output (`output_config.format` with the JSON schema below)                                                              | The review screen renders editable forms from the JSON. A schema-validated answer can never arrive half-shaped.                                    |
 | Streaming            | Yes                                                                                                                                | Long output, and the progress bar is driven by it (below).                                                                                         |
 | `max_tokens`         | 32,000                                                                                                                             | Ten plans with rate tables fit comfortably.                                                                                                        |
-| The key              | The employee's Anthropic API key, sent to our API once and held server-side only                                                   | The browser never calls Anthropic directly.                                                                                                        |
+| The key              | `ANTHROPIC_API_KEY` on the API server                                                                                              | The browser never calls Anthropic directly; the document is uploaded to our API, which reads it.                                                   |
 
 **The progress bar.** The upload runs as a job with four stages the screen can
 show honestly: converting the document (0–10%), sending it (10–15%), reading —
@@ -35,6 +35,10 @@ bar knows how many to expect.
 ## 2. The system prompt
 
 Everything in `{{double braces}}` is filled in by our API before the call.
+The code that sends it is `apps/api/src/modules/plan-imports/plan-import.prompt.ts`,
+and a test holds that file to the two text blocks below, character for
+character — so this document is where the prompt is changed, and the code
+follows.
 
 ```text
 You are a data-entry specialist for Hadbrok, an insurance broker in Egypt. You
@@ -88,11 +92,21 @@ FIGURES — THE RULES THAT MATTER MOST
   covered area as "up to the annual limit" and a null co-payment as "no
   co-payment", so never write those in yourself — leave null and let the
   rule apply.
+- Only numbers are ever null. A text field the document gives nothing for
+  (`details`, `source`, `description`, `roomType`, a network name, and so on)
+  is an empty string "".
 - Zero means the document says the area is NOT covered ("Dental: Not covered",
   "Nil", "Excluded"). Only write 0 when the document declines the area.
-- A percentage is the share the INSURER pays. "80% co-insurance" or "member
-  pays 20%" is value 80 with coPayment 20. "Coverage: 100%, Co-payment: 10%" is
-  value 100 with coPayment 10.
+- A percentage is the share the INSURER pays. On a COVERAGE area (In-patient,
+  Out-patient) it is the `value` and it already says what the member pays, so
+  "80% co-insurance" or "member pays 20%" is value 80 with coPayment null —
+  never value 80 with coPayment 20, which would count the member's share
+  twice. Set coPayment on a COVERAGE area only when the document states a
+  co-payment ON TOP of the coverage: "Coverage: 100%, Co-payment: 10%" is
+  value 100 with coPayment 10. On a LIMIT area (Dental, Medication…) a
+  percentage is the member's share: "Limit 1,500, co-payment 10%" is value
+  1500 with coPayment 10, and "medication covered at 80%" with no limit is
+  value null with coPayment 20.
 - An area quoted only in words ("covered at authorised centres") keeps
   value null and puts the words in `details`.
 - A sub-limit "within the annual limit" is still the area's limit; note the
@@ -115,7 +129,7 @@ BENEFIT NAMES
   organ transplant, out-of-network reimbursement — is an ADDITIONAL benefit.
   If it plainly means the same thing as a catalogue name below, use that
   catalogue name exactly and set `matchedExisting` to it. Otherwise use the
-  document's own wording, in title case, and leave `matchedExisting` null.
+  document's own wording, in title case, and leave `matchedExisting` empty.
 - An additional benefit's value is the document's wording ("Covers 25
   congenital defects", "80% reimbursement based on Misr International
   Hospital prices"). If it states a figure, put the figure in `value` and the
@@ -187,25 +201,31 @@ Structured output: the model must return exactly this shape. Strings marked
 `source` are short verbatim quotes from the document, so the review screen can
 show the reader where a figure came from.
 
+Only numbers are nullable, because for a number null ("the document is
+silent") and 0 ("the document declines it") mean different things. A text
+field the document gives nothing for is `""`. That is also what the API
+requires: a schema may carry at most 16 union-typed fields, and this one
+carries six.
+
 ```jsonc
 {
   "document": {
     "title": string,
-    "insurerNameInDocument": string | null,
+    "insurerNameInDocument": string,
     "matchesCompany": boolean,          // the document's insurer is {{companyName}}
-    "currency": string | null,          // ISO code the figures are in, e.g. "EGP"
-    "sectionEvidence": string | null    // why this is a {{customerType}} document
+    "currency": string,          // ISO code the figures are in, e.g. "EGP"
+    "sectionEvidence": string    // why this is a {{customerType}} document
   },
   "planNames": string[],                // announced first, so the progress bar knows the count
   "plans": [
     {
       "name": string,
-      "description": string | null,     // the document's own summary of the plan, incl. tier wording
-      "medicalNetwork": { "name": string | null, "tierCode": string | null, "source": string | null },
+      "description": string,     // the document's own summary of the plan, incl. tier wording
+      "medicalNetwork": { "name": string, "tierCode": string, "source": string },
       "variants": [
         {
           "geographicalCoverage": "LOCAL" | "INTERNATIONAL",
-          "roomType": string | null,
+          "roomType": string,
           "currency": string,
           "annualLimit": number | null,
           "deductible": number | null,
@@ -215,15 +235,15 @@ show the reader where a figure came from.
             {
               "name": "In-patient" | "Out-patient" | "Maternity" | "Dental" | "Optical" | "Chronic / Pre-existing Conditions" | "Medication",
               "kind": "COVERAGE" | "LIMIT",
-              "value": number | null,   // null = document silent, 0 = declined
+              "value": number | null,   // null = document silent, 0 = declined; text fields are "" when silent
               "coPayment": number | null,
               "limitations": string[],
-              "details": string | null,
-              "source": string | null
+              "details": string,
+              "source": string
             }
           ],
           "additionalBenefits": [
-            { "name": string, "matchedExisting": string | null, "value": string | null, "details": string | null, "source": string | null }
+            { "name": string, "matchedExisting": string, "value": string, "details": string, "source": string }
           ],
           "waitingPeriods": string[],
           "conditions": string[],
@@ -327,7 +347,7 @@ review screen would open with — three plan cards, Platinum, Premier and Silver
               "value": 1500,
               "coPayment": 10,
               "limitations": ["One eye test per year", "Glasses every two years"],
-              "details": null,
+              "details": "",
               "source": "Limit: 1,500 EGP (One eye test per year, glasses every two years). Co-payment: 10%"
             },
             {
@@ -352,9 +372,9 @@ review screen would open with — three plan cards, Platinum, Premier and Silver
           "additionalBenefits": [
             {
               "name": "Congenital Defects",
-              "matchedExisting": null,
+              "matchedExisting": "",
               "value": "Covers 25 congenital defects",
-              "details": null,
+              "details": "",
               "source": "Covers 25 Congenital Defects."
             },
             {
@@ -366,14 +386,14 @@ review screen would open with — three plan cards, Platinum, Premier and Silver
             },
             {
               "name": "COVID-19 Inpatient Cover",
-              "matchedExisting": null,
+              "matchedExisting": "",
               "value": "Covered",
-              "details": null,
+              "details": "",
               "source": "COVID-19 inpatient coverage included."
             },
             {
               "name": "Out-of-Network Reimbursement",
-              "matchedExisting": null,
+              "matchedExisting": "",
               "value": "80% reimbursement based on Misr International Hospital prices",
               "details": "In-network: direct billing. Applies within Egypt.",
               "source": "Out-of-Network (Egypt): 80% reimbursement based on Misr International Hospital prices."
@@ -464,7 +484,7 @@ review screen would open with — three plan cards, Platinum, Premier and Silver
               "value": 2000,
               "coPayment": 10,
               "limitations": ["One eye test per year", "Glasses every two years"],
-              "details": null,
+              "details": "",
               "source": "Limit: 2,000 EGP (One eye test per year, glasses every two years). Co-payment: 10%"
             },
             {
@@ -489,9 +509,9 @@ review screen would open with — three plan cards, Platinum, Premier and Silver
           "additionalBenefits": [
             {
               "name": "Congenital Defects",
-              "matchedExisting": null,
+              "matchedExisting": "",
               "value": "Covers 25 congenital defects",
-              "details": null,
+              "details": "",
               "source": "Covers 25 Congenital Defects."
             },
             {
@@ -503,14 +523,14 @@ review screen would open with — three plan cards, Platinum, Premier and Silver
             },
             {
               "name": "COVID-19 Inpatient Cover",
-              "matchedExisting": null,
+              "matchedExisting": "",
               "value": "Covered",
-              "details": null,
+              "details": "",
               "source": "COVID-19 inpatient coverage included."
             },
             {
               "name": "Out-of-Network Reimbursement",
-              "matchedExisting": null,
+              "matchedExisting": "",
               "value": "80% reimbursement based on Cleopatra Hospital prices",
               "details": "In-network: direct billing. Applies within Egypt.",
               "source": "Out-of-Network (Egypt): 80% reimbursement based on Cleopatra Hospital prices."
@@ -572,9 +592,9 @@ review screen would open with — three plan cards, Platinum, Premier and Silver
               "name": "Out-patient",
               "kind": "COVERAGE",
               "value": 80,
-              "coPayment": 20,
+              "coPayment": null,
               "limitations": ["In-network only"],
-              "details": "Consultations, tests, physiotherapy and prescribed medications. Members pay 20% co-insurance on all outpatient services.",
+              "details": "Consultations, tests, physiotherapy and prescribed medications. 80% in-network means members pay the other 20%.",
               "source": "Coverage: 80% in-network for consultations, tests, physiotherapy, and prescribed medications."
             },
             {
@@ -601,7 +621,7 @@ review screen would open with — three plan cards, Platinum, Premier and Silver
               "value": 1000,
               "coPayment": 10,
               "limitations": ["One eye test per year", "Glasses every two years"],
-              "details": null,
+              "details": "",
               "source": "Limit: 1,000 EGP (One eye test per year, glasses every two years). Co-payment: 10%"
             },
             {
@@ -633,14 +653,14 @@ review screen would open with — three plan cards, Platinum, Premier and Silver
             },
             {
               "name": "COVID-19 Inpatient Cover",
-              "matchedExisting": null,
+              "matchedExisting": "",
               "value": "Covered",
-              "details": null,
+              "details": "",
               "source": "COVID-19 inpatient coverage included."
             },
             {
               "name": "Out-of-Network Reimbursement",
-              "matchedExisting": null,
+              "matchedExisting": "",
               "value": "80% reimbursement based on \"Salam\" Hospital prices",
               "details": "In-network: direct billing. Applies within Egypt.",
               "source": "Out-of-Network (Egypt): 80% reimbursement based on \"Salam\" Hospital prices."
@@ -713,3 +733,46 @@ is what a table with nothing beside the figure means.
    this number come from" on hover. Keep them?
 5. **Description.** The model copies the document's own plan summary into the
    plan description. Fine, or leave descriptions for the employee to write?
+6. **Additional benefits that repeat a core area.** In the live trial the
+   model also listed Room Type, Consultations and Physiotherapy as additional
+   benefits, because those names are in the catalogue and the document
+   mentions them. Consultations and physiotherapy are already inside
+   Out-patient's figure, and the room is already on the variant. Keep them as
+   extra lines the customer can read, or tell the prompt to skip anything
+   already carried by a core area or a plan field?
+
+## 8. The live trial
+
+Run twice on 2026-09-12 against `Arope Insurance SME Health Plans.docx` with
+`claude-opus-5`, adaptive thinking, effort high, streaming, structured output.
+The second run, with the prompt exactly as it stands above, is the one
+recorded here; its full answer is in
+[plan-import-trial-output.json](plan-import-trial-output.json).
+
+| Measure            | Result                                                                                                                                             |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Plans found        | 3 — Platinum, Premier, Silver, announced first in `planNames`                                                                                      |
+| Variants           | 1 per plan, LOCAL, EGP, private room                                                                                                               |
+| Price bands        | 10 per plan, all 30 premiums identical to the document                                                                                             |
+| Annual limits      | 200,000 / 300,000 / 100,000 — identical                                                                                                            |
+| Chronic sub-limits | 25,000 / 35,000 / 10,000 — identical                                                                                                               |
+| Dental, Optical    | 1,500 / 2,000 / 1,000 with 10% co-payment — identical                                                                                              |
+| Maternity          | 10,000 / 15,000 / 5,000 with the 10-month wait in `waitingPeriods`                                                                                 |
+| Medication         | null on all three, with a note; the review screen will flag it (section 6)                                                                         |
+| Network            | Full Network Tier003N / Tier004N, Limited Network Tier002N                                                                                         |
+| Silver Out-patient | value 80, coPayment null: the member's 20% is in the figure, not counted twice                                                                     |
+| Silver Medication  | value null, coPayment 20: no limit stated, covered at 80% under Out-patient                                                                        |
+| Warnings           | 5, all fair: tier labels vs limits, no 65+ band, Medication unstated, premiums read as annual per person, "Hepatitis" matched to "Hepatitis B & C" |
+| Unplaced           | 3: the document's "Critical Differentiators" commentary, which compares the plans rather than describing one                                       |
+| Tokens             | 7,691 in, 10,169 out                                                                                                                               |
+| Time               | 85 s; plan 1 complete at 35 s, plan 2 at 56 s, plan 3 at 78 s                                                                                      |
+
+Two things the trial changed:
+
+1. **The schema.** The API caps union-typed fields at 16 and the first draft
+   had 20, so text fields are now plain strings with `""` for "not given"
+   and only the six numbers stay nullable (section 4).
+2. **The percentage rule.** The first run returned Silver's Out-patient as
+   value 80 with coPayment 20, exactly as the rule then said, which would
+   have scored the member's share twice. The rule now keeps coPayment null
+   on a COVERAGE area unless the document states a co-payment on top.

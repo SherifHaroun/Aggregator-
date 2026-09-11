@@ -1,25 +1,10 @@
 import { useMemo, useState } from 'react';
 import {
   ALTERNATIVE_VALUE_KEY,
-  BENEFIT_DETAIL_SEPARATOR,
-  BENEFIT_INCLUDED_LABEL,
   CO_PAYMENT_FIELD,
   CORE_MEDICAL_BENEFITS,
-  MAX_INSURABLE_AGE,
-  MIN_INSURABLE_AGE,
   UNSPECIFIED_OPTION_LABEL,
-  derivePlanCode,
-  medicalBenefitLookupNames,
-  medicalBenefitSpec,
-  variantDisplayName,
   type CustomerTypeId,
-  type InsuranceOptionDto,
-  type MedicalBenefitSpec,
-  type OptionFieldDto,
-  type Paginated,
-  type PlanConfigurationDto,
-  type PlanDto,
-  type PlanOptionDto,
 } from '@aggregator/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button, Callout, Field, IconAdd, Input, Select, useToast } from '@/components/ui';
@@ -29,9 +14,10 @@ import {
   useInsuranceOptions,
   useMedicalNetworks,
 } from '@/features/insurance-data/insurance-data.api';
-import { ApiError, api, query } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-client';
+import { DEFAULT_CURRENCY, savePlanDraft, validatePlanDraft } from './save-plan';
 import { VariantEditor, type ExistingKind } from './VariantEditor';
-import { emptyEntry, newVariant, type VariantDraft } from './variant-draft';
+import { newVariant, type VariantDraft } from './variant-draft';
 
 /**
  * ONE PLAN, ANY NUMBER OF VARIANTS.
@@ -39,49 +25,17 @@ import { emptyEntry, newVariant, type VariantDraft } from './variant-draft';
  * A plan is the product: its name, and the NETWORK it is sold on, which every
  * variant shares. Everything that can differ between the ways it is sold —
  * what it covers, at what ceiling, with which benefits and at what premium per
- * age — belongs to a VARIANT. "Gold+ Local" and "Gold+ International" are therefore one Gold+
- * plan with two variants, never two plans with the scope written into their
- * names.
+ * age — belongs to a VARIANT. "Gold+ Local" and "Gold+ International" are
+ * therefore one Gold+ plan with two variants, never two plans with the scope
+ * written into their names.
  *
- * Each variant becomes one `PlanConfiguration` per age band it prices: the
- * first is created with the benefits attached and valued, and the rest are made
- * by `duplicate`, which copies them in a fixed number of statements. That is
- * why benefits are filled in once per variant rather than once per band.
+ * The form only DRAFTS. Writing the draft — settling benefits against the
+ * catalogue, the plan once, each variant with its rate table — is
+ * `savePlanDraft`, shared with the document import so a typed plan and an
+ * imported one land in the database the same way.
  */
-
-/** Currency for a plan entered here. Egypt is the only market so far. */
-const DEFAULT_CURRENCY = 'EGP';
-
-/** What the plan sits under when the form creates the category itself. */
-const MEDICAL_TYPE_NAME = 'Medical';
 
 const fold = (name: string) => name.trim().toLowerCase();
-
-/**
- * A benefit resolved against the catalogue, ready to attach and value.
- *
- * `attach` is what goes onto the configuration; `valueOptionId` names the row
- * that receives the figure. The two differ only when the name belongs to a
- * benefit group, whose own sub-benefit holds the value.
- */
-interface ResolvedBenefit {
-  attach: InsuranceOptionDto;
-  valueOptionId: string;
-  valueFields: OptionFieldDto[];
-}
-
-/**
- * What a typed coverage box is worth to a field of this type.
- *
- * `undefined` means the two disagree — wording typed into a benefit that
- * carries a figure — which is reported rather than silently sent as `NaN`.
- */
-function coerce(typed: string, dataType: string): string | number | undefined {
-  const text = typed.trim();
-  if (dataType === 'TEXT') return text;
-  const number = Number(text.replace(/,/g, ''));
-  return Number.isFinite(number) ? number : undefined;
-}
 
 export function PlanSetupForm({
   companyId,
@@ -149,289 +103,16 @@ export function PlanSetupForm({
     ]);
   }
 
-  /** Bands a variant actually priced. A blank premium means "not sold". */
-  const priced = (variant: VariantDraft) =>
-    variant.bands.filter((band) => band.premium.trim() !== '');
-
-  function validate(): string | null {
-    if (name.trim() === '') return 'Enter a plan name.';
-
-    for (const [index, variant] of variants.entries()) {
-      const label =
-        variantDisplayName(name, variant.geographicalCoverage) || `Variant ${index + 1}`;
-      if (variant.annualLimit.trim() === '') return `${label}: enter the annual limit.`;
-      if (priced(variant).length === 0) {
-        return `${label}: enter a premium for at least one age band.`;
-      }
-      for (const band of priced(variant)) {
-        const from = Number(band.from);
-        const to = Number(band.to);
-        if (!Number.isInteger(from) || !Number.isInteger(to)) {
-          return `${label}: age bands take whole numbers of years.`;
-        }
-        if (from < MIN_INSURABLE_AGE || to > MAX_INSURABLE_AGE || from > to) {
-          return `${label}: check the ${band.from}–${band.to} band — ages run from ${MIN_INSURABLE_AGE} to ${MAX_INSURABLE_AGE}, lowest first.`;
-        }
-      }
-    }
-
-    // Two variants covering the same scope at the same ceiling are one
-    // offering entered twice, and the API would refuse the second. Saying so
-    // here costs nothing.
-    const seen = new Set<string>();
-    for (const variant of variants) {
-      const identity = `${variant.geographicalCoverage}|${variant.annualLimit.trim()}`;
-      if (seen.has(identity)) {
-        return 'Two variants have the same coverage and limit. Change one of them.';
-      }
-      seen.add(identity);
-    }
-    return null;
-  }
-
-  /**
-   * The benefit as it exists in the global catalogue, created on first use.
-   *
-   * Benefits are global, so this runs once per benefit for the whole system —
-   * not once per plan. When the name already belongs to a BENEFIT GROUP the
-   * group is used as it stands and the figure goes to the first sub-benefit
-   * that can hold one, because a catalogue built before this form may well keep
-   * "Dental" as a heading over "Dental Limit" with plans already valued that
-   * way.
-   */
-  async function ensureBenefit(
-    spec: MedicalBenefitSpec,
-    catalogue: Map<string, InsuranceOptionDto>,
-  ): Promise<ResolvedBenefit> {
-    /**
-     * REUSE BEFORE CREATE.
-     *
-     * The catalogue is the source of truth and it was not written by this
-     * form. A company's in-patient cover may already be filed as "Inpatient and
-     * daycare Details"; creating "In-patient" beside it would split the same
-     * benefit across two records, and nothing could compare them afterwards.
-     *
-     * So every name this benefit is known by is tried — its own first, then
-     * the aliases — and only a benefit the catalogue genuinely does not have is
-     * created.
-     */
-    const existing = medicalBenefitLookupNames(spec)
-      .map((name) => catalogue.get(fold(name)))
-      .find((match) => match !== undefined);
-
-    if (existing?.isUmbrella) {
-      const target = (existing.children ?? []).find((child) =>
-        (child.fields ?? []).some((field) => field.key !== ALTERNATIVE_VALUE_KEY),
-      );
-      if (!target) {
-        throw new Error(
-          `"${spec.name}" is a benefit group with nothing underneath it that holds a value. Add a benefit to that group on the Benefits screen, then add this plan again.`,
-        );
-      }
-
-      return {
-        attach: existing,
-        valueOptionId: target.id,
-        valueFields: target.fields ?? [],
-      };
-    }
-
-    let option = existing;
-    if (!option) {
-      option = await api.post<InsuranceOptionDto>('/insurance-options', {
-        name: spec.name,
-        valueKind: spec.valueKind,
-      });
-    }
-
-    /**
-     * A core area carries ONE figure, of the kind the business fixed for it.
-     * Nothing else is created alongside it — a co-payment box added here would
-     * be a field no screen fills and the comparison would still find.
-     */
-    const settled = await api.get<InsuranceOptionDto>(`/insurance-options/${option.id}`);
-    catalogue.set(fold(spec.name), settled);
-    return { attach: settled, valueOptionId: settled.id, valueFields: settled.fields ?? [] };
-  }
-
-  /** Which benefits a variant records, core and optional together. */
-  function statedBenefits(variant: VariantDraft): MedicalBenefitSpec[] {
-    const all = [
-      ...CORE_MEDICAL_BENEFITS,
-      ...variant.extras.flatMap((extra) => {
-        const spec = medicalBenefitSpec(extra);
-        return spec ? [spec] : [];
-      }),
-    ];
-    return all.filter((spec) => {
-      // Ticking an optional benefit IS the statement that the variant includes
-      // it; the box beside it only adds wording.
-      if (variant.extras.includes(spec.name)) return true;
-      const entry = variant.entries[spec.name];
-      return (
-        (entry?.coverage ?? '').trim() !== '' ||
-        (entry?.details ?? []).some((line) => line.trim() !== '')
-      );
-    });
-  }
-
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    const issue = validate();
+    const input = { companyId, customerType, name, medicalNetworkId, variants };
+    const issue = validatePlanDraft(input);
     setFormError(issue);
     if (issue) return;
 
     setSaving(true);
     try {
-      /**
-       * Benefits are settled BEFORE the plan is created.
-       *
-       * A name clashing with a benefit group, or wording typed into a benefit
-       * that carries a figure, both stop the save — and a plan created first
-       * would survive as an empty shell nobody asked for. Benefits are global,
-       * so anything created here is reusable rather than debris.
-       */
-      setProgress('Preparing benefits…');
-      const page = await api.get<Paginated<InsuranceOptionDto>>(
-        `/insurance-options${query({ pageSize: 200 })}`,
-      );
-      /**
-       * CHILDREN COUNT TOO. The catalogue endpoint nests a group's members
-       * inside it, so a map built from the top level alone cannot see
-       * "Physiotherapy" filed under "Other key benefits" — and the form would
-       * try to create a benefit the catalogue already has.
-       */
-      const catalogue = new Map<string, InsuranceOptionDto>();
-      for (const item of page.items) {
-        catalogue.set(fold(item.name), item);
-        for (const child of item.children ?? []) catalogue.set(fold(child.name), child);
-      }
-
-      const definitions = new Map<string, ResolvedBenefit>();
-      for (const variant of variants) {
-        for (const spec of statedBenefits(variant)) {
-          if (!definitions.has(spec.name)) {
-            definitions.set(spec.name, await ensureBenefit(spec, catalogue));
-          }
-          const typed = (variant.entries[spec.name]?.coverage ?? '').trim();
-          const field = definitions
-            .get(spec.name)!
-            .valueFields.find(
-              (item) => item.key !== CO_PAYMENT_FIELD.key && item.key !== ALTERNATIVE_VALUE_KEY,
-            );
-          if (typed !== '' && field && coerce(typed, field.dataType) === undefined) {
-            throw new Error(
-              `${spec.name} takes a number, but "${typed}" is not one. Enter a figure, or change what this benefit carries on the Benefits screen.`,
-            );
-          }
-        }
-      }
-
-      // --- the plan, once ---------------------------------------------------
-      const plan = await api.post<PlanDto>('/plans', {
-        companyId,
-        customerType,
-        name: name.trim(),
-        code: derivePlanCode(name, customerType),
-        medicalNetworkId: medicalNetworkId === '' ? null : medicalNetworkId,
-        isActive: true,
-      });
-
-      // --- each variant: its benefits once, its whole rate table with it ----
-      for (const variant of variants) {
-        const label = variantDisplayName(name, variant.geographicalCoverage);
-
-        setProgress(`Saving ${label}…`);
-        const configuration = await api.post<PlanConfigurationDto>('/plan-configurations', {
-          planId: plan.id,
-          geographicalCoverage: variant.geographicalCoverage,
-          currency: DEFAULT_CURRENCY,
-          annualLimit: Number(variant.annualLimit),
-          /**
-           * The whole rate table in the same request. It used to be one variant
-           * per band, each a copy of the last carrying its own duplicate of
-           * every benefit; a band is now a row, so the cover is entered once.
-           */
-          priceBands: priced(variant).map((band) => ({
-            ageFrom: Number(band.from),
-            ageTo: Number(band.to),
-            annualPrice: Number(band.premium),
-          })),
-          isActive: true,
-        });
-
-        for (const spec of statedBenefits(variant)) {
-          const definition = definitions.get(spec.name)!;
-          const attached = await api.post<PlanOptionDto[]>(
-            `/plan-configurations/${configuration.id}/options`,
-            { optionId: definition.attach.id },
-          );
-          const row = attached.find((item) => item.optionId === definition.valueOptionId);
-          if (!row) continue;
-
-          const entry = variant.entries[spec.name] ?? emptyEntry();
-          const isExtra = variant.extras.includes(spec.name);
-          const written = isExtra
-            ? entry.coverage.trim() === ''
-              ? BENEFIT_INCLUDED_LABEL
-              : entry.coverage.trim()
-            : entry.coverage.trim();
-
-          const coverageField = row.values.find((value) => value.fieldKey !== CO_PAYMENT_FIELD.key);
-          if (coverageField && written !== '') {
-            const value = coerce(written, coverageField.dataType);
-            if (value === undefined) {
-              throw new Error(
-                `${spec.name} takes a number, but "${written}" is not one. Enter a figure, or change what this benefit carries on the Benefits screen.`,
-              );
-            }
-            await api.put(`/plan-options/${row.id}/values/${coverageField.optionFieldId}`, {
-              value,
-            });
-          }
-
-          /**
-           * THE MEMBER'S SHARE, beside the figure, for a core area. The record
-           * grows the co-payment field the first time a plan states one, on
-           * the same row that holds the figure. Blank is left unwritten: the
-           * comparison reads no co-payment.
-           */
-          const typedShare = isExtra ? '' : entry.coPayment.trim();
-          if (typedShare !== '') {
-            const share = Number(typedShare.replace(/,/g, ''));
-            if (!Number.isFinite(share)) {
-              throw new Error(
-                `${spec.name} co-payment must be a percentage, but "${typedShare}" is not one.`,
-              );
-            }
-            let shareFieldId = row.values.find(
-              (value) => value.fieldKey === CO_PAYMENT_FIELD.key,
-            )?.optionFieldId;
-            if (!shareFieldId) {
-              const created = await api.post<OptionFieldDto>(
-                `/insurance-options/${row.optionId}/fields`,
-                {
-                  label: CO_PAYMENT_FIELD.label,
-                  key: CO_PAYMENT_FIELD.key,
-                  dataType: CO_PAYMENT_FIELD.dataType,
-                  unit: CO_PAYMENT_FIELD.unit,
-                },
-              );
-              shareFieldId = created.id;
-            }
-            if (shareFieldId) {
-              await api.put(`/plan-options/${row.id}/values/${shareFieldId}`, { value: share });
-            }
-          }
-
-          const details = entry.details.map((line) => line.trim()).filter((line) => line !== '');
-          if (details.length > 0) {
-            await api.patch(`/plan-options/${row.id}/note`, {
-              note: details.join(BENEFIT_DETAIL_SEPARATOR),
-            });
-          }
-        }
-      }
+      const plan = await savePlanDraft(input, setProgress);
 
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: keys.plans }),
@@ -450,7 +131,7 @@ export function PlanSetupForm({
       setMedicalNetworkId('');
       setVariants([newVariant(CORE_MEDICAL_BENEFITS)]);
     } catch (error) {
-      // The form raises its own plain Errors for problems it can explain
+      // The save raises its own plain Errors for problems it can explain
       // precisely; anything from the API is translated as elsewhere.
       setFormError(
         error instanceof ApiError || !(error instanceof Error)

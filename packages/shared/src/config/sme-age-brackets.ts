@@ -13,11 +13,7 @@
  * To change, add or retire a bracket, edit `SME_AGE_BRACKETS` and nothing else.
  */
 
-import {
-  MAX_INSURABLE_AGE,
-  MIN_INSURABLE_AGE,
-  SME_FIXED_AVERAGE_AGE,
-} from './business-rules.js';
+import { MAX_INSURABLE_AGE, MIN_INSURABLE_AGE, SME_FIXED_AVERAGE_AGE } from './business-rules.js';
 
 /**
  * The age every SME comparison is reasoned about, whatever its workforce.
@@ -128,8 +124,9 @@ export function smeBracketForAge(age: number): SmeAgeBracket | null {
   if (!Number.isInteger(age)) return null;
   if (age < MIN_INSURABLE_AGE || age > MAX_INSURABLE_AGE) return null;
   return (
-    SME_AGE_BRACKETS.find((bracket) => age >= bracket.from && (bracket.to === null || age <= bracket.to)) ??
-    null
+    SME_AGE_BRACKETS.find(
+      (bracket) => age >= bracket.from && (bracket.to === null || age <= bracket.to),
+    ) ?? null
   );
 }
 

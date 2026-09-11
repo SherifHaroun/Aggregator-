@@ -40,6 +40,13 @@ export const env = {
    * Set it once a public client can reach this API — see `middleware/access.ts`.
    */
   adminApiToken: process.env['ADMIN_API_TOKEN'] ?? null,
+  /**
+   * The key the plan import reads documents with. Server-side only: the
+   * browser uploads the document to this API and never calls Anthropic.
+   * Unset, the import reports that it cannot read documents rather than
+   * failing at boot — everything else works without it.
+   */
+  anthropicApiKey: process.env['ANTHROPIC_API_KEY'] ?? null,
 } as const;
 
 // Created at boot so the first upload never fails on a missing directory.

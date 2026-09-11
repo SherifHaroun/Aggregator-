@@ -1,0 +1,661 @@
+{
+  "document": {
+    "title": "Comprehensive Benefits Comparison Table: Arope Insurance SME Health Plans",
+    "insurerNameInDocument": "Arope Insurance",
+    "matchesCompany": true,
+    "currency": "EGP",
+    "sectionEvidence": "Title states \"Arope Insurance SME Health Plans\"; rows \"Minimum Group Size: 10 Employees\" and \"Maximum Group Size: Up to 150 Employees\" confirm SME group products."
+  },
+  "planNames": ["Platinum Plan", "Premier Plan", "Silver Plan"],
+  "plans": [
+    {
+      "name": "Platinum Plan",
+      "description": "Plan Name & Tier: High. Plan Selection Logic: \"Platinum: Best for companies seeking high annual limits and robust coverage for serious conditions, with a lower chronic sub-limit than Premier but at a more affordable premium than Premier for younger ages.\"",
+      "medicalNetwork": {
+        "name": "Full Network",
+        "tierCode": "Tier003N",
+        "source": "Medical Network: Full Network (Tier003N)"
+      },
+      "variants": [
+        {
+          "geographicalCoverage": "LOCAL",
+          "roomType": "Private Room",
+          "currency": "EGP",
+          "annualLimit": 200000,
+          "deductible": null,
+          "coPayment": null,
+          "priceBands": [
+            {
+              "ageFrom": 0,
+              "ageTo": 17,
+              "annualPrice": 6187,
+              "source": "Cost by Age (Annual Premium - EGP): 0-17: 6,187"
+            },
+            {
+              "ageFrom": 18,
+              "ageTo": 24,
+              "annualPrice": 7617,
+              "source": "18-24: 7,617"
+            },
+            {
+              "ageFrom": 25,
+              "ageTo": 29,
+              "annualPrice": 8830,
+              "source": "25-29: 8,830"
+            },
+            {
+              "ageFrom": 30,
+              "ageTo": 34,
+              "annualPrice": 10582,
+              "source": "30-34: 10,582"
+            },
+            {
+              "ageFrom": 35,
+              "ageTo": 39,
+              "annualPrice": 12603,
+              "source": "35-39: 12,603"
+            },
+            {
+              "ageFrom": 40,
+              "ageTo": 44,
+              "annualPrice": 14571,
+              "source": "40-44: 14,571"
+            },
+            {
+              "ageFrom": 45,
+              "ageTo": 49,
+              "annualPrice": 17709,
+              "source": "45-49: 17,709"
+            },
+            {
+              "ageFrom": 50,
+              "ageTo": 54,
+              "annualPrice": 19611,
+              "source": "50-54: 19,611"
+            },
+            {
+              "ageFrom": 55,
+              "ageTo": 59,
+              "annualPrice": 25002,
+              "source": "55-59: 25,002"
+            },
+            {
+              "ageFrom": 60,
+              "ageTo": 64,
+              "annualPrice": 31066,
+              "source": "60-64: 31,066"
+            }
+          ],
+          "coreBenefits": [
+            {
+              "name": "In-patient",
+              "kind": "COVERAGE",
+              "value": 100,
+              "coPayment": null,
+              "limitations": ["In-network only"],
+              "details": "Room: Private Room. Includes: Surgeon, anesthesia, ICU, room & board, medications, tests. COVID-19 inpatient coverage included.",
+              "source": "Inpatient & Daycase Details: Coverage: 100% in-network. / Room: Private Room. / Includes: Surgeon, anesthesia, ICU, room & board, medications, tests."
+            },
+            {
+              "name": "Out-patient",
+              "kind": "COVERAGE",
+              "value": 100,
+              "coPayment": null,
+              "limitations": ["In-network only"],
+              "details": "Coverage: 100% in-network for consultations, tests, physiotherapy, and prescribed medications.",
+              "source": "Outpatient Details: Coverage: 100% in-network for consultations, tests, physiotherapy, and prescribed medications."
+            },
+            {
+              "name": "Maternity",
+              "kind": "LIMIT",
+              "value": 10000,
+              "coPayment": null,
+              "limitations": ["Normal & C-Section"],
+              "details": "Limit: 10,000 EGP (Normal & C-Section). Waiting Period: 10 months. Note: Coverage applies even if pregnancy started before the policy.",
+              "source": "Maternity Details: Limit: 10,000 EGP (Normal & C-Section). / Waiting Period: 10 months. / Note: Coverage applies even if pregnancy started before the policy."
+            },
+            {
+              "name": "Dental",
+              "kind": "LIMIT",
+              "value": 1500,
+              "coPayment": 10,
+              "limitations": ["Basic procedures only"],
+              "details": "Limit: 1,500 EGP for basic procedures (fillings, simple/surgical extraction, root canal, X-rays).",
+              "source": "Dental Details: Limit: 1,500 EGP for basic procedures (fillings, simple/surgical extraction, root canal, X-rays). / Co-payment: 10%"
+            },
+            {
+              "name": "Optical",
+              "kind": "LIMIT",
+              "value": 1500,
+              "coPayment": 10,
+              "limitations": ["One eye test per year", "Glasses every two years"],
+              "details": "Limit: 1,500 EGP (One eye test per year, glasses every two years).",
+              "source": "Optical Details: Limit: 1,500 EGP (One eye test per year, glasses every two years). / Co-payment: 10%"
+            },
+            {
+              "name": "Chronic / Pre-existing Conditions",
+              "kind": "LIMIT",
+              "value": 25000,
+              "coPayment": null,
+              "limitations": ["Within the annual limit"],
+              "details": "25,000 EGP (within the annual limit). This is the maximum the policy will pay for all treatment related to conditions that existed before the policy started.",
+              "source": "Pre-existing & Chronic Sublimit: 25,000 EGP (within the annual limit)"
+            },
+            {
+              "name": "Medication",
+              "kind": "LIMIT",
+              "value": null,
+              "coPayment": null,
+              "limitations": ["In-network only"],
+              "details": "Prescribed medications covered at 100% in-network as part of outpatient coverage; medications also included in inpatient & daycase coverage. No separate medication limit stated.",
+              "source": "Outpatient Details: Coverage: 100% in-network for consultations, tests, physiotherapy, and prescribed medications. / Inpatient & Daycase Details: Includes: ... medications"
+            }
+          ],
+          "additionalBenefits": [
+            {
+              "name": "Room Type",
+              "matchedExisting": "Room Type",
+              "value": "Private Room",
+              "details": "Room: Private Room (inpatient & daycase).",
+              "source": "Inpatient & Daycase Details: Room: Private Room."
+            },
+            {
+              "name": "Congenital Defects",
+              "matchedExisting": "",
+              "value": "Covers 25 Congenital Defects",
+              "details": "Other Key Benefits: - Covers 25 Congenital Defects.",
+              "source": "Other Key Benefits: - Covers 25 Congenital Defects."
+            },
+            {
+              "name": "Hepatitis B & C",
+              "matchedExisting": "Hepatitis B & C",
+              "value": "Covers Hepatitis",
+              "details": "Other Key Benefits: - Covers Hepatitis.",
+              "source": "Other Key Benefits: - Covers Hepatitis."
+            },
+            {
+              "name": "COVID-19 Inpatient Coverage",
+              "matchedExisting": "",
+              "value": "COVID-19 inpatient coverage included",
+              "details": "Other Key Benefits: - COVID-19 inpatient coverage included.",
+              "source": "Other Key Benefits: - COVID-19 inpatient coverage included."
+            },
+            {
+              "name": "In-Network Direct Billing",
+              "matchedExisting": "",
+              "value": "In-Network: Direct Billing",
+              "details": "Geographic Coverage & Reimbursement: In-Network: Direct Billing.",
+              "source": "Geographic Coverage & Reimbursement: In-Network: Direct Billing."
+            },
+            {
+              "name": "Out-Of-Network Reimbursement (Egypt)",
+              "matchedExisting": "",
+              "value": "80% reimbursement based on Misr International Hospital prices",
+              "details": "Out-of-Network (Egypt): 80% reimbursement based on Misr International Hospital prices.",
+              "source": "Geographic Coverage & Reimbursement: Out-of-Network (Egypt): 80% reimbursement based on Misr International Hospital prices."
+            },
+            {
+              "name": "Consultations",
+              "matchedExisting": "Consultations",
+              "value": "100% in-network",
+              "details": "Consultations covered at 100% in-network under outpatient.",
+              "source": "Outpatient Details: Coverage: 100% in-network for consultations, tests, physiotherapy, and prescribed medications."
+            },
+            {
+              "name": "Physiotherapy",
+              "matchedExisting": "Physiotherapy",
+              "value": "100% in-network",
+              "details": "Physiotherapy covered at 100% in-network under outpatient.",
+              "source": "Outpatient Details: Coverage: 100% in-network for consultations, tests, physiotherapy, and prescribed medications."
+            }
+          ],
+          "waitingPeriods": ["Maternity: 10 months"],
+          "conditions": [
+            "Minimum Group Size: 10 Employees",
+            "Maximum Group Size: Up to 150 Employees",
+            "Children covered until age 18, extendable to 23 if in full-time education",
+            "Members over 65 require a medical questionnaire and are subject to underwriting",
+            "Family members: 10% discount",
+            "Maternity: coverage applies even if pregnancy started before the policy"
+          ],
+          "exclusions": []
+        }
+      ]
+    },
+    {
+      "name": "Premier Plan",
+      "description": "Plan Name & Tier: Mid-High. Plan Selection Logic: \"Premier: The top-tier plan with the highest annual and chronic sub-limits. Ideal for companies wanting the maximum coverage available, particularly for older employee demographics where chronic conditions are a greater concern.\"",
+      "medicalNetwork": {
+        "name": "Full Network",
+        "tierCode": "Tier004N",
+        "source": "Medical Network: Full Network (Tier004N)"
+      },
+      "variants": [
+        {
+          "geographicalCoverage": "LOCAL",
+          "roomType": "Private Room",
+          "currency": "EGP",
+          "annualLimit": 300000,
+          "deductible": null,
+          "coPayment": null,
+          "priceBands": [
+            {
+              "ageFrom": 0,
+              "ageTo": 17,
+              "annualPrice": 8767,
+              "source": "Cost by Age (Annual Premium - EGP): 0-17: 8,767"
+            },
+            {
+              "ageFrom": 18,
+              "ageTo": 24,
+              "annualPrice": 11151,
+              "source": "18-24: 11,151"
+            },
+            {
+              "ageFrom": 25,
+              "ageTo": 29,
+              "annualPrice": 12835,
+              "source": "25-29: 12,835"
+            },
+            {
+              "ageFrom": 30,
+              "ageTo": 34,
+              "annualPrice": 15267,
+              "source": "30-34: 15,267"
+            },
+            {
+              "ageFrom": 35,
+              "ageTo": 39,
+              "annualPrice": 16074,
+              "source": "35-39: 16,074"
+            },
+            {
+              "ageFrom": 40,
+              "ageTo": 44,
+              "annualPrice": 20056,
+              "source": "40-44: 20,056"
+            },
+            {
+              "ageFrom": 45,
+              "ageTo": 49,
+              "annualPrice": 25162,
+              "source": "45-49: 25,162"
+            },
+            {
+              "ageFrom": 50,
+              "ageTo": 54,
+              "annualPrice": 27803,
+              "source": "50-54: 27,803"
+            },
+            {
+              "ageFrom": 55,
+              "ageTo": 59,
+              "annualPrice": 35287,
+              "source": "55-59: 35,287"
+            },
+            {
+              "ageFrom": 60,
+              "ageTo": 64,
+              "annualPrice": 43707,
+              "source": "60-64: 43,707"
+            }
+          ],
+          "coreBenefits": [
+            {
+              "name": "In-patient",
+              "kind": "COVERAGE",
+              "value": 100,
+              "coPayment": null,
+              "limitations": ["In-network only"],
+              "details": "Room: Private Room. Includes: Surgeon, anesthesia, ICU, room & board, medications, tests. COVID-19 inpatient coverage included.",
+              "source": "Inpatient & Daycase Details: Coverage: 100% in-network. / Room: Private Room. / Includes: Surgeon, anesthesia, ICU, room & board, medications, tests."
+            },
+            {
+              "name": "Out-patient",
+              "kind": "COVERAGE",
+              "value": 100,
+              "coPayment": null,
+              "limitations": ["In-network only"],
+              "details": "Coverage: 100% in-network for consultations, tests, physiotherapy, and prescribed medications.",
+              "source": "Outpatient Details: Coverage: 100% in-network for consultations, tests, physiotherapy, and prescribed medications."
+            },
+            {
+              "name": "Maternity",
+              "kind": "LIMIT",
+              "value": 15000,
+              "coPayment": null,
+              "limitations": ["Normal & C-Section"],
+              "details": "Limit: 15,000 EGP (Normal & C-Section). Waiting Period: 10 months. Note: Coverage applies even if pregnancy started before the policy.",
+              "source": "Maternity Details: Limit: 15,000 EGP (Normal & C-Section). / Waiting Period: 10 months. / Note: Coverage applies even if pregnancy started before the policy."
+            },
+            {
+              "name": "Dental",
+              "kind": "LIMIT",
+              "value": 2000,
+              "coPayment": 10,
+              "limitations": ["Basic procedures only"],
+              "details": "Limit: 2,000 EGP for basic procedures (fillings, simple/surgical extraction, root canal, X-rays).",
+              "source": "Dental Details: Limit: 2,000 EGP for basic procedures (fillings, simple/surgical extraction, root canal, X-rays). / Co-payment: 10%"
+            },
+            {
+              "name": "Optical",
+              "kind": "LIMIT",
+              "value": 2000,
+              "coPayment": 10,
+              "limitations": ["One eye test per year", "Glasses every two years"],
+              "details": "Limit: 2,000 EGP (One eye test per year, glasses every two years).",
+              "source": "Optical Details: Limit: 2,000 EGP (One eye test per year, glasses every two years). / Co-payment: 10%"
+            },
+            {
+              "name": "Chronic / Pre-existing Conditions",
+              "kind": "LIMIT",
+              "value": 35000,
+              "coPayment": null,
+              "limitations": ["Within the annual limit"],
+              "details": "35,000 EGP (within the annual limit). This is the maximum the policy will pay for all treatment related to conditions that existed before the policy started.",
+              "source": "Pre-existing & Chronic Sublimit: 35,000 EGP (within the annual limit)"
+            },
+            {
+              "name": "Medication",
+              "kind": "LIMIT",
+              "value": null,
+              "coPayment": null,
+              "limitations": ["In-network only"],
+              "details": "Prescribed medications covered at 100% in-network as part of outpatient coverage; medications also included in inpatient & daycase coverage. No separate medication limit stated.",
+              "source": "Outpatient Details: Coverage: 100% in-network for consultations, tests, physiotherapy, and prescribed medications. / Inpatient & Daycase Details: Includes: ... medications"
+            }
+          ],
+          "additionalBenefits": [
+            {
+              "name": "Room Type",
+              "matchedExisting": "Room Type",
+              "value": "Private Room",
+              "details": "Room: Private Room (inpatient & daycase).",
+              "source": "Inpatient & Daycase Details: Room: Private Room."
+            },
+            {
+              "name": "Congenital Defects",
+              "matchedExisting": "",
+              "value": "Covers 25 Congenital Defects",
+              "details": "Other Key Benefits: - Covers 25 Congenital Defects.",
+              "source": "Other Key Benefits: - Covers 25 Congenital Defects."
+            },
+            {
+              "name": "Hepatitis B & C",
+              "matchedExisting": "Hepatitis B & C",
+              "value": "Covers Hepatitis",
+              "details": "Other Key Benefits: - Covers Hepatitis.",
+              "source": "Other Key Benefits: - Covers Hepatitis."
+            },
+            {
+              "name": "COVID-19 Inpatient Coverage",
+              "matchedExisting": "",
+              "value": "COVID-19 inpatient coverage included",
+              "details": "Other Key Benefits: - COVID-19 inpatient coverage included.",
+              "source": "Other Key Benefits: - COVID-19 inpatient coverage included."
+            },
+            {
+              "name": "In-Network Direct Billing",
+              "matchedExisting": "",
+              "value": "In-Network: Direct Billing",
+              "details": "Geographic Coverage & Reimbursement: In-Network: Direct Billing.",
+              "source": "Geographic Coverage & Reimbursement: In-Network: Direct Billing."
+            },
+            {
+              "name": "Out-Of-Network Reimbursement (Egypt)",
+              "matchedExisting": "",
+              "value": "80% reimbursement based on Cleopatra Hospital prices",
+              "details": "Out-of-Network (Egypt): 80% reimbursement based on Cleopatra Hospital prices.",
+              "source": "Geographic Coverage & Reimbursement: Out-of-Network (Egypt): 80% reimbursement based on Cleopatra Hospital prices."
+            },
+            {
+              "name": "Consultations",
+              "matchedExisting": "Consultations",
+              "value": "100% in-network",
+              "details": "Consultations covered at 100% in-network under outpatient.",
+              "source": "Outpatient Details: Coverage: 100% in-network for consultations, tests, physiotherapy, and prescribed medications."
+            },
+            {
+              "name": "Physiotherapy",
+              "matchedExisting": "Physiotherapy",
+              "value": "100% in-network",
+              "details": "Physiotherapy covered at 100% in-network under outpatient.",
+              "source": "Outpatient Details: Coverage: 100% in-network for consultations, tests, physiotherapy, and prescribed medications."
+            }
+          ],
+          "waitingPeriods": ["Maternity: 10 months"],
+          "conditions": [
+            "Minimum Group Size: 10 Employees",
+            "Maximum Group Size: Up to 150 Employees",
+            "Children covered until age 18, extendable to 23 if in full-time education",
+            "Members over 65 require a medical questionnaire and are subject to underwriting",
+            "Family members: 10% discount",
+            "Maternity: coverage applies even if pregnancy started before the policy"
+          ],
+          "exclusions": []
+        }
+      ]
+    },
+    {
+      "name": "Silver Plan",
+      "description": "Plan Name & Tier: Standard. Plan Selection Logic: \"Silver: A cost-effective, essential coverage plan for budget-conscious companies. The key trade-offs are the lower annual limit, a significantly lower chronic/pre-existing condition sub-limit, and 80% co-insurance for all outpatient services.\" Network Tiers note: \"The Silver plan uses a more limited network (Tier002N), which may mean fewer or different hospital and clinic choices compared to the full networks of the Platinum and Premier plans.\"",
+      "medicalNetwork": {
+        "name": "Limited Network",
+        "tierCode": "Tier002N",
+        "source": "Medical Network: Limited Network (Tier002N)"
+      },
+      "variants": [
+        {
+          "geographicalCoverage": "LOCAL",
+          "roomType": "Private Room",
+          "currency": "EGP",
+          "annualLimit": 100000,
+          "deductible": null,
+          "coPayment": null,
+          "priceBands": [
+            {
+              "ageFrom": 0,
+              "ageTo": 17,
+              "annualPrice": 3914,
+              "source": "Cost by Age (Annual Premium - EGP): 0-17: 3,914"
+            },
+            {
+              "ageFrom": 18,
+              "ageTo": 24,
+              "annualPrice": 4888,
+              "source": "18-24: 4,888"
+            },
+            {
+              "ageFrom": 25,
+              "ageTo": 29,
+              "annualPrice": 5619,
+              "source": "25-29: 5,619"
+            },
+            {
+              "ageFrom": 30,
+              "ageTo": 34,
+              "annualPrice": 6718,
+              "source": "30-34: 6,718"
+            },
+            {
+              "ageFrom": 35,
+              "ageTo": 39,
+              "annualPrice": 7986,
+              "source": "35-39: 7,986"
+            },
+            {
+              "ageFrom": 40,
+              "ageTo": 44,
+              "annualPrice": 9221,
+              "source": "40-44: 9,221"
+            },
+            {
+              "ageFrom": 45,
+              "ageTo": 49,
+              "annualPrice": 11189,
+              "source": "45-49: 11,189"
+            },
+            {
+              "ageFrom": 50,
+              "ageTo": 54,
+              "annualPrice": 12383,
+              "source": "50-54: 12,383"
+            },
+            {
+              "ageFrom": 55,
+              "ageTo": 59,
+              "annualPrice": 15766,
+              "source": "55-59: 15,766"
+            },
+            {
+              "ageFrom": 60,
+              "ageTo": 64,
+              "annualPrice": 19569,
+              "source": "60-64: 19,569"
+            }
+          ],
+          "coreBenefits": [
+            {
+              "name": "In-patient",
+              "kind": "COVERAGE",
+              "value": 100,
+              "coPayment": null,
+              "limitations": ["In-network only"],
+              "details": "Room: Private Room. Includes: Surgeon, anesthesia, ICU, room & board, medications, tests. COVID-19 inpatient coverage included.",
+              "source": "Inpatient & Daycase Details: Coverage: 100% in-network. / Room: Private Room. / Includes: Surgeon, anesthesia, ICU, room & board, medications, tests."
+            },
+            {
+              "name": "Out-patient",
+              "kind": "COVERAGE",
+              "value": 80,
+              "coPayment": null,
+              "limitations": ["In-network only"],
+              "details": "Coverage: 80% in-network for consultations, tests, physiotherapy, and prescribed medications. Members pay 20% of all outpatient costs (co-insurance).",
+              "source": "Outpatient Details: Coverage: 80% in-network for consultations, tests, physiotherapy, and prescribed medications. / Summary: Silver plan members pay 20% of all outpatient costs (co-insurance)."
+            },
+            {
+              "name": "Maternity",
+              "kind": "LIMIT",
+              "value": 5000,
+              "coPayment": null,
+              "limitations": ["Normal & C-Section"],
+              "details": "Limit: 5,000 EGP (Normal & C-Section). Waiting Period: 10 months. Note: Coverage applies even if pregnancy started before the policy.",
+              "source": "Maternity Details: Limit: 5,000 EGP (Normal & C-Section). / Waiting Period: 10 months. / Note: Coverage applies even if pregnancy started before the policy."
+            },
+            {
+              "name": "Dental",
+              "kind": "LIMIT",
+              "value": 1000,
+              "coPayment": 10,
+              "limitations": ["Basic procedures only"],
+              "details": "Limit: 1,000 EGP for basic procedures (fillings, simple/surgical extraction, root canal, X-rays).",
+              "source": "Dental Details: Limit: 1,000 EGP for basic procedures (fillings, simple/surgical extraction, root canal, X-rays). / Co-payment: 10%"
+            },
+            {
+              "name": "Optical",
+              "kind": "LIMIT",
+              "value": 1000,
+              "coPayment": 10,
+              "limitations": ["One eye test per year", "Glasses every two years"],
+              "details": "Limit: 1,000 EGP (One eye test per year, glasses every two years).",
+              "source": "Optical Details: Limit: 1,000 EGP (One eye test per year, glasses every two years). / Co-payment: 10%"
+            },
+            {
+              "name": "Chronic / Pre-existing Conditions",
+              "kind": "LIMIT",
+              "value": 10000,
+              "coPayment": null,
+              "limitations": ["Within the annual limit"],
+              "details": "10,000 EGP (within the annual limit). This is the maximum the policy will pay for all treatment related to conditions that existed before the policy started.",
+              "source": "Pre-existing & Chronic Sublimit: 10,000 EGP (within the annual limit)"
+            },
+            {
+              "name": "Medication",
+              "kind": "LIMIT",
+              "value": null,
+              "coPayment": 20,
+              "limitations": ["In-network only"],
+              "details": "Prescribed medications covered at 80% in-network as part of outpatient coverage (member pays 20%); medications also included in inpatient & daycase coverage at 100% in-network. No separate medication limit stated.",
+              "source": "Outpatient Details: Coverage: 80% in-network for consultations, tests, physiotherapy, and prescribed medications. / Inpatient & Daycase Details: Includes: ... medications"
+            }
+          ],
+          "additionalBenefits": [
+            {
+              "name": "Room Type",
+              "matchedExisting": "Room Type",
+              "value": "Private Room",
+              "details": "Room: Private Room (inpatient & daycase).",
+              "source": "Inpatient & Daycase Details: Room: Private Room."
+            },
+            {
+              "name": "Hepatitis B & C",
+              "matchedExisting": "Hepatitis B & C",
+              "value": "Covers Hepatitis",
+              "details": "Other Key Benefits: - Covers Hepatitis.",
+              "source": "Other Key Benefits: - Covers Hepatitis."
+            },
+            {
+              "name": "COVID-19 Inpatient Coverage",
+              "matchedExisting": "",
+              "value": "COVID-19 inpatient coverage included",
+              "details": "Other Key Benefits: - COVID-19 inpatient coverage included.",
+              "source": "Other Key Benefits: - COVID-19 inpatient coverage included."
+            },
+            {
+              "name": "In-Network Direct Billing",
+              "matchedExisting": "",
+              "value": "In-Network: Direct Billing",
+              "details": "Geographic Coverage & Reimbursement: In-Network: Direct Billing.",
+              "source": "Geographic Coverage & Reimbursement: In-Network: Direct Billing."
+            },
+            {
+              "name": "Out-Of-Network Reimbursement (Egypt)",
+              "matchedExisting": "",
+              "value": "80% reimbursement based on \"Salam\" Hospital prices",
+              "details": "Out-of-Network (Egypt): 80% reimbursement based on \"Salam\" Hospital prices.",
+              "source": "Geographic Coverage & Reimbursement: Out-of-Network (Egypt): 80% reimbursement based on \"Salam\" Hospital prices."
+            },
+            {
+              "name": "Consultations",
+              "matchedExisting": "Consultations",
+              "value": "80% in-network",
+              "details": "Consultations covered at 80% in-network under outpatient.",
+              "source": "Outpatient Details: Coverage: 80% in-network for consultations, tests, physiotherapy, and prescribed medications."
+            },
+            {
+              "name": "Physiotherapy",
+              "matchedExisting": "Physiotherapy",
+              "value": "80% in-network",
+              "details": "Physiotherapy covered at 80% in-network under outpatient.",
+              "source": "Outpatient Details: Coverage: 80% in-network for consultations, tests, physiotherapy, and prescribed medications."
+            }
+          ],
+          "waitingPeriods": ["Maternity: 10 months"],
+          "conditions": [
+            "Minimum Group Size: 10 Employees",
+            "Maximum Group Size: Up to 150 Employees",
+            "Children covered until age 18, extendable to 23 if in full-time education",
+            "Members over 65 require a medical questionnaire and are subject to underwriting",
+            "Family members: 10% discount",
+            "Maternity: coverage applies even if pregnancy started before the policy"
+          ],
+          "exclusions": [
+            "Congenital defects cover is not listed for the Silver plan (listed only for Platinum and Premier)"
+          ]
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    "Tier labels disagree with the annual limits: the Premier Plan is labelled \"Mid-High\" but carries the highest annual limit (300,000 EGP) and chronic sub-limit (35,000 EGP), while the Platinum Plan is labelled \"High\" with a 200,000 EGP limit.",
+    "Rate tables stop at age band 60-64 for all three plans; no premium is stated for members aged 65 and over, although the age-limit row says members over 65 require a medical questionnaire and underwriting. No band was invented for 65+.",
+    "Medication is not given a separate limit in the document; it is stated only as part of outpatient (\"prescribed medications\") and inpatient (\"medications\") coverage, so value is left null with the outpatient co-insurance reflected (20% for Silver).",
+    "Premiums are assumed to be annual per person as printed in the row \"Cost by Age (Annual Premium - EGP)\"; the 10% family-member discount is recorded as a condition and not applied to the figures.",
+    "\"Covers Hepatitis\" was matched to the catalogue benefit \"Hepatitis B & C\"; the document does not specify which hepatitis types."
+  ],
+  "unplaced": [
+    "Critical Differentiators: Network Tiers: \"The Silver plan uses a more limited network (Tier002N), which may mean fewer or different hospital and clinic choices compared to the full networks of the Platinum and Premier plans.\" (comparative commentary, recorded in Silver's description)",
+    "Critical Differentiators: Pre-existing & Chronic Conditions: \"The sub-limit is a crucial differentiator. Premier offers 35,000 EGP, Platinum 25,000 EGP, and Silver only 10,000 EGP.\" (comparative commentary)",
+    "Critical Differentiators: Outpatient Coverage: \"Silver plan members pay 20% of all outpatient costs (co-insurance), while Platinum and Premier have full coverage in-network.\" (comparative commentary)"
+  ]
+}

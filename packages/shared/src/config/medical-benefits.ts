@@ -330,6 +330,24 @@ export function medicalBenefitSpec(name: string): MedicalBenefitSpec | null {
 }
 
 /**
+ * A spec for a benefit nobody anticipated — "Congenital Defects", "COVID-19
+ * Inpatient Coverage" — named the way a document named it.
+ *
+ * An imported document states benefits the catalogue has never heard of, and
+ * they are still benefits the customer will read. Such a benefit is worth its
+ * WORDING and nothing else: it carries a text value, has no co-payment box,
+ * and sorts after every benefit the business defined.
+ */
+export function customBenefitSpec(name: string): MedicalBenefitSpec {
+  return { name: name.trim(), emoji: '📄', valueKind: 'TEXT', coPayment: false, order: 999 };
+}
+
+/** The catalogue's spec for a name, or a custom one when the catalogue has none. */
+export function resolveBenefitSpec(name: string): MedicalBenefitSpec {
+  return medicalBenefitSpec(name) ?? customBenefitSpec(name);
+}
+
+/**
  * Every name a benefit might already be filed under, its own first.
  *
  * The entry form walks this against the live catalogue and attaches to the

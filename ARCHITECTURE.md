@@ -648,6 +648,38 @@ sentences — a technical message never reaches the screen.
   the average-age line.
 - `comparison-options.ts` — maps a step's `optionSource` to its registry.
 
+### The document import
+
+An insurer's Word document becomes plans in a company's section without
+anybody retyping it. The employee presses **Insert company plans document**
+in the section, chooses a `.docx`, and the API reads it as a JOB
+(`apps/api/src/modules/plan-imports/`): the document is converted to
+Markdown (`docx-to-markdown.ts`, tables kept as tables), the prompt in
+`plan-import.prompt.ts` is filled with the insurer, the section and the
+catalogue the broker already uses, and the model streams a structured answer
+whose shape is `ImportedDocument` in the shared package. The progress the
+screen shows is real: the model announces the plan names first, and every
+plan object that closes on the stream moves the bar (`AnswerProgress`).
+
+The prompt's audit copy is `docs/plan-import-prompt.md`, and a test holds the
+code to it character for character, so the prompt is changed there first.
+The key is the API's `ANTHROPIC_API_KEY`; the browser never calls Anthropic.
+
+The review page (`pages/manage/PlanImportPage.tsx`) is the add-plan form,
+pre-filled: `import-draft.ts` turns the answer into the same `VariantDraft`
+the form edits, and Publish writes every plan through `savePlanDraft` — the
+one path both the form and the import use — so an imported plan lands in the
+database exactly as a typed one would, catalogue reuse and co-payment fields
+included. A core area the document names without a limit is flagged on its
+card (`importReviewWarnings`), and Publish stays disabled until each such
+figure is confirmed. A benefit the catalogue does not know is created as its
+wording (`resolveBenefitSpec`); a network the list does not have is offered
+to be added; conditions and exclusions go into the plan's description.
+
+Jobs live in memory on the API for two hours. They are one employee's
+working state, not records: a restart loses them and the document is
+uploaded again.
+
 ---
 
 ## 6. Preparing for a public aggregator

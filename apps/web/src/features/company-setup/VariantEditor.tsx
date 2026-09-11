@@ -9,7 +9,7 @@ import {
   listEnabledOptions,
   CORE_VALUE_KINDS,
   CO_PAYMENT_FIELD,
-  medicalBenefitSpec,
+  resolveBenefitSpec,
   variantDisplayName,
   type GeographicalCoverageId,
   type MedicalBenefitSpec,
@@ -59,12 +59,14 @@ export function VariantEditor({
 }) {
   const [picking, setPicking] = useState(false);
 
+  /**
+   * The catalogue's spec where it has one; a document's own name otherwise.
+   * An imported "Congenital Defects" is a benefit the customer will read,
+   * and it is edited here as its wording.
+   */
   const shown: MedicalBenefitSpec[] = [
     ...CORE_MEDICAL_BENEFITS,
-    ...variant.extras.flatMap((name) => {
-      const spec = medicalBenefitSpec(name);
-      return spec ? [spec] : [];
-    }),
+    ...variant.extras.map(resolveBenefitSpec),
   ];
 
   const displayName = variantDisplayName(planName, variant.geographicalCoverage);
@@ -202,8 +204,7 @@ export function VariantEditor({
           {variant.extras.length > 0 ? (
             <div className="border-border-subtle divide-border-subtle divide-y rounded-(--radius-card) border">
               {variant.extras.map((name) => {
-                const spec = medicalBenefitSpec(name);
-                if (!spec) return null;
+                const spec = resolveBenefitSpec(name);
                 const entry = variant.entries[spec.name] ?? emptyEntry();
                 const kind = existingKinds.get(spec.name.trim().toLowerCase()) ?? null;
                 const numeric =
