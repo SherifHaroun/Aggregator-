@@ -1,10 +1,15 @@
 import {
   ALTERNATIVE_VALUE_KEY,
+  CORE_MEDICAL_BENEFITS,
   CO_PAYMENT_FIELD,
   CUSTOMER_TYPES,
   UNSPECIFIED_OPTION_LABEL,
+  formatMoney,
   optionLabel,
   planImportStageLabel,
+  planTierLabel,
+  type CompanyDto,
+  type MedicalBenefitSpec,
   type MedicalNetworkDto,
   type PlanImportJobDto,
 } from '@aggregator/shared';
@@ -12,15 +17,17 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
+  Badge,
   Button,
   Callout,
   Card,
   CardBody,
-  CardHeader,
+  CompanyLogo,
   Field,
+  IconBuilding,
   IconCheck,
   IconLayers,
-  IconTrash,
+  IconShield,
   Input,
   PageHeader,
   Select,
@@ -35,7 +42,7 @@ import {
   validatePlanDraft,
 } from '@/features/company-setup/save-plan';
 import { VariantEditor, type ExistingKind } from '@/features/company-setup/VariantEditor';
-import type { VariantDraft } from '@/features/company-setup/variant-draft';
+import type { BenefitEntry, VariantDraft } from '@/features/company-setup/variant-draft';
 import {
   keys,
   useCompany,
@@ -53,6 +60,7 @@ import {
 } from '@/features/plan-import/import-draft';
 import { usePlanImport } from '@/features/plan-import/plan-import.api';
 import { ApiError, api } from '@/lib/api-client';
+import { cn } from '@/lib/cn';
 
 const fold = (name: string) => name.trim().toLowerCase();
 
@@ -61,9 +69,10 @@ const fold = (name: string) => name.trim().toLowerCase();
  *
  * While the document is being read this is a progress page: the stage, the
  * percentage, and the plans ticked off as the model finishes each. Once the
- * answer is in, it is the review: every plan as a card the employee can edit
- * — the same editor the add-plan form uses — with each unstated limit flagged
- * for confirmation, and one Publish button that writes them all, exactly as
+ * answer is in, it is the review: one tab per plan, the open one shown at a
+ * glance and then in full — the same editor the add-plan form uses — with
+ * each unstated limit flagged for confirmation. Each plan has its own Publish,
+ * and the header publishes every plan still pending; both write exactly as
  * typed plans are written.
  */
 export function PlanImportPage() {
@@ -133,29 +142,48 @@ export function PlanImportPage() {
     );
   }
 
-  return (
-    <Review job={job.data} companyName={company.data?.name ?? 'the company'} crumbs={crumbs} />
-  );
+  return <Review job={job.data} company={company.data} crumbs={crumbs} />;
+}
+
+/** Seconds since the job started, ticking on the screen's own clock. */
+function useElapsedSeconds(since: string): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  return Math.max(0, Math.round((now - new Date(since).getTime()) / 1000));
 }
 
 function Progress({ job }: { job: PlanImportJobDto }) {
+  const elapsed = useElapsedSeconds(job.createdAt);
+  const clock = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
+
   return (
     <Card>
       <CardBody className="space-y-5">
         <div className="flex items-end justify-between gap-4">
           <div>
-            <p className="text-content-subtle text-xs font-semibold tracking-[0.08em] uppercase">
+            <p className="text-content-subtle flex items-center gap-2 text-xs font-semibold tracking-[0.08em] uppercase">
+              {/* A pulse that never stops: the page is alive even when the number is not moving. */}
+              <span aria-hidden className="relative flex size-2.5">
+                <span className="bg-brand absolute inline-flex size-full animate-ping rounded-full opacity-60" />
+                <span className="bg-brand relative inline-flex size-2.5 rounded-full" />
+              </span>
               {planImportStageLabel(job.status)}
             </p>
             <p className="text-content mt-1 text-4xl font-semibold tabular-nums">
               <span aria-live="polite">{job.percent}%</span>
             </p>
           </div>
-          {job.planNames.length > 0 ? (
-            <p className="text-content-subtle text-sm">
-              {job.plansCompleted} of {job.planNames.length} plans read
-            </p>
-          ) : null}
+          <div className="text-content-subtle text-right text-sm tabular-nums">
+            {job.planNames.length > 0 ? (
+              <p>
+                {job.plansCompleted} of {job.planNames.length} plans read
+              </p>
+            ) : null}
+            <p>Working for {clock}</p>
+          </div>
         </div>
 
         <div
@@ -164,13 +192,23 @@ function Progress({ job }: { job: PlanImportJobDto }) {
           aria-valuemax={100}
           aria-valuenow={job.percent}
           aria-label="Import progress"
-          className="bg-surface-muted h-2.5 w-full overflow-hidden rounded-full"
+          className="bg-surface-muted relative h-2.5 w-full overflow-hidden rounded-full"
         >
           <div
-            className="bg-brand h-full transition-[width]"
+            className="bg-brand h-full transition-[width] duration-1000 ease-out"
             style={{ width: `${job.percent}%` }}
           />
+          {/* The sheen crosses the whole track, so it is seen even while the fill is short. */}
+          <div
+            aria-hidden
+            className="animate-import-sheen absolute inset-y-0 left-0 w-full bg-gradient-to-r from-transparent via-white/60 to-transparent"
+          />
         </div>
+
+        <p className="text-content-subtle text-sm">
+          The model reads the whole document and writes each plan out in full. A plan takes about
+          half a minute; the bar moves as its text arrives.
+        </p>
 
         {job.planNames.length > 0 ? (
           <ul className="space-y-1.5">
@@ -187,7 +225,13 @@ function Progress({ job }: { job: PlanImportJobDto }) {
                         : 'text-content-subtle flex size-5 items-center justify-center'
                     }
                   >
-                    {done ? <IconCheck className="size-4" /> : reading ? '…' : '·'}
+                    {done ? (
+                      <IconCheck className="size-4" />
+                    ) : reading ? (
+                      <span className="bg-brand inline-block size-2 animate-pulse rounded-full" />
+                    ) : (
+                      '·'
+                    )}
                   </span>
                   <span className={done ? '' : reading ? 'font-medium' : 'text-content-subtle'}>
                     {name}
@@ -209,11 +253,11 @@ function Progress({ job }: { job: PlanImportJobDto }) {
 
 function Review({
   job,
-  companyName,
+  company,
   crumbs,
 }: {
   job: PlanImportJobDto;
-  companyName: string;
+  company: CompanyDto | undefined;
   crumbs: { label: string; to?: string }[];
 }) {
   const navigate = useNavigate();
@@ -223,17 +267,24 @@ function Review({
   const catalogue = useInsuranceOptions({ isActive: true });
   const result = job.result!;
   const section = optionLabel(CUSTOMER_TYPES, job.customerType);
+  const companyName = company?.name ?? 'the company';
 
   const [drafts, setDrafts] = useState<ImportPlanDraft[] | null>(null);
-  const [publishing, setPublishing] = useState(false);
+  /** The plan being written right now, if any. One at a time, always. */
+  const [publishingKey, setPublishingKey] = useState<string | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [published, setPublished] = useState<string[]>([]);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
 
   // The drafts are made ONCE, when the networks are known: after that they are
   // the employee's, and a refetch must not overwrite what they typed.
   useEffect(() => {
-    if (drafts === null && networks.data) setDrafts(toPlanDrafts(result, networks.data));
+    if (drafts === null && networks.data) {
+      const made = toPlanDrafts(result, networks.data);
+      setDrafts(made);
+      setActiveKey(made[0]?.key ?? null);
+    }
   }, [drafts, networks.data, result]);
 
   const existingKinds = useMemo(() => {
@@ -271,20 +322,30 @@ function Review({
     );
   }
 
-  const pending = (drafts ?? []).filter(
-    (draft) => !draft.skipped && !published.includes(draft.key),
-  );
+  const all = drafts ?? [];
+  const pending = all.filter((draft) => !draft.skipped && !published.includes(draft.key));
   const allReady = pending.length > 0 && pending.every(draftReady);
+  const publishing = publishingKey !== null;
 
-  async function publish() {
+  /**
+   * Write the named plans, one after another, exactly as typed plans are
+   * written. "Publish" on a card sends one key; "Publish all" sends every
+   * plan still pending. A plan that fails stops the run and stays pending;
+   * the ones before it are already in.
+   */
+  async function publishPlans(planKeys: string[]) {
     if (!drafts) return;
-    setPublishing(true);
     setError(null);
-    /** Networks created during this publish, by folded name, so two plans on one new network share it. */
+    /** Networks created during this run, by folded name, so two plans on one new network share it. */
     const createdNetworks = new Map<string, string>();
+    let written = 0;
 
     try {
-      for (const draft of pending) {
+      for (const key of planKeys) {
+        const draft = drafts.find((item) => item.key === key);
+        if (!draft || draft.skipped || published.includes(key)) continue;
+        setPublishingKey(key);
+
         const input = {
           companyId: job.companyId,
           customerType: job.customerType,
@@ -313,10 +374,9 @@ function Review({
           }
         }
 
-        await savePlanDraft({ ...input, medicalNetworkId: networkId }, (message) =>
-          setProgress(`${draft.name}: ${message}`),
-        );
-        setPublished((current) => [...current, draft.key]);
+        await savePlanDraft({ ...input, medicalNetworkId: networkId }, setProgress);
+        setPublished((current) => [...current, key]);
+        written += 1;
       }
 
       await Promise.all([
@@ -325,11 +385,14 @@ function Review({
         queryClient.invalidateQueries({ queryKey: keys.insuranceOptions }),
         queryClient.invalidateQueries({ queryKey: keys.medicalNetworks }),
       ]);
-      const count = pending.length;
+
+      const nowPublished = new Set([...published, ...planKeys]);
+      const everyPlanIn = all.every((draft) => draft.skipped || nowPublished.has(draft.key));
       notify(
-        `${count} ${count === 1 ? 'plan was' : 'plans were'} added to ${companyName}'s ${section} plans.`,
+        `${written} ${written === 1 ? 'plan was' : 'plans were'} added to ${companyName}'s ${section} plans.`,
       );
-      navigate(ROUTES.companies.detail(job.companyId));
+      // Nothing left to review: back to the company, where the plans now are.
+      if (everyPlanIn) navigate(ROUTES.companies.detail(job.companyId));
     } catch (cause) {
       setError(
         cause instanceof ApiError || !(cause instanceof Error)
@@ -337,16 +400,16 @@ function Review({
           : cause.message,
       );
     } finally {
-      setPublishing(false);
+      setPublishingKey(null);
       setProgress(null);
     }
   }
 
-  const total = (drafts ?? []).length;
-  const warningsTotal = (drafts ?? []).reduce(
+  const warningsTotal = all.reduce(
     (sum, draft) => sum + (draft.skipped ? 0 : draftWarnings(draft).length),
     0,
   );
+  const active = all.find((draft) => draft.key === activeKey) ?? all[0];
 
   return (
     <>
@@ -357,10 +420,11 @@ function Review({
         actions={
           <div className="flex items-center gap-3">
             {progress ? <span className="text-content-subtle text-sm">{progress}</span> : null}
-            <Button onClick={() => void publish()} disabled={!allReady || publishing}>
-              {publishing
-                ? 'Publishing…'
-                : `Publish ${pending.length} ${pending.length === 1 ? 'plan' : 'plans'}`}
+            <Button
+              onClick={() => void publishPlans(pending.map((draft) => draft.key))}
+              disabled={!allReady || publishing}
+            >
+              {publishing ? 'Publishing…' : `Publish all (${pending.length})`}
             </Button>
           </div>
         }
@@ -379,7 +443,7 @@ function Review({
           title={`${warningsTotal} ${warningsTotal === 1 ? 'figure needs' : 'figures need'} confirming`}
         >
           Where the document names an area but states no limit, the comparison will use the plan's
-          annual limit. Confirm each one below before publishing.
+          annual limit. Confirm each one on its plan before publishing.
         </Callout>
       ) : null}
 
@@ -400,96 +464,303 @@ function Review({
         <Callout tone="danger" title="Could not publish">
           {error}
           {published.length > 0
-            ? ` ${published.length} ${published.length === 1 ? 'plan was' : 'plans were'} already added; publishing again continues with the rest.`
+            ? ` ${published.length} ${published.length === 1 ? 'plan was' : 'plans were'} already added; the rest are still here to publish.`
             : ''}
         </Callout>
       ) : null}
 
-      <div className="space-y-6">
-        {(drafts ?? []).map((draft, index) => (
-          <PlanCard
-            key={draft.key}
-            draft={draft}
-            position={index + 1}
-            total={total}
-            currency={draft.variants[0]?.currency || result.document.currency || DEFAULT_CURRENCY}
-            networks={networks.data ?? []}
-            existingKinds={existingKinds}
-            done={published.includes(draft.key)}
-            busy={publishing}
-            onChange={(change) => patch(draft.key, change)}
-            onVariantChange={(variantKey, change) => patchVariant(draft.key, variantKey, change)}
-          />
-        ))}
+      {/* ONE PLAN AT A TIME. Each plan is a tab; the open one is the whole card
+          below. Publishing happens per plan, or all at once from the header. */}
+      <div>
+        <div role="tablist" aria-label="Imported plans" className="flex flex-wrap gap-1 px-1">
+          {all.map((draft, index) => {
+            const selected = draft.key === active?.key;
+            const done = published.includes(draft.key);
+            return (
+              <button
+                key={draft.key}
+                type="button"
+                role="tab"
+                id={`tab-${draft.key}`}
+                aria-selected={selected}
+                aria-controls={`panel-${draft.key}`}
+                onClick={() => setActiveKey(draft.key)}
+                className={cn(
+                  'flex min-w-44 items-center gap-2.5 rounded-t-(--radius-card) border border-b-0 px-4 py-2.5 text-left text-sm transition-colors',
+                  selected
+                    ? 'border-border-subtle bg-surface text-content font-semibold shadow-sm'
+                    : 'border-transparent bg-surface-muted/60 text-content-subtle hover:bg-surface-muted',
+                  draft.skipped && !selected && 'line-through opacity-70',
+                )}
+              >
+                <IconLayers className={cn('size-4', selected ? 'text-brand' : '')} />
+                <span className="truncate">{draft.name || `Plan ${index + 1}`}</span>
+                {done ? (
+                  <span className="text-success ml-auto flex items-center">
+                    <IconCheck className="size-4" />
+                    <span className="sr-only">Published</span>
+                  </span>
+                ) : publishingKey === draft.key ? (
+                  <Spinner className="ml-auto" />
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        {active ? (
+          <div
+            role="tabpanel"
+            id={`panel-${active.key}`}
+            aria-labelledby={`tab-${active.key}`}
+            className="border-border-subtle bg-surface rounded-(--radius-card) rounded-tl-none border shadow-sm"
+          >
+            <PlanPanel
+              key={active.key}
+              draft={active}
+              position={all.indexOf(active) + 1}
+              total={all.length}
+              company={company}
+              currency={
+                active.variants[0]?.currency || result.document.currency || DEFAULT_CURRENCY
+              }
+              networks={networks.data ?? []}
+              existingKinds={existingKinds}
+              done={published.includes(active.key)}
+              publishingThis={publishingKey === active.key}
+              busy={publishing}
+              onPublish={() => void publishPlans([active.key])}
+              onChange={(change) => patch(active.key, change)}
+              onVariantChange={(variantKey, change) => patchVariant(active.key, variantKey, change)}
+            />
+          </div>
+        ) : null}
       </div>
     </>
   );
 }
 
-function PlanCard({
+/** A small turning ring, for a plan that is being written. */
+function Spinner({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        'inline-block size-4 animate-spin rounded-full border-2 border-current border-t-transparent',
+        className,
+      )}
+    />
+  );
+}
+
+/** What a core area reads as on the summary: the figure, and the member's share beside it. */
+function summariseCoreArea(
+  spec: MedicalBenefitSpec,
+  entry: BenefitEntry | undefined,
+  currency: string,
+): string {
+  const raw = (entry?.coverage ?? '').trim();
+  if (raw === '') return spec.valueKind === 'PERCENTAGE' ? 'Not stated' : 'Annual limit';
+  const figure = Number(raw.replace(/,/g, ''));
+  if (figure === 0) return 'Not covered';
+  const base =
+    spec.valueKind === 'PERCENTAGE'
+      ? `${raw}%`
+      : Number.isFinite(figure)
+        ? formatMoney(figure, currency)
+        : raw;
+  const share = (entry?.coPayment ?? '').trim();
+  return share !== '' ? `${base} · ${share}% co-pay` : base;
+}
+
+/** The co-payment tile: the plan-wide share if stated, else the areas that carry one. */
+function summariseCoPayment(draft: ImportPlanDraft): string {
+  const variant = draft.variants[0];
+  if (!variant) return 'None stated';
+  const planWide = (variant.coPayment ?? '').trim();
+  if (planWide !== '') return `${planWide}%`;
+  const areas = CORE_MEDICAL_BENEFITS.flatMap((spec) => {
+    const share = (variant.entries[spec.name]?.coPayment ?? '').trim();
+    return share !== '' ? [`${spec.name} ${share}%`] : [];
+  });
+  return areas.length > 0 ? areas.join(', ') : 'None stated';
+}
+
+/** The document's own summary of the plan, as bullet points. */
+function keyFeatures(draft: ImportPlanDraft): string[] {
+  const sentences = draft.description
+    .split(/(?<=[.!?])\s+/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .slice(0, 4);
+  return [...sentences, ...draft.waitingPeriods.map((line) => `Waiting period: ${line}`)];
+}
+
+function PlanPanel({
   draft,
   position,
   total,
+  company,
   currency,
   networks,
   existingKinds,
   done,
+  publishingThis,
   busy,
+  onPublish,
   onChange,
   onVariantChange,
 }: {
   draft: ImportPlanDraft;
   position: number;
   total: number;
+  company: CompanyDto | undefined;
   currency: string;
   networks: MedicalNetworkDto[];
   existingKinds: Map<string, ExistingKind>;
   done: boolean;
+  /** This plan is the one being written right now. */
+  publishingThis: boolean;
+  /** Some plan is being written, so nothing else may start. */
   busy: boolean;
+  onPublish: () => void;
   onChange: (change: Partial<ImportPlanDraft>) => void;
   onVariantChange: (variantKey: string, change: Partial<VariantDraft>) => void;
 }) {
   const warnings = draftWarnings(draft);
-  const locked = done || draft.skipped;
+  const ready = draftReady(draft);
+  const variant = draft.variants[0];
+  const annualLimit = Number((variant?.annualLimit ?? '').replace(/,/g, ''));
+  const hasLimit = (variant?.annualLimit ?? '').trim() !== '' && Number.isFinite(annualLimit);
+  const networkName =
+    draft.medicalNetworkId === CREATE_NETWORK
+      ? draft.networkName
+      : (networks.find((network) => network.id === draft.medicalNetworkId)?.name ??
+        (draft.networkName || UNSPECIFIED_OPTION_LABEL));
+  const features = keyFeatures(draft);
 
   return (
-    <Card>
-      <CardHeader
-        title={draft.name || `Plan ${position}`}
-        icon={<IconLayers className="size-5" />}
-        description={
-          done
-            ? 'Added.'
-            : draft.skipped
-              ? 'Skipped — it will not be added.'
-              : `Plan ${position} of ${total}${draft.tierCode ? ` · network tier ${draft.tierCode} (for reference, not saved)` : ''}`
-        }
-        action={
-          done ? (
+    <div className="space-y-6 p-5">
+      {/* ---- the plan at a glance, as on the mock ---------------------- */}
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <span className="bg-brand-soft text-brand flex size-11 shrink-0 items-center justify-center rounded-(--radius-control)">
+            <IconLayers className="size-6" />
+          </span>
+          <div>
+            <h2 className="text-content text-xl font-semibold">
+              {draft.name || `Plan ${position}`}
+            </h2>
+            <p className="text-content-subtle mt-0.5 text-sm">
+              Plan {position} of {total}
+              {draft.tierCode ? ` · Network tier ${draft.tierCode}` : ''}
+            </p>
+            {done ? (
+              <Badge tone="success" className="mt-2">
+                <IconCheck className="size-3.5" /> Published
+              </Badge>
+            ) : draft.skipped ? (
+              <Badge tone="neutral" className="mt-2">
+                Skipped
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {company ? <CompanyLogo name={company.name} logoUrl={company.logoUrl} size="md" /> : null}
+          {done ? (
             <span className="text-success flex items-center gap-1.5 text-sm font-medium">
               <IconCheck className="size-4" /> Published
             </span>
           ) : (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={busy}
-              onClick={() => onChange({ skipped: !draft.skipped })}
-            >
-              {draft.skipped ? (
-                'Include this plan'
-              ) : (
-                <>
-                  <IconTrash className="size-4" />
-                  Skip this plan
-                </>
-              )}
-            </Button>
-          )
-        }
-      />
-      {locked ? null : (
-        <CardBody className="space-y-6">
+            <>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy}
+                onClick={() => onChange({ skipped: !draft.skipped })}
+              >
+                {draft.skipped ? 'Include' : 'Skip'}
+              </Button>
+              {!draft.skipped ? (
+                <Button size="sm" onClick={onPublish} disabled={busy || !ready}>
+                  {publishingThis ? (
+                    <>
+                      <Spinner /> Publishing…
+                    </>
+                  ) : (
+                    'Publish'
+                  )}
+                </Button>
+              ) : null}
+            </>
+          )}
+        </div>
+      </header>
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Tile
+          label="Annual limit"
+          value={hasLimit ? formatMoney(annualLimit, currency) : 'Not stated'}
+        />
+        <Tile label="Co-payment" value={summariseCoPayment(draft)} />
+        <Tile label="Type" value={(hasLimit ? planTierLabel(annualLimit) : null) ?? 'Not stated'} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <section className="border-border-subtle rounded-(--radius-card) border p-4">
+          <h3 className="text-content text-sm font-semibold">Core benefits</h3>
+          <ul className="mt-3 space-y-2.5">
+            {CORE_MEDICAL_BENEFITS.map((spec) => (
+              <li key={spec.name} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-content flex items-center gap-2.5">
+                  <span aria-hidden className="text-base leading-none">
+                    {spec.emoji}
+                  </span>
+                  {spec.name}
+                </span>
+                <span className="text-content font-semibold tabular-nums">
+                  {summariseCoreArea(spec, variant?.entries[spec.name], currency)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <div className="space-y-4">
+          <section className="bg-surface-muted/50 rounded-(--radius-card) p-4">
+            <h3 className="text-content flex items-center gap-2 text-sm font-semibold">
+              <IconShield className="text-brand size-4" /> Key features
+            </h3>
+            {features.length > 0 ? (
+              <ul className="text-content-subtle mt-2 list-disc space-y-1 pl-5 text-sm">
+                {features.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-content-subtle mt-2 text-sm">
+                The document gives no summary of this plan.
+              </p>
+            )}
+          </section>
+          <section className="bg-surface-muted/50 rounded-(--radius-card) p-4">
+            <h3 className="text-content flex items-center gap-2 text-sm font-semibold">
+              <IconBuilding className="text-brand size-4" /> Medical network
+            </h3>
+            <p className="text-content-subtle mt-1 text-sm">{networkName}</p>
+          </section>
+        </div>
+      </div>
+
+      {/* ---- the details, editable, exactly as the add-plan form ------- */}
+      {done || draft.skipped ? null : (
+        <div className="border-border-subtle space-y-6 border-t pt-6">
+          <h3 className="text-content-subtle text-xs font-semibold tracking-[0.08em] uppercase">
+            Details
+          </h3>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Plan name" required>
               {(props) => (
@@ -578,20 +849,20 @@ function PlanCard({
             </section>
           ) : null}
 
-          {draft.variants.map((variant, index) => (
+          {draft.variants.map((item, index) => (
             <VariantEditor
-              key={variant.key}
+              key={item.key}
               planName={draft.name}
               position={index + 1}
-              variant={variant}
-              currency={variant.currency || currency}
+              variant={item}
+              currency={item.currency || currency}
               existingKinds={existingKinds}
-              onChange={(change) => onVariantChange(variant.key, change)}
+              onChange={(change) => onVariantChange(item.key, change)}
               {...(draft.variants.length > 1
                 ? {
                     onRemove: () =>
                       onChange({
-                        variants: draft.variants.filter((item) => item.key !== variant.key),
+                        variants: draft.variants.filter((other) => other.key !== item.key),
                       }),
                   }
                 : {})}
@@ -618,9 +889,19 @@ function PlanCard({
               onChange={(exclusions) => onChange({ exclusions })}
             />
           </div>
-        </CardBody>
+        </div>
       )}
-    </Card>
+    </div>
+  );
+}
+
+/** One figure at a glance. */
+function Tile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-surface-muted/50 rounded-(--radius-card) p-4">
+      <p className="text-content-subtle text-xs font-medium">{label}</p>
+      <p className="text-content mt-1 text-lg font-semibold tabular-nums">{value}</p>
+    </div>
   );
 }
 

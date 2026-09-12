@@ -195,6 +195,23 @@ describe('progress is read off the stream', () => {
     }
   });
 
+  it('moves within a plan as its text arrives, and never past the plans it has', () => {
+    const progress = new AnswerProgress();
+    const firstPlanEnd = TRIAL_ANSWER.indexOf('"name": "Premier Plan"');
+    // Half of the first plan has arrived: the fraction is already moving.
+    progress.feed(TRIAL_ANSWER.slice(0, Math.floor(firstPlanEnd / 2)));
+    expect(progress.plansCompleted).toBe(0);
+    expect(progress.fraction()).toBeGreaterThan(0.05);
+    expect(progress.fraction()).toBeLessThan(1 / 3);
+    // The first plan closes: exactly one of three, plus a little of the next.
+    progress.feed(TRIAL_ANSWER.slice(Math.floor(firstPlanEnd / 2), firstPlanEnd));
+    expect(progress.plansCompleted).toBe(1);
+    expect(progress.fraction()).toBeGreaterThanOrEqual(1 / 3);
+    expect(progress.fraction()).toBeLessThan(2 / 3);
+    progress.feed(TRIAL_ANSWER.slice(firstPlanEnd));
+    expect(progress.fraction()).toBe(1);
+  });
+
   it('is not fooled by braces or "plans" inside strings', () => {
     const progress = new AnswerProgress();
     progress.feed(

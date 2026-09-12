@@ -25,6 +25,14 @@ export const PLAN_IMPORT_ACCEPTED_MIME =
 export const PLAN_IMPORT_POLL_MS = 1500;
 
 /**
+ * How much of the answer one plan usually is, in characters, before any plan
+ * of THIS document has finished. The live trial's plans ran 6,200–6,900
+ * characters each. Used only to move the bar within the first plan; after
+ * that, the document's own completed plans set the pace.
+ */
+export const PLAN_IMPORT_TYPICAL_PLAN_CHARS = 6500;
+
+/**
  * THE PROGRESS BAR, HONESTLY.
  *
  * Four stages with fixed shares of the bar. Reading is the long one and the

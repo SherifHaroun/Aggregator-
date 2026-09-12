@@ -137,7 +137,31 @@
   }
 }
 
+/*
+ * The import's progress bar while a plan is being read. The fill only grows
+ * as text arrives, so a sheen crossing it says "still working" in the
+ * seconds between one poll and the next.
+ */
+@keyframes import-sheen {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
 @layer utilities {
+  .animate-import-sheen {
+    animation: import-sheen 1.6s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-import-sheen {
+      animation: none;
+    }
+  }
+
   .animate-tour-forward {
     animation: tour-slide-forward 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }

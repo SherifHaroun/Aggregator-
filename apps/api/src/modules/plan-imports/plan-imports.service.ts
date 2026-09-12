@@ -22,6 +22,7 @@ import {
   OPTIONAL_MEDICAL_BENEFITS,
   PLAN_IMPORT_MAX_OUTPUT_TOKENS,
   PLAN_IMPORT_MODEL,
+  PLAN_IMPORT_TYPICAL_PLAN_CHARS,
   planImportPercent,
   type CustomerTypeId,
   type PlanImportJobDto,
@@ -114,6 +115,10 @@ export class AnswerProgress {
   planNames: string[] = [];
   plansCompleted = 0;
 
+  /** Characters received so far, and where the last finished plan ended. */
+  private chars = 0;
+  private charsAtLastPlan = 0;
+
   private text = '';
   private inString = false;
   private escaped = false;
@@ -125,8 +130,29 @@ export class AnswerProgress {
 
   feed(delta: string): void {
     this.text += delta;
+    this.chars += delta.length;
     for (const char of delta) this.step(char);
     if (!this.namesFound) this.readPlanNames();
+  }
+
+  /**
+   * How far through the plans the answer is, 0–1, moving WITHIN a plan too.
+   *
+   * A plan takes half a minute to write, and a bar that only moves when one
+   * finishes looks frozen for all of it. So the part-plan in progress counts
+   * for how much of a typical plan's text has arrived — the document's own
+   * finished plans set that size once there is one — capped short of a whole
+   * plan, because only the closing brace says a plan is done.
+   */
+  fraction(): number {
+    const announced = this.planNames.length;
+    if (announced === 0) return 0;
+    const perPlan =
+      this.plansCompleted > 0
+        ? this.charsAtLastPlan / this.plansCompleted
+        : PLAN_IMPORT_TYPICAL_PLAN_CHARS;
+    const partial = Math.min(0.9, (this.chars - this.charsAtLastPlan) / perPlan);
+    return Math.min(1, (this.plansCompleted + partial) / announced);
   }
 
   private step(char: string): void {
@@ -163,7 +189,10 @@ export class AnswerProgress {
         break;
       case '}':
         this.depth -= 1;
-        if (this.plansDepth !== null && this.depth === this.plansDepth) this.plansCompleted += 1;
+        if (this.plansDepth !== null && this.depth === this.plansDepth) {
+          this.plansCompleted += 1;
+          this.charsAtLastPlan = this.chars;
+        }
         break;
       case ']':
         this.depth -= 1;
@@ -338,8 +367,7 @@ async function run(
       progress.feed(delta);
       dto.planNames = progress.planNames;
       dto.plansCompleted = progress.plansCompleted;
-      const announced = progress.planNames.length;
-      move('READING', announced > 0 ? progress.plansCompleted / announced : 0);
+      move('READING', progress.fraction());
     }
 
     // 4. A whole answer, or none.

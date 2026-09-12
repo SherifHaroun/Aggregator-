@@ -248,8 +248,11 @@ describe('importing a document into a company section', () => {
      * limit, and that is the industry's reading rather than the insurer's
      * figure — so the plan waits until a person confirms it.
      */
-    const publish = screen.getByRole('button', { name: /Publish 1 plan/ });
+    /** The plan is a tab, open by default, with its own Publish. */
+    expect(screen.getByRole('tab', { name: /Elite/ })).toHaveAttribute('aria-selected', 'true');
+    const publish = screen.getByRole('button', { name: 'Publish' });
     expect(publish).toBeDisabled();
+    expect(screen.getByRole('button', { name: /Publish all/ })).toBeDisabled();
     const confirmations = screen.getByRole('region', { name: 'Elite confirmations' });
     expect(within(confirmations).getByText(/No Dental limit is stated/)).toBeInTheDocument();
     expect(within(confirmations).getAllByRole('checkbox')).toHaveLength(1);
@@ -304,6 +307,95 @@ describe('importing a document into a company section', () => {
     expect(maternityRow?.note).toBe('Waiting period: 10 months');
 
     /** Back on the company, where the plan now is. */
+    expect(await screen.findByRole('heading', { name: 'Arope Insurance' })).toBeInTheDocument();
+  });
+
+  it('opens one plan at a time, publishes one on its own, then the rest together', async () => {
+    const user = userEvent.setup();
+    const companyId = givenCompany();
+    givenCoreCatalogue();
+
+    /** Two plans: Elite as before, and Silver with every limit stated. */
+    const answer = eliteAnswer();
+    const silver = structuredClone(answer.plans[0]!);
+    silver.name = 'Silver';
+    silver.variants[0]!.annualLimit = 100000;
+    silver.variants[0]!.coreBenefits = silver.variants[0]!.coreBenefits.map((benefit) =>
+      benefit.value === null ? { ...benefit, value: 1000 } : benefit,
+    );
+    silver.variants[0]!.coreBenefits.push({
+      name: 'Medication',
+      kind: 'LIMIT',
+      value: 500,
+      coPayment: null,
+      limitations: [],
+      details: '',
+      source: '',
+    });
+    // Elite's list lacks Chronic and Medication only by way of the fixture;
+    // give Silver every LIMIT area a figure so it has nothing to confirm.
+    silver.variants[0]!.coreBenefits = silver.variants[0]!.coreBenefits.filter(
+      (benefit, index, list) => list.findIndex((other) => other.name === benefit.name) === index,
+    );
+    answer.plans.push(silver);
+    answer.planNames.push('Silver');
+    store.planImports.push({
+      polls: 5,
+      job: {
+        id: 'import_3',
+        companyId,
+        customerType: 'SME',
+        fileName: 'two plans.docx',
+        status: 'DONE',
+        percent: 100,
+        planNames: ['Elite', 'Silver'],
+        plansCompleted: 2,
+        result: answer,
+        error: null,
+        createdAt: timestamps.createdAt,
+      },
+    });
+
+    renderApp(ROUTES.imports.detail(companyId, 'import_3'));
+    await screen.findByRole('heading', { name: 'Review the imported plans' });
+
+    /** Two tabs; the first is open and shows its own figures. */
+    const tabs = await screen.findAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['Elite', 'Silver']);
+    expect(await screen.findByLabelText('Maternity Limit')).toHaveValue('10,000');
+    expect(screen.getByText(/Plan 1 of 2/)).toBeInTheDocument();
+
+    /** Switching tabs swaps the whole panel. */
+    await user.click(screen.getByRole('tab', { name: /Silver/ }));
+    expect(screen.getByRole('tab', { name: /Silver/ })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText(/Plan 2 of 2/)).toBeInTheDocument();
+    expect(screen.getByLabelText('Dental Limit')).toHaveValue('1,000');
+
+    /** Silver has nothing to confirm, so its own Publish is live; "Publish all" is not, because Elite still is. */
+    const publishSilver = screen.getByRole('button', { name: 'Publish' });
+    expect(publishSilver).toBeEnabled();
+    expect(screen.getByRole('button', { name: /Publish all/ })).toBeDisabled();
+
+    await user.click(publishSilver);
+    await waitFor(() => expect(store.plans.map((plan) => plan.name)).toEqual(['Silver']));
+    /** The tab and the panel both say so, and the page stays: Elite is still here. */
+    expect(await screen.findByRole('tab', { name: /Silver.*Published/ })).toBeInTheDocument();
+    expect(screen.getAllByText('Published').length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: 'Review the imported plans' })).toBeInTheDocument();
+
+    /** Back to Elite: confirm its silent limit, and "Publish all" takes what is left. */
+    await user.click(screen.getByRole('tab', { name: /Elite/ }));
+    await user.click(
+      within(screen.getByRole('region', { name: 'Elite confirmations' })).getByRole('checkbox'),
+    );
+    const publishAll = screen.getByRole('button', { name: /Publish all/ });
+    expect(publishAll).toBeEnabled();
+    await user.click(publishAll);
+
+    await waitFor(() =>
+      expect(store.plans.map((plan) => plan.name).sort()).toEqual(['Elite', 'Silver']),
+    );
+    /** Everything is in: back on the company. */
     expect(await screen.findByRole('heading', { name: 'Arope Insurance' })).toBeInTheDocument();
   });
 
