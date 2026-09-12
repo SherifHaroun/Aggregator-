@@ -13,7 +13,7 @@
 
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROUTES } from '@/config/routes';
 import { createStore, installFakeApi, type FakeStore } from './fake-api';
 import { renderApp } from './render';
@@ -146,11 +146,18 @@ describe('keeping a comparison for a customer', () => {
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
     await user.click(screen.getByRole('radio', { name: /Individual/i }));
 
-    /** Who is being insured is answered; who it is FOR is not. */
+    /** Who is being insured is answered; who it is FOR is not — and the page
+        scrolls back up to say so. */
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
     await user.click(screen.getByRole('button', { name: /Work it out for me/i }));
     expect(
       await screen.findByText('Choose the customer this comparison is for, or add a new one.'),
     ).toBeInTheDocument();
+    expect(scrolled).toHaveBeenCalledTimes(1);
+    expect(scrolled.mock.instances[0]).toContainElement(
+      screen.getByText('Who is this comparison for?'),
+    );
 
     /** Found by her number, chosen, and shown as the customer being compared for. */
     await user.type(screen.getByLabelText('Search customers'), '0100');

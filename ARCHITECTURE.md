@@ -697,7 +697,12 @@ in the results URL as `customerId` beside the selection (`comparisonResultsUrl`
 engine never reads it), so the results page, the plan page and _Change
 selection_ all know whose comparison it is, and a link opened again from the
 cart still belongs to that customer. A customer's own page has a _New
-comparison_ button that starts the form with them chosen.
+comparison_ button that starts the form with them chosen. Submitting the
+form without the customer or the customer type scrolls back to the first of
+the two, flagged; nothing else on the form is required. The plan PDF names
+the customer in a _Prepared for_ card beside the title, and quotes only the
+band that priced them when they gave an age — the whole rate table is
+printed only for a comparison run at the assumed age.
 
 **What an entry is.** Pressing _Add to <name>'s cart_ on the results (or on a
 plan's page) asks only which plan and an optional note — never who — and sends

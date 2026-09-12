@@ -19,7 +19,7 @@ import {
   type PlanTierId,
   type GeographicalCoverageId,
 } from '@aggregator/shared';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Button,
@@ -82,6 +82,20 @@ export function NewComparisonPage() {
    * customer's own page; otherwise chosen here.
    */
   const [customerId, setCustomerId] = useState<string | null>(() => comparisonCustomerId(params));
+
+  /**
+   * THE TWO ANSWERS THAT CANNOT BE SKIPPED, and where they are on the page.
+   * A long form submitted from the bottom with one of them missing scrolls
+   * back up to the first, so the red line is seen rather than guessed at.
+   */
+  const customerSection = useRef<HTMLDivElement>(null);
+  const whoSection = useRef<HTMLDivElement>(null);
+  function showWhatIsMissing() {
+    setShowErrors(true);
+    const target =
+      customerId === null ? customerSection : customerTypeId === null ? whoSection : null;
+    target?.current?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+  }
 
   /**
    * How good a plan has to be, read off its annual limit rather than a
@@ -226,7 +240,7 @@ export function NewComparisonPage() {
    */
   function workItOut() {
     if (customerId === null || customerTypeId === null) {
-      setShowErrors(true);
+      showWhatIsMissing();
       return;
     }
     go({ customerTypeId });
@@ -235,7 +249,7 @@ export function NewComparisonPage() {
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (customerId === null || !ready || request === null) {
-      setShowErrors(true);
+      showWhatIsMissing();
       return;
     }
 
@@ -279,12 +293,12 @@ export function NewComparisonPage() {
           </div>
 
           {/* WHO IT IS FOR: the customer, chosen before anything is compared. */}
-          <div className="mt-7">
+          <div ref={customerSection} className="mt-7 scroll-mt-24">
             <CustomerPicker value={customerId} onChange={setCustomerId} error={customerError} />
           </div>
 
           {/* THE ONE REQUIRED ANSWER ABOUT THE COVER, on its own and next. */}
-          <div className="mt-7">
+          <div ref={whoSection} className="mt-7 scroll-mt-24">
             <ComparisonSegmented
               name="customerType"
               legend="Who do you want to insure?"

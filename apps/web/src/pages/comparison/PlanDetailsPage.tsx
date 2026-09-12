@@ -127,7 +127,16 @@ export function PlanDetailsPage() {
           ),
         }}
       >
-        {() => (plan ? <PlanBody plan={plan} document={document} ages={ages} /> : null)}
+        {() =>
+          plan ? (
+            <PlanBody
+              plan={plan}
+              document={document}
+              ages={ages}
+              customerName={customer.data?.name ?? null}
+            />
+          ) : null
+        }
       </DataState>
     </div>
   );
@@ -137,10 +146,12 @@ function PlanBody({
   plan,
   document,
   ages,
+  customerName,
 }: {
   plan: ComparisonPlanResult;
   document: ReturnType<typeof usePlanDocumentSource>;
   ages: DocumentAges | null;
+  customerName: string | null;
 }) {
   const benefits = presentCoreBenefits(plan);
   // A business priced by its workforce was priced across several bands.
@@ -325,7 +336,9 @@ function PlanBody({
       ) : null}
 
       <div className="flex justify-end">
-        <Button onClick={() => downloadPlanDocument({ plan, ...document, ages: bandAges })}>
+        <Button
+          onClick={() => downloadPlanDocument({ plan, ...document, ages: bandAges, customerName })}
+        >
           <IconDownload className="size-4" />
           Download PDF
         </Button>

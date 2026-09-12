@@ -69,6 +69,35 @@ function highlightedRow(doc: PdfDocument, label: string, value: string) {
   doc.y = top + height + 5;
 }
 
+/**
+ * WHO THE DOCUMENT IS FOR, named beside the title.
+ *
+ * A rounded card on the brand wash, right of the plan name and level with it:
+ * a small caps label, the customer's name in bold navy under it, and a thin
+ * navy accent bar down its left edge — the same treatment the screen gives
+ * the customer being compared for, so the quote reads as theirs.
+ */
+function preparedFor(doc: PdfDocument, name: string, top: number) {
+  const label = 'PREPARED FOR';
+  const nameWidth = widthOf(name, 11, 'bold');
+  const labelWidth = widthOf(label, 7, 'bold');
+  const width = Math.min(Math.max(nameWidth, labelWidth) + 30, doc.contentWidth * 0.48);
+  const height = 38;
+  const left = doc.width - doc.margin - width;
+  const before = doc.y;
+
+  doc.roundedRect(left, top, width, height, 6, HIGHLIGHT, { color: NAVY_HALO, width: 0.6 });
+  doc.roundedRect(left, top + 7, 3, height - 14, 1.5, NAVY);
+
+  doc.y = top + 8;
+  doc.text(label, left + 14, 7, 'bold', MUTED);
+  doc.y = top + 19;
+  const shown = wrap(name, width - 26, 11, 'bold')[0] ?? name;
+  doc.text(shown, left + 14, 11, 'bold', NAVY);
+
+  doc.y = before;
+}
+
 /** The ages a comparison ran at, and whether they were the customer's. */
 export interface DocumentAges {
   ageFrom: number;
@@ -99,6 +128,8 @@ export interface PlanDocumentInput {
    */
   ages?: DocumentAges | null;
   description: string | null;
+  /** Who the comparison was run for — named on the document when known. */
+  customerName?: string | null;
 }
 
 /** How the ages read in a sentence: "age 35", "ages 4–52", "age 35 (assumed)". */
@@ -195,9 +226,15 @@ function providerListPanel(doc: PdfDocument, networkName: string, url: string) {
  * The premium the document leads with is the premium at ONE age. The plan is
  * sold across many, and this is where the customer sees the whole table: a
  * bar from the youngest age priced to the oldest, one segment per band, the
- * band that priced this comparison in full navy with its figure above it and
- * a pin at the customer's own age, then the figures band by band. The same
- * shared presentation lays out the screen, so the two cannot disagree.
+ * band that priced this comparison in full navy with its figure above it,
+ * then the figures band by band. The same shared presentation lays out the
+ * screen, so the two cannot disagree.
+ *
+ * ONLY WHEN NO AGE WAS GIVEN. A customer who said how old they are is quoted
+ * for that age: the document names the band that priced them and stops,
+ * because a table of every other age reads as an offer of every other price.
+ * The whole table is for a comparison run at the standard age, when the real
+ * one is still to come.
  */
 function priceTablePanel(doc: PdfDocument, input: PlanDocumentInput) {
   const { plan } = input;
@@ -206,6 +243,24 @@ function priceTablePanel(doc: PdfDocument, input: PlanDocumentInput) {
   const ages = plan.pricedEmployeeCount === null ? (input.ages ?? null) : null;
   const table = presentPriceBands(input.priceBands, plan.currency, ages, MAX_INSURABLE_AGE);
   if (table.bands.length === 0) return;
+
+  const ageWasChosen = ages !== null && !ages.assumed;
+  if (ageWasChosen) {
+    const priced = table.bands.filter((band) => band.applies);
+    if (priced.length === 0) return;
+    section(doc, 'Your premium');
+    doc.paragraph(
+      `Priced at ${describeAges(ages)}. The premium changes with age; the band below is the one that applies.`,
+      9,
+      'regular',
+      MUTED,
+    );
+    doc.y += 4;
+    for (const band of priced) {
+      highlightedRow(doc, `Ages ${band.ageLabel}  ·  this comparison`, band.display);
+    }
+    return;
+  }
 
   section(doc, 'Price by age');
 
@@ -270,14 +325,6 @@ function priceTablePanel(doc: PdfDocument, input: PlanDocumentInput) {
     }
   }
 
-  // The customer's own age, pinned on the bar: a white ring with a navy dot.
-  if (table.marker !== null) {
-    const cx = left + table.marker * width;
-    const cy = barTop + barHeight / 2;
-    doc.circle(cx, cy, 4.5, WHITE);
-    doc.circle(cx, cy, 2.75, NAVY);
-  }
-
   // The legend.
   doc.y = barTop + barHeight + ageRoom + 4;
   let legendLeft = left;
@@ -339,10 +386,12 @@ export function buildPlanDocument(input: PlanDocumentInput): { blob: Blob; filen
 
   // --- who and what -------------------------------------------------------
   doc.y += 6;
+  const titleTop = doc.y;
   doc.text(plan.companyName, doc.margin, 11, 'regular', MUTED);
   doc.y += 16;
   doc.text(plan.planName, doc.margin, 22, 'bold', NAVY);
   doc.y += 28;
+  if (input.customerName?.trim()) preparedFor(doc, input.customerName.trim(), titleTop);
   doc.text(
     [plan.customerTypeLabel, plan.geographicalCoverageLabel, plan.currency]
       .filter(Boolean)

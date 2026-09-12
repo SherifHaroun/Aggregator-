@@ -347,6 +347,7 @@ export function ComparisonResultsPage() {
         plan={previewed}
         criteria={criteria}
         ages={ages}
+        customerName={customer.data?.name ?? null}
         onClose={() => setPreviewing(null)}
       />
     </>

@@ -535,7 +535,7 @@ describe('the plan document', () => {
     expect(text).toContain('ADDITIONAL BENEFITS');
   });
 
-  it('carries the whole rate table, with the band that priced it marked', async () => {
+  it('quotes only the band that priced the customer when they gave an age', async () => {
     const user = userEvent.setup();
     const { saved, click } = captureDownload();
     givenTwoPlans();
@@ -549,18 +549,19 @@ describe('the plan document', () => {
     const text = await readPdf(saved.blob!);
 
     /**
-     * Every band the plan is sold at, not only the one this customer fell
-     * in — and that one named as the source of the premium at the top, so
-     * a reader can see what a younger or older person would pay.
+     * The customer said they are 35, so the document quotes the band that
+     * priced them and nothing else: a table of every other age would read as
+     * an offer of every other price. The whole table is for a comparison
+     * run at the assumed age (covered in pdf-smoke).
      */
-    expect(text).toContain('PRICE BY AGE');
-    expect(text).toContain('Ages 0-17');
-    expect(text).toContain('EGP 3,000');
+    expect(text).toContain('YOUR PREMIUM');
     expect(text).toContain('Ages 18-64');
     expect(text).toContain('this comparison');
-    expect(text).toContain('Ages 65+');
-    expect(text).toContain('Not sold');
     expect(text).toContain('per year at age 35');
+    expect(text).not.toContain('PRICE BY AGE');
+    expect(text).not.toContain('Ages 0-17');
+    expect(text).not.toContain('Ages 65+');
+    expect(text).not.toContain('Other ages');
   });
 });
 

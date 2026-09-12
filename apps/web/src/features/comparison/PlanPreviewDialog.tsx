@@ -26,6 +26,7 @@ export function PlanPreviewDialog({
   plan,
   criteria,
   ages = null,
+  customerName = null,
   onClose,
 }: {
   plan: ComparisonPlanResult | null;
@@ -36,6 +37,8 @@ export function PlanPreviewDialog({
    * so the rate table can pick that band out and the PDF can say so.
    */
   ages?: DocumentAges | null;
+  /** Who the comparison was run for, so the PDF can say so. */
+  customerName?: string | null;
   onClose: () => void;
 }) {
   const navigate = useNavigate();
@@ -194,7 +197,9 @@ export function PlanPreviewDialog({
         <div className="flex flex-wrap justify-end gap-2 pt-1">
           <Button
             variant="secondary"
-            onClick={() => downloadPlanDocument({ plan, ...document, ages: bandAges })}
+            onClick={() =>
+              downloadPlanDocument({ plan, ...document, ages: bandAges, customerName })
+            }
           >
             <IconDownload className="size-4" />
             Download PDF

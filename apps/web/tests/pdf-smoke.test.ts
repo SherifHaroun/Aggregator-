@@ -27,7 +27,87 @@ const cell = (name: string, value: number | null, pct: boolean) => ({
   limitationFactor: 1,
 });
 
+/** The PDF as text: its content streams are written plain. */
+function readText(blob: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsBinaryString(blob);
+  });
+}
+
 describe('the plan document', () => {
+  /** The plan and rate table the two tests below share. */
+  const input = {
+    plan: {
+      configurationId: 'c',
+      planId: 'p',
+      planName: 'Golden Plan',
+      companyId: 'co',
+      companyName: 'MetLife',
+      companyLogoUrl: null,
+      medicalNetworkId: null,
+      medicalNetworkName: null,
+      medicalNetworkHasProviderList: false,
+      roomType: null,
+      currency: 'EGP',
+      annualPrice: 5191,
+      pricedEmployeeCount: null,
+      customerTypeLabel: 'Individual',
+      geographicalCoverageLabel: 'Local',
+      benefits: [cell('In-patient', 100, true)],
+      attributes: [],
+      coverageScore: 0.8,
+      priceScore: 0.5,
+      valueScore: 0.7,
+      missingBenefitCount: 0,
+      isDominated: false,
+      dominatedBy: [],
+      isRecommended: true,
+      isCheapest: false,
+      isHighestCoverage: false,
+    } as never,
+    additional: [],
+    priceBands: [
+      { ageFrom: 0, ageTo: 17, annualPrice: 3000 },
+      { ageFrom: 18, ageTo: 64, annualPrice: 5191 },
+      { ageFrom: 65, ageTo: 120, annualPrice: 7000 },
+    ],
+    waitingPeriods: [],
+    conditions: [],
+    exclusions: [],
+    description: null,
+  };
+
+  it('names the customer, and quotes only their band when they gave an age', async () => {
+    const text = await readText(
+      buildPlanDocument({
+        ...input,
+        ages: { ageFrom: 35, ageTo: 35, assumed: false },
+        customerName: 'Mona Adel',
+      }).blob,
+    );
+    expect(text).toContain('PREPARED FOR');
+    expect(text).toContain('Mona Adel');
+    expect(text).toContain('Ages 18-64  ·  this comparison');
+    /** Not the other ages, and not the table that would list them. */
+    expect(text).not.toContain('Ages 0-17');
+    expect(text).not.toContain('Ages 65');
+    expect(text).not.toContain('Other ages');
+  });
+
+  it('shows every age band when the age was assumed, and no pin', async () => {
+    const text = await readText(
+      buildPlanDocument({ ...input, ages: { ageFrom: 35, ageTo: 35, assumed: true } }).blob,
+    );
+    expect(text).toContain('Ages 0-17');
+    expect(text).toContain('Ages 18-64  ·  this comparison');
+    expect(text).toContain('Ages 65');
+    expect(text).toContain('Other ages');
+    expect(text).not.toContain('PREPARED FOR');
+  });
+
   it('writes a file that opens', async () => {
     const plan = {
       configurationId: 'c',
