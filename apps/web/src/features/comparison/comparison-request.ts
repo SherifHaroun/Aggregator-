@@ -118,3 +118,29 @@ export function comparisonRequestParams(request: ComparisonRequestInput): URLSea
   }
   return params;
 }
+
+/**
+ * WHO THE COMPARISON IS FOR.
+ *
+ * The employee chooses the customer before comparing, and the customer
+ * travels in the same query string as the selection — so the results and the
+ * plan page know whose cart "Add to cart" goes into, and a link opened again
+ * from that cart still belongs to that customer. It is not part of the
+ * request the engine runs: `parseComparisonRequest` never reads it.
+ */
+export const COMPARISON_CUSTOMER_PARAM = 'customerId';
+
+export function comparisonCustomerId(params: URLSearchParams): string | null {
+  return params.get(COMPARISON_CUSTOMER_PARAM)?.trim() || null;
+}
+
+/** The results URL for a request, run for a customer. */
+export function comparisonResultsUrl(
+  resultsPath: string,
+  request: ComparisonRequestInput,
+  customerId: string | null,
+): string {
+  const params = comparisonRequestParams(request);
+  if (customerId) params.set(COMPARISON_CUSTOMER_PARAM, customerId);
+  return `${resultsPath}?${params.toString()}`;
+}

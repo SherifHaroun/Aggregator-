@@ -136,20 +136,39 @@ describe('customers', () => {
 });
 
 describe('keeping a comparison for a customer', () => {
-  it('names it for the insurer and section, numbers it, and counts it in the corner', async () => {
+  it('will not compare for nobody, and once a customer is chosen adds straight to their cart', async () => {
     const user = userEvent.setup();
     givenAropeSilverOnSale();
     givenCustomer('customer_mona', 'Mona Adel', '0100 123 4567');
     givenCustomer('customer_omar', 'Omar Said');
 
-    renderApp(results);
+    renderApp(ROUTES.comparison.new);
+    await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
+    await user.click(screen.getByRole('radio', { name: /Individual/i }));
+
+    /** Who is being insured is answered; who it is FOR is not. */
+    await user.click(screen.getByRole('button', { name: /Work it out for me/i }));
+    expect(
+      await screen.findByText('Choose the customer this comparison is for, or add a new one.'),
+    ).toBeInTheDocument();
+
+    /** Found by her number, chosen, and shown as the customer being compared for. */
+    await user.type(screen.getByLabelText('Search customers'), '0100');
+    const list = screen.getByRole('radiogroup', { name: 'Customers' });
+    expect(within(list).queryByText('Omar Said')).not.toBeInTheDocument();
+    await user.click(within(list).getByRole('radio', { name: /Mona Adel/ }));
+    expect(await screen.findByText('Comparing for')).toBeInTheDocument();
+    expect(screen.getByText('Mona Adel')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /Work it out for me/i }));
     await screen.findByRole('heading', { name: 'Comparison results' });
     await screen.findByText(/1 matching plan/);
 
-    /** From the top of the results, for Mona, with a note. */
-    await user.click(screen.getByRole('button', { name: /Add to customer cart/ }));
-    const dialog = screen.getByRole('dialog', { name: 'Add to customer cart' });
-    await user.click(await within(dialog).findByRole('radio', { name: /Mona Adel/ }));
+    /** The button names the customer: no choosing at this point. */
+    await user.click(await screen.findByRole('button', { name: 'Add to Mona Adel’s cart' }));
+    const dialog = screen.getByRole('dialog', { name: 'Add to Mona Adel’s cart' });
+    expect(within(dialog).queryByRole('radiogroup')).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/New customer/)).not.toBeInTheDocument();
     await user.type(within(dialog).getByLabelText(/^Note/), 'Wants a private room');
     await user.click(within(dialog).getByRole('button', { name: 'Add' }));
 
@@ -159,7 +178,7 @@ describe('keeping a comparison for a customer', () => {
       name: 'Arope Individual 1',
       note: 'Wants a private room',
       planConfigurationId: 'cfg_silver',
-      criteria: { customerTypeId: 'INDIVIDUAL', ageFrom: 30, ageTo: 30 },
+      criteria: { customerTypeId: 'INDIVIDUAL' },
     });
 
     /** The corner counts it; opening it shows Mona, and Mona shows the entry. */
@@ -171,16 +190,20 @@ describe('keeping a comparison for a customer', () => {
     const panel = await screen.findByRole('dialog', { name: 'Customer carts' });
     expect(within(panel).queryByText('Omar Said')).not.toBeInTheDocument();
     await user.click(within(panel).getByRole('button', { name: /Mona Adel/ }));
-    const list = within(panel).getByRole('list', { name: /Mona Adel.*cart/ });
-    expect(within(list).getByText('Arope Individual 1')).toBeInTheDocument();
-    expect(within(list).getByText('Wants a private room')).toBeInTheDocument();
-    expect(within(list).getByText(/Silver · Arope/)).toBeInTheDocument();
+    const cart = within(panel).getByRole('list', { name: /Mona Adel.*cart/ });
+    expect(within(cart).getByText('Arope Individual 1')).toBeInTheDocument();
+    expect(within(cart).getByText('Wants a private room')).toBeInTheDocument();
+    expect(within(cart).getByText(/Silver · Arope/)).toBeInTheDocument();
+    /** Opening it again keeps it hers. */
+    expect(within(cart).getByRole('link', { name: /Open comparison/ })).toHaveAttribute(
+      'href',
+      expect.stringContaining('customerId=customer_mona'),
+    );
 
     /** A second Arope comparison for the same customer is number 2. */
     await user.keyboard('{Escape}');
-    await user.click(screen.getByRole('button', { name: /Add to customer cart/ }));
-    const again = screen.getByRole('dialog', { name: 'Add to customer cart' });
-    await user.click(await within(again).findByRole('radio', { name: /Mona Adel/ }));
+    await user.click(screen.getByRole('button', { name: 'Add to Mona Adel’s cart' }));
+    const again = screen.getByRole('dialog', { name: 'Add to Mona Adel’s cart' });
     await user.click(within(again).getByRole('button', { name: 'Add' }));
     await waitFor(() =>
       expect(store.cartItems.map((item) => item.name)).toEqual([
@@ -190,21 +213,44 @@ describe('keeping a comparison for a customer', () => {
     );
   });
 
-  it('adds a caller who is not on the list yet, without leaving the results', async () => {
+  it('writes a new caller down on the form, and compares for them', async () => {
     const user = userEvent.setup();
     givenAropeSilverOnSale();
 
-    renderApp(results);
+    renderApp(ROUTES.comparison.new);
+    await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
+    await user.click(screen.getByRole('button', { name: /New customer/ }));
+    await user.type(screen.getByLabelText(/^Name/), 'Nour Hassan');
+    await user.click(screen.getByRole('button', { name: /Save and use this customer/ }));
+
+    expect(await screen.findByText('Comparing for')).toBeInTheDocument();
+    expect(screen.getByText('Nour Hassan')).toBeInTheDocument();
+    expect(store.customers.map((customer) => customer.name)).toEqual(['Nour Hassan']);
+
+    await user.click(screen.getByRole('radio', { name: /Individual/i }));
+    await user.click(screen.getByRole('button', { name: /Work it out for me/i }));
     await screen.findByText(/1 matching plan/);
-    await user.click(screen.getByRole('button', { name: /Add to customer cart/ }));
-    const dialog = screen.getByRole('dialog', { name: 'Add to customer cart' });
-    await user.click(within(dialog).getByRole('button', { name: /New customer/ }));
-    await user.type(within(dialog).getByLabelText(/^Name/), 'Nour Hassan');
-    await user.click(within(dialog).getByRole('button', { name: 'Add' }));
+    await user.click(await screen.findByRole('button', { name: 'Add to Nour Hassan’s cart' }));
+    await user.click(
+      within(screen.getByRole('dialog', { name: 'Add to Nour Hassan’s cart' })).getByRole(
+        'button',
+        { name: 'Add' },
+      ),
+    );
 
     await waitFor(() => expect(store.cartItems).toHaveLength(1));
-    expect(store.customers.map((customer) => customer.name)).toEqual(['Nour Hassan']);
     expect(store.cartItems[0]?.customerId).toBe(store.customers[0]?.id);
+  });
+
+  it('cannot add from a results link that names no customer', async () => {
+    givenAropeSilverOnSale();
+    renderApp(results);
+    await screen.findByText(/1 matching plan/);
+
+    expect(screen.queryByRole('button', { name: /Add to .*cart/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('link', { name: /Choose a customer to add to a cart/ }),
+    ).toHaveAttribute('href', ROUTES.comparison.new);
   });
 });
 

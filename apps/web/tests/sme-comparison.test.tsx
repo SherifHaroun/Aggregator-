@@ -18,6 +18,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ROUTES } from '@/config/routes';
 import { createStore, installFakeApi, type FakeStore } from './fake-api';
+import { givenAnyCustomer, newComparisonFor } from './for-customer';
 import { renderApp } from './render';
 
 let store: FakeStore;
@@ -71,7 +72,7 @@ function givenAnSmePlanOnSale() {
 
 /** Fill in the SME half of the form, leaving the workforce to the caller. */
 async function chooseSme(user: ReturnType<typeof userEvent.setup>) {
-  renderApp(ROUTES.comparison.new);
+  renderApp(newComparisonFor(givenAnyCustomer(store)));
   await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
   await user.click(screen.getByRole('radio', { name: /SME/i }));
   await user.click(screen.getByRole('radio', { name: /^Local$/i }));
@@ -234,7 +235,7 @@ describe('asking an SME who it insures', () => {
     givenAnSmePlanOnSale();
     store.plans[0]!.customerType = 'INDIVIDUAL';
 
-    renderApp(ROUTES.comparison.new);
+    renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
     await user.click(screen.getByRole('radio', { name: /Individual/i }));
     await user.click(screen.getByRole('radio', { name: /^Local$/i }));

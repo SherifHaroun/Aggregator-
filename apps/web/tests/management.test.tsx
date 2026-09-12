@@ -23,6 +23,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROUTES } from '@/config/routes';
 import { createStore, installFakeApi, type FakeStore } from './fake-api';
+import { givenAnyCustomer, newComparisonFor } from './for-customer';
 import { renderApp } from './render';
 
 let store: FakeStore;
@@ -384,7 +385,7 @@ describe('navigation', () => {
     givenConfiguration('cfg_1', 'plan_1');
     givenOption();
 
-    renderApp(ROUTES.comparison.new);
+    renderApp(newComparisonFor(givenAnyCustomer(store)));
 
     expect(
       await screen.findByRole('heading', { name: 'Insurance plan', level: 1 }),
@@ -487,7 +488,7 @@ describe('navigation', () => {
     givenPlan();
     givenConfiguration('cfg_1', 'plan_1');
 
-    renderApp(ROUTES.comparison.new);
+    renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
     await user.click(screen.getByRole('radio', { name: /Individual/i }));
 
@@ -541,7 +542,7 @@ describe('navigation', () => {
     givenPlan();
     givenConfiguration('cfg_1', 'plan_1');
 
-    renderApp(ROUTES.comparison.new);
+    renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
 
     // An individual is one age.
@@ -571,7 +572,7 @@ describe('navigation', () => {
     givenPlan();
     givenConfiguration('cfg_1', 'plan_1');
 
-    renderApp(ROUTES.comparison.new);
+    renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
 
     // Two ways to set it, and no slider.

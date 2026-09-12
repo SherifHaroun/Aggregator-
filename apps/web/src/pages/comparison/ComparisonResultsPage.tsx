@@ -19,9 +19,11 @@ import {
   ComparisonTable,
   PlanPreviewDialog,
   RecommendedPlanCard,
+  comparisonCustomerId,
   parseComparisonRequest,
 } from '@/features/comparison';
 import { AddToCartDialog } from '@/features/customers/AddToCartDialog';
+import { useCustomer } from '@/features/customers/customers.api';
 import { useComparison } from '@/features/insurance-data/insurance-data.api';
 
 /**
@@ -43,6 +45,18 @@ export function ComparisonResultsPage() {
   const request = useMemo(() => parseComparisonRequest(params), [params]);
 
   const comparison = useComparison(request);
+
+  /**
+   * Whose comparison this is. Chosen on the form and carried in the URL, so
+   * "Add to cart" knows the cart without asking. A link without one — an
+   * old link, or one typed by hand — can still be read; it just cannot be
+   * kept until a customer is chosen.
+   */
+  const customerId = comparisonCustomerId(params);
+  const customer = useCustomer(customerId ?? undefined);
+  const changeSelection = customerId
+    ? `${ROUTES.comparison.new}?customerId=${encodeURIComponent(customerId)}`
+    : ROUTES.comparison.new;
 
   if (request === null) {
     return (
@@ -120,17 +134,29 @@ export function ComparisonResultsPage() {
             ? `${result.matchedCount} matching ${result.matchedCount === 1 ? 'plan' : 'plans'}${result.criteria.planTierLabel ? ` in ${result.criteria.planTierLabel}` : ''}.`
             : 'Comparing the plans that match your requirements.'
         }
-        breadcrumbs={[{ label: 'New comparison', to: ROUTES.comparison.new }, { label: 'Results' }]}
+        breadcrumbs={[{ label: 'New comparison', to: changeSelection }, { label: 'Results' }]}
         actions={
           <>
-            <ButtonLink variant="secondary" to={ROUTES.comparison.new}>
+            <ButtonLink variant="secondary" to={changeSelection}>
               Change selection
               <IconChevronRight className="size-4" />
             </ButtonLink>
-            <Button onClick={() => setAddingToCart(true)} disabled={everyPlan.length === 0}>
-              <IconCart className="size-4" />
-              Add to customer cart
-            </Button>
+            {customer.data ? (
+              <Button onClick={() => setAddingToCart(true)} disabled={everyPlan.length === 0}>
+                <IconCart className="size-4" />
+                Add to {customer.data.name}’s cart
+              </Button>
+            ) : customerId && customer.isPending ? (
+              <Button disabled>
+                <IconCart className="size-4" />
+                Add to cart
+              </Button>
+            ) : (
+              <ButtonLink to={changeSelection}>
+                <IconCart className="size-4" />
+                Choose a customer to add to a cart
+              </ButtonLink>
+            )}
           </>
         }
       />
@@ -306,8 +332,9 @@ export function ComparisonResultsPage() {
         </section>
       ) : null}
 
-      {addingToCart && request ? (
+      {addingToCart && request && customer.data ? (
         <AddToCartDialog
+          customer={customer.data}
           plans={everyPlan}
           criteria={request}
           defaultPlanId={previewing}

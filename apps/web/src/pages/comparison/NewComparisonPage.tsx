@@ -20,7 +20,7 @@ import {
   type GeographicalCoverageId,
 } from '@aggregator/shared';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Button,
   Card,
@@ -37,9 +37,11 @@ import {
   ComparisonBudgetChoice,
   ComparisonSegmented,
   SmeEmployeeAges,
-  comparisonRequestParams,
+  comparisonCustomerId,
+  comparisonResultsUrl,
   type BudgetMode,
 } from '@/features/comparison';
+import { CustomerPicker } from '@/features/customers/CustomerPicker';
 import {
   useComparisonCurrencies,
   useComparisonPriceRange,
@@ -58,6 +60,11 @@ import {
  * So the screen offers two ways through. "Work it out for me" runs on the
  * customer type alone. "Compare Plans" runs on whatever else was filled in.
  *
+ * BEFORE EITHER, THE CUSTOMER. The employee is on a call, and every
+ * comparison is run for somebody: they choose the caller — or write a new
+ * one down — first, and the customer travels with the selection so the
+ * results and the plan pages add to that customer's cart without asking.
+ *
  * The customer never picks benefits. Which benefits get compared is decided by
  * the plans that match, so this screen has no benefit list at all. Currencies
  * come from the database; customer types and coverage areas from the shared
@@ -66,7 +73,15 @@ import {
  */
 export function NewComparisonPage() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const currencies = useComparisonCurrencies();
+
+  /**
+   * Who the comparison is for. Arrives in the URL when the employee comes
+   * back from the results to change the selection, or starts from the
+   * customer's own page; otherwise chosen here.
+   */
+  const [customerId, setCustomerId] = useState<string | null>(() => comparisonCustomerId(params));
 
   /**
    * How good a plan has to be, read off its annual limit rather than a
@@ -195,17 +210,22 @@ export function NewComparisonPage() {
 
   const ready = request !== null && budgetError === null;
 
-  // The selection travels in the URL, so a comparison can be shared and
-  // survives a refresh.
+  // The selection travels in the URL, and the customer with it, so a
+  // comparison can be shared and survives a refresh.
   const go = (input: ComparisonRequestInput) =>
-    navigate(`${ROUTES.comparison.results}?${comparisonRequestParams(input).toString()}`);
+    navigate(comparisonResultsUrl(ROUTES.comparison.results, input, customerId));
+
+  const customerError =
+    showErrors && customerId === null
+      ? 'Choose the customer this comparison is for, or add a new one.'
+      : null;
 
   /**
    * THE SHORT WAY. Who is being insured, and nothing else: the API applies
    * every standard assumption and the results name each one.
    */
   function workItOut() {
-    if (customerTypeId === null) {
+    if (customerId === null || customerTypeId === null) {
       setShowErrors(true);
       return;
     }
@@ -214,7 +234,7 @@ export function NewComparisonPage() {
 
   function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!ready || request === null) {
+    if (customerId === null || !ready || request === null) {
       setShowErrors(true);
       return;
     }
@@ -258,7 +278,12 @@ export function NewComparisonPage() {
             <div className="bg-brand h-full w-1/2 rounded-full" />
           </div>
 
-          {/* THE ONE REQUIRED ANSWER, on its own and first. */}
+          {/* WHO IT IS FOR: the customer, chosen before anything is compared. */}
+          <div className="mt-7">
+            <CustomerPicker value={customerId} onChange={setCustomerId} error={customerError} />
+          </div>
+
+          {/* THE ONE REQUIRED ANSWER ABOUT THE COVER, on its own and next. */}
           <div className="mt-7">
             <ComparisonSegmented
               name="customerType"

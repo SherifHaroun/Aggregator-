@@ -689,8 +689,19 @@ first to last, until the customer settles on one and it is marked chosen.
 Nothing here is insurance data: a customer is a person the broker is talking
 to, and a cart entry points at a plan without copying its cover.
 
-**What an entry is.** Pressing _Add to customer cart_ on the results (or on a
-plan's page) sends the customer, the plan and the comparison's request to
+**The customer comes first.** The comparison form asks who the comparison is
+for before anything about the cover (`CustomerPicker`: search by name, phone
+or email, or write a new caller down in place). The chosen customer travels
+in the results URL as `customerId` beside the selection (`comparisonResultsUrl`
+/ `comparisonCustomerId` in `features/comparison/comparison-request.ts`; the
+engine never reads it), so the results page, the plan page and _Change
+selection_ all know whose comparison it is, and a link opened again from the
+cart still belongs to that customer. A customer's own page has a _New
+comparison_ button that starts the form with them chosen.
+
+**What an entry is.** Pressing _Add to <name>'s cart_ on the results (or on a
+plan's page) asks only which plan and an optional note — never who — and sends
+the customer, the plan and the comparison's request to
 `POST /customers/:id/cart`. The service (`modules/customers/`) RUNS THE
 COMPARISON AGAIN and reads the plan out of the result: the premium written on
 the entry is the one the engine worked out for these ages or this workforce,
@@ -720,8 +731,9 @@ button, and the customer's card and page say which plan is linked.
 phone or email; each customer's page is their cart) and the cart button in
 the top-right corner of every screen (`CartButton`): the count above it is
 every comparison waiting across every customer, and opening it lists the
-customers who have one and spreads each cart out with the same controls the
-customer's page has. Reads and writes go through `features/customers/
+customers who have one — each in a bordered card of its own with the
+customer's initials, so two callers are never read as one — and spreads each
+cart out with the same controls the customer's page has. Reads and writes go through `features/customers/
 customers.api.ts`; every write invalidates every customer read, so the
 count, the list and the open page never disagree.
 

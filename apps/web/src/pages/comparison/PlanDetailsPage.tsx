@@ -20,12 +20,14 @@ import { ROUTES } from '@/config/routes';
 import {
   PriceBandRange,
   ProviderListLink,
+  comparisonCustomerId,
   downloadPlanDocument,
   parseComparisonRequest,
   usePlanDocumentSource,
   type DocumentAges,
 } from '@/features/comparison';
 import { AddToCartDialog } from '@/features/customers/AddToCartDialog';
+import { useCustomer } from '@/features/customers/customers.api';
 import { useComparison } from '@/features/insurance-data/insurance-data.api';
 
 /**
@@ -68,8 +70,13 @@ export function PlanDetailsPage() {
   const document = usePlanDocumentSource(configurationId ?? null, plan?.planId ?? null);
   const backToResults = `${ROUTES.comparison.results}?${params.toString()}`;
 
-  /** Keeping the comparison for a customer, with this plan. */
+  /**
+   * Keeping the comparison for the customer it was run for, with this plan.
+   * The customer came with the link from the results; without one there is
+   * no cart to add to, and the button is not drawn.
+   */
   const [addingToCart, setAddingToCart] = useState(false);
+  const customer = useCustomer(comparisonCustomerId(params) ?? undefined);
   const everyPlan = [
     ...(comparison.data?.plans ?? []),
     ...(comparison.data?.overBudgetPlans ?? []),
@@ -85,16 +92,17 @@ export function PlanDetailsPage() {
           <IconChevronRight className="size-4 rotate-180" />
           Back to comparison
         </Link>
-        {plan ? (
+        {plan && customer.data ? (
           <Button onClick={() => setAddingToCart(true)}>
             <IconCart className="size-4" />
-            Add to customer cart
+            Add to {customer.data.name}’s cart
           </Button>
         ) : null}
       </div>
 
-      {addingToCart && request && plan ? (
+      {addingToCart && request && plan && customer.data ? (
         <AddToCartDialog
+          customer={customer.data}
           plans={everyPlan}
           criteria={request}
           defaultPlanId={plan.configurationId}

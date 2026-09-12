@@ -14,7 +14,7 @@ import {
   useToast,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
-import { comparisonRequestParams } from '@/features/comparison/comparison-request';
+import { comparisonResultsUrl } from '@/features/comparison/comparison-request';
 import { cn } from '@/lib/cn';
 import { useRemoveCartItem, useUpdateCartItem } from './customers.api';
 
@@ -31,9 +31,9 @@ export function formatCartDate(iso: string): string {
   });
 }
 
-/** The results, exactly as they were when this entry was kept. */
+/** The results, exactly as they were when this entry was kept — still this customer's. */
 export function cartItemResultsUrl(item: CustomerCartItemDto): string {
-  return `${ROUTES.comparison.results}?${comparisonRequestParams(item.criteria).toString()}`;
+  return comparisonResultsUrl(ROUTES.comparison.results, item.criteria, item.customerId);
 }
 
 /**
@@ -61,7 +61,7 @@ export function CartItemList({
   if (items.length === 0) {
     return (
       <p className="text-content-subtle border-border-subtle rounded-(--radius-control) border border-dashed px-3 py-6 text-center text-sm">
-        Nothing kept yet. Run a comparison and press “Add to customer cart”.
+        Nothing kept yet. Run a comparison for this customer and press “Add to cart”.
       </p>
     );
   }

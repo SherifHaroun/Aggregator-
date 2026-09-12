@@ -15,8 +15,8 @@ import {
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ROUTES } from '@/config/routes';
 import { createStore, installFakeApi, type FakeStore } from './fake-api';
+import { givenAnyCustomer, newComparisonFor } from './for-customer';
 import { renderApp } from './render';
 
 let store: FakeStore;
@@ -96,7 +96,7 @@ describe('working it out for me', () => {
     const user = userEvent.setup();
     givenAnIndividualPlanOnSale();
 
-    renderApp(ROUTES.comparison.new);
+    renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
     await user.click(screen.getByRole('radio', { name: /Individual/i }));
     await user.click(screen.getByRole('button', { name: /Work it out for me/i }));
@@ -114,7 +114,7 @@ describe('working it out for me', () => {
     const user = userEvent.setup();
     givenAnIndividualPlanOnSale();
 
-    renderApp(ROUTES.comparison.new);
+    renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
     await user.click(screen.getByRole('button', { name: /Work it out for me/i }));
 
@@ -127,7 +127,7 @@ describe('working it out for me', () => {
     const user = userEvent.setup();
     givenAnIndividualPlanOnSale();
 
-    renderApp(ROUTES.comparison.new);
+    renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
     await user.click(screen.getByRole('radio', { name: /Individual/i }));
     await user.click(screen.getByRole('button', { name: /Work it out for me/i }));
@@ -151,7 +151,7 @@ describe('working it out for me', () => {
     const user = userEvent.setup();
     givenAnIndividualPlanOnSale();
 
-    renderApp(ROUTES.comparison.new);
+    renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
     await user.click(screen.getByRole('radio', { name: /Family/i }));
 
@@ -171,7 +171,7 @@ describe('working it out for me', () => {
     const user = userEvent.setup();
     givenAnIndividualPlanOnSale();
 
-    renderApp(ROUTES.comparison.new);
+    renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
     await user.click(screen.getByRole('radio', { name: /Individual/i }));
     await user.type(screen.getByLabelText(/^Age/), '250');

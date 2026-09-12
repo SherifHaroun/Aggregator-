@@ -188,7 +188,8 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     lead: 'With companies and plans in place, you can compare them for a customer.',
     actions: [
       'Open "Compare plans" in the sidebar.',
-      'Answer the questions about the customer.',
+      'Choose the customer the comparison is for, or add a new one.',
+      'Answer the questions about the cover they need.',
       'Let the system work the budget out, or enter an amount.',
       'Press "Compare Plans" to see the matching plans, best first.',
     ],
@@ -196,6 +197,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
       <VisualFrame className="space-y-4">
         <FlowWrap
           nodes={[
+            { label: 'Customer' },
             { label: 'Insurance type' },
             { label: 'Who to insure' },
             { label: 'Coverage' },
@@ -209,7 +211,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
         />
       </VisualFrame>
     ),
-    note: 'You never pick benefits for the customer. The system filters every plan on record against what you entered, and finds the benefits for you.',
+    note: 'You never pick benefits for the customer. The system filters every plan on record against what you entered, and finds the benefits for you. "Add to cart" on the results keeps the comparison for the customer you chose.',
   },
 ];
 

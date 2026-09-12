@@ -5,15 +5,17 @@ import { ROUTES } from '@/config/routes';
 import { cn } from '@/lib/cn';
 import { CartItemList } from './CartItemList';
 import { useCartSummary } from './customers.api';
+import { initials } from './initials';
 
 /**
  * THE CART, IN THE CORNER.
  *
  * The number above the icon is how many comparisons are waiting across every
- * customer. Opening it lists the customers with something in their cart;
- * opening a customer spreads their comparisons out first to last, with the
- * date each was kept, and the same controls the customer's own page has —
- * remove, link, note.
+ * customer. Opening it lists the customers with something in their cart —
+ * each in a card of their own, with a gap between, so two callers are never
+ * read as one; opening a customer spreads their comparisons out first to
+ * last, with the date each was kept, and the same controls the customer's
+ * own page has — remove, link, note.
  */
 export function CartButton({ className }: { className?: string }) {
   const summary = useCartSummary();
@@ -111,24 +113,44 @@ export function CartButton({ className }: { className?: string }) {
               </p>
             ) : customers.length === 0 ? (
               <p className="text-content-subtle px-2 py-6 text-center text-sm">
-                No comparisons are waiting. Run one and press “Add to customer cart”.
+                No comparisons are waiting. Choose a customer, run a comparison and press “Add to
+                cart”.
               </p>
             ) : (
-              <ul className="space-y-1">
+              <ul className="space-y-2 p-1">
                 {customers.map((customer) => {
                   const expanded = customer.id === expandedId;
                   return (
-                    <li key={customer.id}>
+                    <li
+                      key={customer.id}
+                      className={cn(
+                        'rounded-(--radius-card) border transition-colors',
+                        expanded
+                          ? 'border-brand-border bg-brand-soft/30'
+                          : 'border-border-subtle bg-surface',
+                      )}
+                    >
                       <button
                         type="button"
                         onClick={() => setExpandedId(expanded ? null : customer.id)}
                         aria-expanded={expanded}
                         className={cn(
-                          'flex w-full items-center justify-between gap-3 rounded-(--radius-control) px-3 py-2.5 text-left text-sm transition-colors',
-                          expanded ? 'bg-brand-soft text-brand-strong' : 'hover:bg-surface-muted',
+                          'flex w-full items-center gap-3 rounded-(--radius-card) px-3 py-3 text-left text-sm transition-colors',
+                          !expanded && 'hover:bg-surface-muted',
                         )}
                       >
-                        <span className="min-w-0">
+                        <span
+                          aria-hidden
+                          className={cn(
+                            'flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-bold',
+                            expanded
+                              ? 'bg-brand text-content-inverted'
+                              : 'bg-brand-soft text-brand-strong',
+                          )}
+                        >
+                          {initials(customer.name)}
+                        </span>
+                        <span className="min-w-0 flex-1">
                           <span className="text-content block truncate font-semibold">
                             {customer.name}
                           </span>
@@ -148,7 +170,7 @@ export function CartButton({ className }: { className?: string }) {
                       </button>
 
                       {expanded ? (
-                        <div className="px-2 pt-1 pb-3">
+                        <div className="border-border-subtle border-t px-3 pt-3 pb-3">
                           <CartItemList
                             customerId={customer.id}
                             customerName={customer.name}

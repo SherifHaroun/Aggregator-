@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   Badge,
   Button,
+  ButtonLink,
   Card,
   CardBody,
   CardHeader,
@@ -75,6 +76,10 @@ export function CustomerDetailPage() {
         actions={
           data ? (
             <>
+              <ButtonLink to={`${ROUTES.comparison.new}?customerId=${encodeURIComponent(data.id)}`}>
+                <IconCart className="size-4" />
+                New comparison
+              </ButtonLink>
               <Button variant="secondary" onClick={() => setEditing(true)}>
                 <IconEdit className="size-4" />
                 Edit customer
