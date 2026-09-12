@@ -12,6 +12,9 @@
  *
  * "Compare plans" leads instead: it is what the site exists to do, and it reads
  * the same database the rest of these screens fill in.
+ *
+ * CUSTOMERS sits beside it: the people those comparisons are run for, each
+ * with the comparisons kept in their cart until they choose.
  */
 
 import type { ComponentType, SVGProps } from 'react';
@@ -22,6 +25,7 @@ import {
   IconGlobe,
   IconLayers,
   IconSparkle,
+  IconUsers,
 } from '@/components/ui/icons';
 import { ROUTES } from './routes';
 
@@ -40,6 +44,12 @@ export const NAV_ITEMS: NavItem[] = [
     to: ROUTES.comparison.new,
     icon: IconSparkle,
     matchPrefix: '/comparison',
+  },
+  {
+    label: 'Customers',
+    to: ROUTES.customers.list,
+    icon: IconUsers,
+    matchPrefix: ROUTES.customers.list,
   },
   { label: 'Add Company', to: ROUTES.companies.new, icon: IconAdd },
   {

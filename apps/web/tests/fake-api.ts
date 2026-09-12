@@ -11,6 +11,8 @@
 import {
   ALTERNATIVE_VALUE_KEY,
   ANY_COVERAGE_LABEL,
+  cartItemName,
+  nextCartNameSequence,
   CO_PAYMENT_FIELD,
   MISSING_CORE_LIMIT_FALLBACK,
   alternativeValueField,
@@ -27,6 +29,8 @@ import {
   totalSmeEmployees,
   type BenefitValueKind,
   type CompanyDto,
+  type CustomerCartItemDto,
+  type CustomerDto,
   type ImportedDocument,
   type InsuranceOptionDto,
   type PlanImportJobDto,
@@ -75,6 +79,10 @@ export interface FakeStore {
   planImports: { job: PlanImportJobDto; polls: number }[];
   /** What the next import settles to: an answer, or a reason it failed. */
   importAnswer: { result: ImportedDocument | null; error: string | null };
+  /** Who rang in. Counts are worked out from `cartItems` on every read. */
+  customers: Omit<CustomerDto, 'cartCount' | 'chosenItemId'>[];
+  /** Every comparison kept for every customer, with its running number. */
+  cartItems: (CustomerCartItemDto & { nameSequence: number })[];
   /**
    * Set to make the next matching request fail, e.g. to test error states.
    * `delayMs` holds the response back, which is what makes an optimistic UI
@@ -102,6 +110,8 @@ export function createStore(): FakeStore {
     values: [],
     planImports: [],
     importAnswer: { result: null, error: 'No answer was scripted for this import.' },
+    customers: [],
+    cartItems: [],
     failNext: null,
   };
 }
@@ -902,6 +912,168 @@ function route({
       currency: (body.currency as string | null | undefined) ?? null,
       currencyAssumed: !body.currency,
     });
+  }
+
+  // --- customers and their carts -------------------------------------------
+  if (resource === 'customers') {
+    const itemsOf = (customerId: string) =>
+      store.cartItems
+        .filter((item) => item.customerId === customerId)
+        .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        .map(({ nameSequence: _sequence, ...item }) => item);
+    const withCart = (customer: FakeStore['customers'][number]) => {
+      const items = itemsOf(customer.id);
+      return {
+        ...customer,
+        cartCount: items.length,
+        chosenItemId: items.find((item) => item.isChosen)?.id ?? null,
+        items,
+      };
+    };
+    const summary = (customer: FakeStore['customers'][number]) => {
+      const { items: _items, ...rest } = withCart(customer);
+      return rest;
+    };
+
+    if (method === 'GET' && !first) {
+      const needle = (search.get('search') ?? '').toLowerCase();
+      return ok(
+        store.customers
+          .filter(
+            (customer) =>
+              !needle ||
+              [customer.name, customer.phone ?? '', customer.email ?? ''].some((text) =>
+                text.toLowerCase().includes(needle),
+              ),
+          )
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map(summary),
+      );
+    }
+    if (method === 'POST' && !first) {
+      const name = String(body.name ?? '').trim();
+      if (!name) {
+        return fail(400, 'VALIDATION_ERROR', 'Enter the customer name.', {
+          name: ['Enter the customer name.'],
+        });
+      }
+      const customer = {
+        id: id('customer'),
+        name,
+        phone: (body.phone as string | null | undefined) ?? null,
+        email: (body.email as string | null | undefined) ?? null,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      store.customers.push(customer);
+      return ok(summary(customer), 201);
+    }
+    if (method === 'GET' && first === 'cart') {
+      const customers = store.customers
+        .filter((customer) => itemsOf(customer.id).length > 0)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(withCart);
+      return ok({
+        totalItems: customers.reduce((sum, customer) => sum + customer.items.length, 0),
+        customers,
+      });
+    }
+
+    const customer = store.customers.find((item) => item.id === first);
+    if (!customer) return fail(404, 'NOT_FOUND', 'Customer not found');
+
+    if (method === 'GET' && !second) return ok(withCart(customer));
+    if (method === 'PATCH' && !second) {
+      if (body.name !== undefined) customer.name = String(body.name);
+      if (body.phone !== undefined) customer.phone = body.phone as string | null;
+      if (body.email !== undefined) customer.email = body.email as string | null;
+      return ok(summary(customer));
+    }
+    if (method === 'DELETE' && !second) {
+      store.customers = store.customers.filter((item) => item.id !== customer.id);
+      store.cartItems = store.cartItems.filter((item) => item.customerId !== customer.id);
+      return noContent();
+    }
+
+    if (second === 'cart' && method === 'POST' && !third) {
+      /**
+       * The real service runs the comparison again and reads the plan out
+       * of it; the fake reads the plan straight from the store, and prices
+       * it at the first band — enough to prove what the screens do with it.
+       */
+      const configuration = store.configurations.find(
+        (item) => item.id === body.planConfigurationId,
+      );
+      const plan = store.plans.find((item) => item.id === configuration?.planId);
+      const company = store.companies.find((item) => item.id === plan?.companyId);
+      const criteria = body.criteria as CustomerCartItemDto['criteria'];
+      if (!configuration || !plan || !company || plan.customerType !== criteria.customerTypeId) {
+        return fail(400, 'VALIDATION_ERROR', 'That plan is not in this comparison.', {
+          planConfigurationId: ['Not in this comparison.'],
+        });
+      }
+      const peers = store.cartItems
+        .filter((item) => item.customerId === customer.id)
+        .map((item) => ({
+          companyId: item.companyId,
+          customerTypeId: item.customerTypeId,
+          nameSequence: item.nameSequence,
+        }));
+      const sequence = nextCartNameSequence(peers, company.id, plan.customerType);
+      const item: FakeStore['cartItems'][number] = {
+        id: id('cart'),
+        customerId: customer.id,
+        name: cartItemName(company.name, plan.customerType, sequence),
+        nameSequence: sequence,
+        note: (body.note as string | null | undefined) ?? null,
+        planConfigurationId: configuration.id,
+        planId: plan.id,
+        companyId: company.id,
+        companyName: company.name,
+        planName: plan.name,
+        customerTypeId: plan.customerType,
+        annualPrice: configuration.priceBands?.[0]?.annualPrice ?? null,
+        currency: configuration.currency,
+        criteria,
+        isChosen: false,
+        chosenAt: null,
+        createdAt: new Date(counter).toISOString(),
+      };
+      store.cartItems.push(item);
+      const { nameSequence: _sequence, ...dto } = item;
+      return ok(dto, 201);
+    }
+
+    if (second === 'cart' && third) {
+      const item = store.cartItems.find(
+        (candidate) => candidate.id === third && candidate.customerId === customer.id,
+      );
+      if (!item) return fail(404, 'NOT_FOUND', 'Cart item not found');
+      if (method === 'PATCH') {
+        if (body.note !== undefined) item.note = body.note as string | null;
+        if (body.chosen === true) {
+          for (const other of store.cartItems) {
+            if (other.customerId === customer.id) {
+              other.isChosen = false;
+              other.chosenAt = null;
+            }
+          }
+          item.isChosen = true;
+          item.chosenAt = now();
+        }
+        if (body.chosen === false) {
+          item.isChosen = false;
+          item.chosenAt = null;
+        }
+        const { nameSequence: _sequence, ...dto } = item;
+        return ok(dto);
+      }
+      if (method === 'DELETE') {
+        store.cartItems = store.cartItems.filter((candidate) => candidate.id !== item.id);
+        return noContent();
+      }
+    }
+    return null;
   }
 
   // --- plans ---------------------------------------------------------------

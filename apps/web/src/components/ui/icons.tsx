@@ -188,22 +188,14 @@ export const IconCopy = (p: IconProps) => (
 /** Corners pushing outward — "make this fill the screen". */
 export const IconExpand = (props: SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} {...props}>
-    <path
-      d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
+    <path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
 /** Corners pulling inward — "give me the small one back". */
 export const IconCollapse = (props: SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} {...props}>
-    <path
-      d="M4 9h5V4M20 9h-5V4M20 15h-5v5M4 15h5v5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
+    <path d="M4 9h5V4M20 9h-5V4M20 15h-5v5M4 15h5v5" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
@@ -213,6 +205,18 @@ export function IconDownload({ className }: { className?: string }) {
     <Icon className={className}>
       <path d="M10 3v9m0 0 3.5-3.5M10 12 6.5 8.5" />
       <path d="M3.5 13.5v1.5a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-1.5" />
+    </Icon>
+  );
+}
+
+/** The customer cart: what has been kept for callers until they choose. */
+export function IconCart({ className }: { className?: string }) {
+  return (
+    <Icon className={className}>
+      <path d="M2.5 3.5h2l1.9 8.6a1.5 1.5 0 0 0 1.47 1.18h6.76a1.5 1.5 0 0 0 1.46-1.15L17.5 7H5.4" />
+      <circle cx="8.25" cy="16.5" r="1.1" />
+      <circle cx="14.25" cy="16.5" r="1.1" />
+      <path d="M11.5 8.25v3M10 9.75h3" />
     </Icon>
   );
 }

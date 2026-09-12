@@ -496,6 +496,10 @@ model PlanConfiguration {
   /// What it costs, age band by age band.
   priceBands PlanPriceBand[]
 
+  /// The customer carts this variant was saved into. Deleting the variant
+  /// leaves those entries pointing at nothing — their snapshot still reads.
+  cartItems CustomerCartItem[]
+
   /// What makes one variant different from another: the plan, where it covers,
   /// the room and the ceiling. Age is no longer part of it — that is what the
   /// price bands are for — and neither is the network, which is the plan's.
@@ -624,4 +628,82 @@ model PlanOptionValue {
   @@unique([planOptionId, optionFieldId])
   @@index([optionFieldId])
   @@map("plan_option_values")
+}
+
+// ============================================================================
+//  CUSTOMERS AND THEIR CARTS
+// ============================================================================
+
+/// SOMEBODY THE BROKER IS TALKING TO.
+///
+/// A customer rings or writes in; the employee runs comparisons for them and
+/// keeps the ones worth discussing in the customer's cart until they settle
+/// on one. Not insurance data: no plan, price or benefit lives here, and
+/// nothing about a customer takes part in a comparison.
+///
+/// Only the name is required. A caller may leave no number and no address,
+/// and refusing to write them down until they do would lose the call.
+model Customer {
+  id    String  @id @default(cuid())
+  name  String
+  phone String?
+  email String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cartItems CustomerCartItem[]
+
+  @@index([name])
+  @@map("customers")
+}
+
+/// ONE COMPARISON KEPT FOR A CUSTOMER.
+///
+/// The cart is a WORKING LIST, not a sale: the comparisons an employee ran
+/// for a customer, in the order they were run, until the customer chooses.
+/// Each entry points at the plan it was saved with and carries the selection
+/// the comparison was run from, so the results open again as they were.
+///
+/// THE SNAPSHOT: the company, plan and premium are copied at the moment of
+/// saving. A plan an insurer withdraws is deleted from the plan tables, and
+/// the entry then points at nothing — but the customer was quoted a figure
+/// on a date, and the cart still says which.
+///
+/// THE NAME is "Arope SME 2": company, section, and how many of that pairing
+/// the customer already had. `nameSequence` is that number, kept so the next
+/// one continues from the highest given rather than filling a gap.
+model CustomerCartItem {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  name         String
+  nameSequence Int
+  note         String?
+
+  planConfigurationId String?
+  planConfiguration   PlanConfiguration? @relation(fields: [planConfigurationId], references: [id], onDelete: SetNull)
+  planId              String?
+  companyId           String?
+
+  companyName  String
+  planName     String
+  customerType CustomerType
+  annualPrice  Decimal? @db.Decimal(14, 2)
+  currency     String?  @db.VarChar(3)
+
+  /// The comparison request, as the engine validated it.
+  criteria Json
+
+  /// Set when the customer settled on this one. At most one per cart —
+  /// `customers.service.ts` clears the others when it is set.
+  chosenAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId, createdAt])
+  @@index([planConfigurationId])
+  @@map("customer_cart_items")
 }

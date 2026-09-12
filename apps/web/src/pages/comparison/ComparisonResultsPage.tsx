@@ -3,11 +3,13 @@ import { useSearchParams } from 'react-router-dom';
 import { formatNumber } from '@aggregator/shared';
 import {
   Badge,
+  Button,
   ButtonLink,
   Card,
   CardBody,
   DataState,
   EmptyState,
+  IconCart,
   IconChevronRight,
   PageHeader,
 } from '@/components/ui';
@@ -19,6 +21,7 @@ import {
   RecommendedPlanCard,
   parseComparisonRequest,
 } from '@/features/comparison';
+import { AddToCartDialog } from '@/features/customers/AddToCartDialog';
 import { useComparison } from '@/features/insurance-data/insurance-data.api';
 
 /**
@@ -84,6 +87,12 @@ export function ComparisonResultsPage() {
       }
     : null;
 
+  /**
+   * Keeping this comparison for a customer. Offered once something matched:
+   * an empty result has no plan to keep it with.
+   */
+  const [addingToCart, setAddingToCart] = useState(false);
+
   const overBudget = result?.overBudgetPlans ?? [];
   const overBudgetPick = overBudget.find((plan) => plan.isRecommended);
   const overBudgetRest = overBudget.filter((plan) => !plan.isRecommended);
@@ -113,10 +122,16 @@ export function ComparisonResultsPage() {
         }
         breadcrumbs={[{ label: 'New comparison', to: ROUTES.comparison.new }, { label: 'Results' }]}
         actions={
-          <ButtonLink variant="secondary" to={ROUTES.comparison.new}>
-            Change selection
-            <IconChevronRight className="size-4" />
-          </ButtonLink>
+          <>
+            <ButtonLink variant="secondary" to={ROUTES.comparison.new}>
+              Change selection
+              <IconChevronRight className="size-4" />
+            </ButtonLink>
+            <Button onClick={() => setAddingToCart(true)} disabled={everyPlan.length === 0}>
+              <IconCart className="size-4" />
+              Add to customer cart
+            </Button>
+          </>
         }
       />
 
@@ -289,6 +304,15 @@ export function ComparisonResultsPage() {
             <ComparisonTable plans={overBudget} benefits={result?.overBudgetBenefits ?? []} />
           </div>
         </section>
+      ) : null}
+
+      {addingToCart && request ? (
+        <AddToCartDialog
+          plans={everyPlan}
+          criteria={request}
+          defaultPlanId={previewing}
+          onClose={() => setAddingToCart(false)}
+        />
       ) : null}
 
       {/* Any plan, read where it sits — the winner has no privilege here. */}

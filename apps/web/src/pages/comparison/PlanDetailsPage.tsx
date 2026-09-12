@@ -4,13 +4,14 @@ import {
   presentPremium,
   type ComparisonPlanResult,
 } from '@aggregator/shared';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   Button,
   Card,
   CardBody,
   DataState,
+  IconCart,
   IconCheck,
   IconChevronRight,
   IconDownload,
@@ -24,6 +25,7 @@ import {
   usePlanDocumentSource,
   type DocumentAges,
 } from '@/features/comparison';
+import { AddToCartDialog } from '@/features/customers/AddToCartDialog';
 import { useComparison } from '@/features/insurance-data/insurance-data.api';
 
 /**
@@ -66,15 +68,39 @@ export function PlanDetailsPage() {
   const document = usePlanDocumentSource(configurationId ?? null, plan?.planId ?? null);
   const backToResults = `${ROUTES.comparison.results}?${params.toString()}`;
 
+  /** Keeping the comparison for a customer, with this plan. */
+  const [addingToCart, setAddingToCart] = useState(false);
+  const everyPlan = [
+    ...(comparison.data?.plans ?? []),
+    ...(comparison.data?.overBudgetPlans ?? []),
+  ];
+
   return (
     <div className="space-y-6">
-      <Link
-        to={backToResults}
-        className="text-content-muted hover:text-content inline-flex items-center gap-1 text-sm"
-      >
-        <IconChevronRight className="size-4 rotate-180" />
-        Back to comparison
-      </Link>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link
+          to={backToResults}
+          className="text-content-muted hover:text-content inline-flex items-center gap-1 text-sm"
+        >
+          <IconChevronRight className="size-4 rotate-180" />
+          Back to comparison
+        </Link>
+        {plan ? (
+          <Button onClick={() => setAddingToCart(true)}>
+            <IconCart className="size-4" />
+            Add to customer cart
+          </Button>
+        ) : null}
+      </div>
+
+      {addingToCart && request && plan ? (
+        <AddToCartDialog
+          plans={everyPlan}
+          criteria={request}
+          defaultPlanId={plan.configurationId}
+          onClose={() => setAddingToCart(false)}
+        />
+      ) : null}
 
       <DataState
         isLoading={comparison.isLoading}

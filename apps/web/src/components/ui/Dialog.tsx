@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/cn';
 import { Button } from './Button';
 import { IconCollapse, IconExpand } from './icons';
@@ -44,6 +44,8 @@ export function Dialog({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [expanded, setExpanded] = useState(false);
+  /* The title names the dialog, so it can be found by what it says. */
+  const titleId = useId();
 
   useEffect(() => {
     const element = ref.current;
@@ -57,6 +59,7 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();
         onClose();
@@ -83,7 +86,9 @@ export function Dialog({
       <div className="border-border-subtle flex items-start gap-3 border-b px-6 py-4">
         {leading}
         <div className="min-w-0 flex-1">
-          <h2 className="text-content text-base font-semibold">{title}</h2>
+          <h2 id={titleId} className="text-content text-base font-semibold">
+            {title}
+          </h2>
           {description ? <p className="text-content-muted mt-1 text-sm">{description}</p> : null}
         </div>
         {expandable ? (
@@ -102,10 +107,7 @@ export function Dialog({
 
       {children ? (
         <div
-          className={cn(
-            'overflow-y-auto px-6 py-5',
-            expanded ? 'min-h-0 flex-1' : 'max-h-[60vh]',
-          )}
+          className={cn('overflow-y-auto px-6 py-5', expanded ? 'min-h-0 flex-1' : 'max-h-[60vh]')}
         >
           {children}
         </div>

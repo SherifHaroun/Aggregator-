@@ -55,6 +55,8 @@ const WRITES: [string, string][] = [
   ['POST', '/api/v1/plan-configurations'],
   ['PUT', '/api/v1/plan-options/abc/values'],
   ['POST', '/api/v1/uploads/image'],
+  ['POST', '/api/v1/customers'],
+  ['DELETE', '/api/v1/customers/abc/cart/xyz'],
 ];
 
 describe('with no token configured (today’s internal-only deployment)', () => {

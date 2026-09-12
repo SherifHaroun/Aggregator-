@@ -680,6 +680,51 @@ Jobs live in memory on the API for two hours. They are one employee's
 working state, not records: a restart loses them and the document is
 uploaded again.
 
+### Customers and their carts
+
+The broker's employees take calls. A caller becomes a **customer** (`Customer`:
+name required, phone and email as given), and the comparisons run for them
+are kept in the customer's **cart** (`CustomerCartItem`) — a working list,
+first to last, until the customer settles on one and it is marked chosen.
+Nothing here is insurance data: a customer is a person the broker is talking
+to, and a cart entry points at a plan without copying its cover.
+
+**What an entry is.** Pressing _Add to customer cart_ on the results (or on a
+plan's page) sends the customer, the plan and the comparison's request to
+`POST /customers/:id/cart`. The service (`modules/customers/`) RUNS THE
+COMPARISON AGAIN and reads the plan out of the result: the premium written on
+the entry is the one the engine worked out for these ages or this workforce,
+never a figure the screen handed in, and a plan that is not in the result is
+refused. The validated request is kept with the entry as JSON, so _Open
+comparison_ rebuilds the results URL (`comparisonRequestParams`) and shows
+them exactly as they were.
+
+**The name is automatic.** "Arope SME 2" is the company, the section and the
+count of that pairing in this cart — `cartItemName` and `nextCartNameSequence`
+in `packages/shared/src/rules/customer-cart.ts`, so the API and the screens
+spell it the one way. The number continues from the highest given rather than
+filling a gap, so a note that says "the second one" keeps meaning it.
+
+**The snapshot.** Company, plan, section, premium and currency are copied at
+the moment of saving. A variant an insurer withdraws is deleted from the plan
+tables and the entry points at nothing (`onDelete: SetNull`) — but the
+customer was quoted a figure on a date, and the cart still says which.
+Deleting a customer takes the cart with it.
+
+**One choice.** `PATCH …/cart/:itemId { chosen: true }` marks the entry the
+customer settled on and clears the choice from the others in the same cart;
+`chosen: false` takes it back. On screen this is the green _Link to customer_
+button, and the customer's card and page say which plan is linked.
+
+**Where it shows.** The sidebar's _Customers_ (list, add, search by name,
+phone or email; each customer's page is their cart) and the cart button in
+the top-right corner of every screen (`CartButton`): the count above it is
+every comparison waiting across every customer, and opening it lists the
+customers who have one and spreads each cart out with the same controls the
+customer's page has. Reads and writes go through `features/customers/
+customers.api.ts`; every write invalidates every customer read, so the
+count, the list and the open page never disagree.
+
 ---
 
 ## 6. Preparing for a public aggregator

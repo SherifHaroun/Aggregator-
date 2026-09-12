@@ -4,6 +4,7 @@ import { HadbrokLogo } from '@/components/ui/HadbrokLogo';
 import { IconClose, IconMenu } from '@/components/ui/icons';
 import { APP_NAME, APP_TAGLINE } from '@/config/navigation';
 import { ROUTES } from '@/config/routes';
+import { CartButton } from '@/features/customers/CartButton';
 import { HelpWalkthrough } from '@/features/help';
 import { cn } from '@/lib/cn';
 import { SidebarNav } from './SidebarNav';
@@ -46,6 +47,7 @@ export function AppShell() {
           <IconMenu />
         </button>
         <BrandMark compact />
+        <CartButton className="ml-auto" />
       </header>
 
       {/* Desktop sidebar */}
@@ -83,7 +85,15 @@ export function AppShell() {
       ) : null}
 
       <main className="lg:pl-[16.5rem]">
-        <div className="mx-auto w-full max-w-[76rem] px-4 py-6 sm:px-6 lg:px-10 lg:py-10">
+        {/*
+          The cart, top right on every screen. On desktop there is no bar to
+          hold it, so it sits above the page in its own row; on mobile it is
+          in the top bar and this row is not drawn.
+        */}
+        <div className="mx-auto hidden w-full max-w-[76rem] justify-end px-4 pt-5 sm:px-6 lg:flex lg:px-10">
+          <CartButton />
+        </div>
+        <div className="mx-auto w-full max-w-[76rem] px-4 py-6 sm:px-6 lg:px-10 lg:pt-4 lg:pb-10">
           <Outlet />
         </div>
       </main>

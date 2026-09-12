@@ -12,6 +12,7 @@ import { companiesRouter } from '../modules/companies/companies.routes.js';
 import { medicalNetworksRouter } from '../modules/medical-networks/medical-networks.routes.js';
 import { comparisonRouter } from '../modules/comparison/comparison.routes.js';
 import { configurationRouter } from '../modules/configuration/configuration.routes.js';
+import { customersRouter } from '../modules/customers/customers.routes.js';
 import { healthRouter } from '../modules/health/health.routes.js';
 import {
   insuranceOptionsRouter,
@@ -49,3 +50,5 @@ apiRouter.use('/plan-options', planOptionsRouter);
 apiRouter.use('/uploads', uploadsRouter);
 /** A Word document read into plans for review; publishing goes through the routes above. */
 apiRouter.use('/plan-imports', planImportsRouter);
+/** Who rang in, and the comparisons kept for them until they choose. */
+apiRouter.use('/customers', customersRouter);

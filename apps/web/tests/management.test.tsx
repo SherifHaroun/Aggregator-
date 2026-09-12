@@ -324,7 +324,7 @@ function givenConfiguration(
 // ---------------------------------------------------------------------------
 
 describe('navigation', () => {
-  it('offers exactly Dashboard, Compare plans, Add Company, Companies, Benefits and Medical networks', async () => {
+  it('offers exactly Dashboard, Compare plans, Customers, Add Company, Companies, Benefits and Medical networks', async () => {
     renderApp(ROUTES.dashboard);
     const sidebar = await screen.findByRole('navigation');
     const links = within(sidebar)
@@ -335,11 +335,13 @@ describe('navigation', () => {
      * Benefits and Medical networks earn their places at the top level: each
      * is one list shared by every company — the catalogue, and the networks
      * plans are sold on — so neither can be reached by drilling into one
-     * company. Everything else still is.
+     * company. Everything else still is. Customers sits beside Compare
+     * plans: the people the comparisons are run for.
      */
     expect(links).toEqual([
       'Dashboard',
       'Compare plans',
+      'Customers',
       'Add Company',
       'Companies',
       'Benefits',

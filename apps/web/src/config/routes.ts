@@ -50,6 +50,14 @@ export const ROUTES = {
      */
     detail: (companyId: string, jobId: string) => `/companies/${companyId}/imports/${jobId}`,
   },
+  customers: {
+    /**
+     * Who rang in, and the comparisons kept for each of them until they
+     * choose. A customer's page is their cart.
+     */
+    list: '/customers',
+    detail: (customerId: string) => `/customers/${customerId}`,
+  },
   comparison: {
     new: '/comparison/new',
     results: '/comparison/results',
@@ -69,5 +77,6 @@ export const ROUTE_PATTERNS = {
   planDetail: '/companies/:companyId/plans/:planId',
   configurationDetail: '/companies/:companyId/plans/:planId/configurations/:configurationId',
   planImport: '/companies/:companyId/imports/:jobId',
+  customerDetail: '/customers/:customerId',
   comparisonPlan: '/comparison/plan/:configurationId',
 } as const;
