@@ -3,6 +3,8 @@ import { render } from '@testing-library/react';
 import { MemoryRouter, useRoutes } from 'react-router-dom';
 import { ToastProvider } from '@/components/ui';
 import { routes } from '@/app/router';
+import { writeSessionToken } from '@/lib/session-store';
+import { ADMIN_TOKEN, customerToken } from './fake-api';
 
 /**
  * Mount the real route map at a given path, with real providers.
@@ -17,7 +19,17 @@ function AppRoutes() {
   return useRoutes(routes);
 }
 
-export function renderApp(initialPath: string) {
+/**
+ * Who the test is signed in as. Staff by default — most tests are about the
+ * employee's screens — or a named customer, or nobody at all.
+ */
+export type RenderAs = 'staff' | 'anonymous' | { customerId: string };
+
+export function renderApp(initialPath: string, as: RenderAs = 'staff') {
+  writeSessionToken(
+    as === 'staff' ? ADMIN_TOKEN : as === 'anonymous' ? null : customerToken(as.customerId),
+  );
+
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false, gcTime: 0, staleTime: 0 },

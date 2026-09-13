@@ -115,6 +115,7 @@ function CustomerCard({ customer }: { customer: CustomerDto }) {
               Plan linked
             </Badge>
           ) : null}
+          {customer.source === 'WEBSITE' ? <Badge tone="neutral">From website</Badge> : null}
         </div>
         <ButtonLink size="sm" variant="secondary" to={ROUTES.customers.detail(customer.id)}>
           View cart

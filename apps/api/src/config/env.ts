@@ -4,6 +4,7 @@
  */
 
 import 'dotenv/config';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -40,6 +41,19 @@ export const env = {
    * Set it once a public client can reach this API — see `middleware/access.ts`.
    */
   adminApiToken: process.env['ADMIN_API_TOKEN'] ?? null,
+  /**
+   * The one staff account. Both must be set for an employee to sign in;
+   * unset, the admin area cannot be entered and the API says so.
+   */
+  adminEmail: process.env['ADMIN_EMAIL'] ?? null,
+  adminPassword: process.env['ADMIN_PASSWORD'] ?? null,
+  adminLoginConfigured: Boolean(process.env['ADMIN_EMAIL'] && process.env['ADMIN_PASSWORD']),
+  /**
+   * Signs session tokens. Set it in production so sessions survive a
+   * restart; unset, a fresh secret is drawn at boot and everybody is
+   * signed out whenever the server restarts.
+   */
+  sessionSecret: optional('SESSION_SECRET', randomBytes(32).toString('hex')),
   /**
    * The key the plan import reads documents with. Server-side only: the
    * browser uploads the document to this API and never calls Anthropic.

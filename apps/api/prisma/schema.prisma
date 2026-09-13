@@ -648,6 +648,8 @@ model Customer {
   name  String
   phone String?
   email String?
+  /** "STAFF" when an employee wrote them down, "WEBSITE" when they signed in. */
+  source String @default("STAFF") @db.VarChar(16)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

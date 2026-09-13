@@ -6,6 +6,7 @@
 
 import type { ApiResponse } from '@aggregator/shared';
 import { apiBaseUrl } from './api-url';
+import { readSessionToken } from './session-store';
 
 const BASE_URL = apiBaseUrl();
 
@@ -64,6 +65,12 @@ async function readEnvelope<T>(response: Response, path: string): Promise<ApiRes
   }
 }
 
+/** The signed-in session, if any, sent with every request. */
+function authHeaders(): Record<string, string> {
+  const token = readSessionToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 export async function apiRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   let response: Response;
   try {
@@ -71,6 +78,7 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}): Promi
       ...init,
       headers: {
         'Content-Type': 'application/json',
+        ...authHeaders(),
         ...(init.headers ?? {}),
       },
     });
@@ -118,7 +126,11 @@ export async function uploadImage(file: File): Promise<string> {
   let response: Response;
   try {
     // No Content-Type header: the browser sets the multipart boundary.
-    response = await fetch(`${BASE_URL}/uploads/image`, { method: 'POST', body });
+    response = await fetch(`${BASE_URL}/uploads/image`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body,
+    });
   } catch (cause) {
     console.error('[api] upload request failed:', cause);
     throw new ApiError('NETWORK_ERROR', 'Could not reach the API server.', 0);

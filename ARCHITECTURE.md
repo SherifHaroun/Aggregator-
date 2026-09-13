@@ -744,6 +744,61 @@ count, the list and the open page never disagree.
 
 ---
 
+### The customer site, and who is signed in
+
+The site now has TWO FRONT DOORS ON ONE HOUSE. `/` is the customer site:
+a home page with the compare card, the results, sign-in, a plan in full and
+the customer's cart. `/admin` is the employee area described above. Both are
+one React app (`apps/web`) reading one API and one database, so a plan or a
+company an employee publishes is on the customer site the moment it is saved.
+
+**Signing in** (`apps/api/src/modules/auth/`, `apps/web/src/features/auth/`).
+A session is a signed token — the kind of session, the subject, an expiry,
+HMAC-SHA256 under `SESSION_SECRET` — carried as `Authorization: Bearer` on
+every request and kept in `localStorage` (`lib/session-store.ts`). Nothing is
+stored server-side. `readSession` reads it on every request into `req.auth`.
+
+- _Staff_ sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from the API's
+  environment (`POST /auth/admin/login`) — never from the database, never
+  from the code. Both must be set on Railway as well as locally.
+- _Customers_ sign in with their name, email and phone number and NO
+  password (`POST /auth/customer/login`): the customer already on record is
+  matched by email, then by phone digits; otherwise a new one is written down
+  with `source = "WEBSITE"`, which the admin's Customers page shows as
+  "From website". Either way it is the same `Customer` row and the same cart
+  the employees see.
+- `GET /auth/session` says who the token belongs to; the web client asks on
+  every page load (`useSession`) and drops a token the API rejects.
+
+**Who may do what** (`middleware/access.ts`). Insurance-data reads stay open.
+Insurance-data writes pass `requireWriteAccess`: a signed-in employee, or the
+legacy `ADMIN_API_TOKEN` when one is set; with neither a staff login nor a
+token configured, writes stay open as on the old internal-only deployment.
+Customers have their own rule in `customers.routes.ts`: every route needs an
+employee, except that a signed-in customer may address exactly one record —
+their own — as `/customers/me`, for reading, updating, and their cart.
+Deleting a customer is always the broker's. The web guards mirror this:
+`RequireAdmin` wraps the whole `/admin` tree and `RequireCustomer` wraps a
+plan in full and the cart; either sends a stranger to `/login` with `next=`
+the page they wanted, and a token whose check merely failed (the API not
+answering) is let through so the page shows its own error.
+
+**The customer's comparison** (`features/public/QuickCompareForm.tsx`,
+`pages/public/PublicResultsPage.tsx`). The compare card asks who is being
+insured, the age (or the workforce, or the youngest and eldest — the same
+shared rules decide) and where the cover applies, and sends the same
+`ComparisonRequestInput` the admin's form sends. The results are the engine's
+ranked list read through `topPlansByTier` (`packages/shared/src/rules/
+tiered-results.ts`): up to three plans per tier — Basic, Standard, Premium,
+read off the annual limit as everywhere else — in the engine's order, the
+first in each tier flagged as its best value. Opening a plan requires a
+customer sign-in; the plan page (`PublicPlanPage`) shares `PlanBody` with the
+employee's page, so the figures, the bands, the benefits and the PDF (named
+for the customer) are identical, and "Save to my cart" writes to
+`/customers/me/cart`. `MyCartPage` is `CartItemList` with
+`audience="customer"`: the same list, worded for its owner — "Choose this
+plan" is what the admin sees as the plan linked to the customer.
+
 ## 6. Preparing for a public aggregator
 
 A separate customer-facing site is planned. It will consume **this same API and

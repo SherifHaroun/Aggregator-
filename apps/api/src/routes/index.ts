@@ -8,6 +8,7 @@
 
 import { Router } from 'express';
 import { requireWriteAccess } from '../middleware/access.js';
+import { authRouter } from '../modules/auth/auth.routes.js';
 import { companiesRouter } from '../modules/companies/companies.routes.js';
 import { medicalNetworksRouter } from '../modules/medical-networks/medical-networks.routes.js';
 import { comparisonRouter } from '../modules/comparison/comparison.routes.js';
@@ -30,6 +31,15 @@ apiRouter.use('/health', healthRouter);
 apiRouter.use('/configuration', configurationRouter);
 /** Read-only, and public: running a comparison never writes. */
 apiRouter.use('/comparison', comparisonRouter);
+/** Signing in, and asking who is signed in. */
+apiRouter.use('/auth', authRouter);
+/**
+ * Customers carry their own rules rather than the write gate's: an employee
+ * sees everyone, a signed-in customer sees only themselves (`/customers/me`),
+ * and nobody else sees anything. Mounted before the gate so a customer can
+ * write to their own cart without being staff.
+ */
+apiRouter.use('/customers', customersRouter);
 
 /**
  * Reads stay open so a future public aggregator can consume these same
@@ -50,5 +60,3 @@ apiRouter.use('/plan-options', planOptionsRouter);
 apiRouter.use('/uploads', uploadsRouter);
 /** A Word document read into plans for review; publishing goes through the routes above. */
 apiRouter.use('/plan-imports', planImportsRouter);
-/** Who rang in, and the comparisons kept for them until they choose. */
-apiRouter.use('/customers', customersRouter);

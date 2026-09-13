@@ -29,3 +29,12 @@ const testDatabaseUrl = process.env['TEST_DATABASE_URL'];
 if (testDatabaseUrl) {
   process.env['DATABASE_URL'] = testDatabaseUrl;
 }
+
+/**
+ * Sign-in is configured PER TEST, never inherited from a developer's `.env`:
+ * a staff account left set here would close the writes some suites rely on
+ * being open, and a legacy token would open what others expect closed.
+ */
+process.env['ADMIN_EMAIL'] = '';
+process.env['ADMIN_PASSWORD'] = '';
+process.env['ADMIN_API_TOKEN'] = '';

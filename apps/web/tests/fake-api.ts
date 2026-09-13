@@ -143,11 +143,32 @@ const page = <T>(items: T[]) => ({ items, total: items.length, page: 1, pageSize
 const meta = () => ({ isActive: true, createdAt: now(), updatedAt: now() });
 
 /** Install the fake API for the duration of a test. Returns the store. */
+/**
+ * WHO IS ASKING, from the token the client sends. The fake honours two shapes:
+ * `ADMIN_TOKEN` is the employee, and `customerToken(id)` is that customer.
+ */
+export const ADMIN_TOKEN = 'fake-admin-token';
+export const customerToken = (customerId: string) => `fake-customer:${customerId}`;
+
+type FakeAuth = { kind: 'admin' } | { kind: 'customer'; customerId: string } | null;
+
+function readAuth(init?: RequestInit): FakeAuth {
+  const headers = new Headers(init?.headers ?? {});
+  const header = headers.get('authorization') ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  if (token === ADMIN_TOKEN) return { kind: 'admin' };
+  if (token.startsWith('fake-customer:')) {
+    return { kind: 'customer', customerId: token.slice('fake-customer:'.length) };
+  }
+  return null;
+}
+
 export function installFakeApi(store: FakeStore = createStore()): FakeStore {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' ? input : String(input), 'http://localhost');
     const path = url.pathname.replace(/^\/api\/v1/, '');
     const method = (init?.method ?? 'GET').toUpperCase();
+    const auth = readAuth(init);
     // A file arrives as multipart form data, everything else as JSON.
     const form = init?.body instanceof FormData ? init.body : null;
     const body =
@@ -164,7 +185,7 @@ export function installFakeApi(store: FakeStore = createStore()): FakeStore {
     }
 
     return (
-      route({ store, path, method, body, form, search: url.searchParams }) ??
+      route({ store, path, method, body, form, search: url.searchParams, auth }) ??
       fail(404, 'NOT_FOUND', 'No route')
     );
   }) as typeof fetch;
@@ -188,6 +209,7 @@ function route({
   body,
   form,
   search,
+  auth,
 }: {
   store: FakeStore;
   path: string;
@@ -196,9 +218,63 @@ function route({
   /** Present on a file upload; `null` on every other request. */
   form: FormData | null;
   search: URLSearchParams;
+  auth: FakeAuth;
 }): Response | null {
   const segments = path.split('/').filter(Boolean);
   const [resource, first, second, third, fourth] = segments;
+
+  // --- signing in ------------------------------------------------------------
+  if (resource === 'auth') {
+    const publicCustomer = (customer: FakeStore['customers'][number]) => {
+      const items = store.cartItems.filter((item) => item.customerId === customer.id);
+      return {
+        ...customer,
+        cartCount: items.length,
+        chosenItemId: items.find((item) => item.isChosen)?.id ?? null,
+      };
+    };
+    if (first === 'session' && method === 'GET') {
+      if (!auth) return fail(401, 'UNAUTHENTICATED', 'Not signed in.');
+      if (auth.kind === 'admin') return ok({ kind: 'admin', email: 'info@hadbrok.com' });
+      const customer = store.customers.find((row) => row.id === auth.customerId);
+      if (!customer) return fail(401, 'UNAUTHENTICATED', 'Not signed in.');
+      return ok({ kind: 'customer', customer: publicCustomer(customer) });
+    }
+    if (first === 'admin' && second === 'login' && method === 'POST') {
+      if (body.email === 'info@hadbrok.com' && body.password === 'HADBROK123') {
+        return ok({ token: ADMIN_TOKEN, session: { kind: 'admin', email: 'info@hadbrok.com' } });
+      }
+      return fail(401, 'INVALID_CREDENTIALS', 'That email and password do not match.');
+    }
+    if (first === 'customer' && second === 'login' && method === 'POST') {
+      const name = String(body.name ?? '').trim();
+      const email = String(body.email ?? '')
+        .trim()
+        .toLowerCase();
+      const phone = String(body.phone ?? '').trim();
+      if (!name || !email || !phone) {
+        return fail(400, 'VALIDATION_ERROR', 'Enter your name, email and phone number.');
+      }
+      let customer = store.customers.find((row) => (row.email ?? '').toLowerCase() === email);
+      if (!customer) {
+        customer = {
+          id: id('customer'),
+          name,
+          phone,
+          email,
+          source: 'WEBSITE',
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        store.customers.push(customer);
+      }
+      return ok({
+        token: customerToken(customer.id),
+        session: { kind: 'customer', customer: publicCustomer(customer) },
+      });
+    }
+    return null;
+  }
 
   // --- medical networks: one shared list, each with its provider list ------
   if (resource === 'medical-networks') {
@@ -935,6 +1011,24 @@ function route({
       return rest;
     };
 
+    /* `me` is the signed-in customer; anything else needs an employee. */
+    if (first === 'me') {
+      if (auth?.kind !== 'customer')
+        return fail(401, 'UNAUTHENTICATED', 'Sign in to see your cart.');
+      return route({
+        store,
+        path: path.replace('/customers/me', `/customers/${auth.customerId}`),
+        method,
+        body,
+        form,
+        search,
+        auth: { kind: 'admin' },
+      });
+    }
+    if (auth?.kind !== 'admin') {
+      return fail(auth ? 403 : 401, auth ? 'FORBIDDEN' : 'UNAUTHENTICATED', 'Staff only.');
+    }
+
     if (method === 'GET' && !first) {
       const needle = (search.get('search') ?? '').toLowerCase();
       return ok(
@@ -960,6 +1054,7 @@ function route({
       const customer = {
         id: id('customer'),
         name,
+        source: 'STAFF' as const,
         phone: (body.phone as string | null | undefined) ?? null,
         email: (body.email as string | null | undefined) ?? null,
         createdAt: now(),

@@ -9,7 +9,15 @@ import type { FakeStore } from './fake-api';
  */
 export function givenAnyCustomer(store: FakeStore, id = 'customer_test', name = 'Test Caller') {
   const stamp = new Date(0).toISOString();
-  store.customers.push({ id, name, phone: null, email: null, createdAt: stamp, updatedAt: stamp });
+  store.customers.push({
+    id,
+    name,
+    source: 'STAFF',
+    phone: null,
+    email: null,
+    createdAt: stamp,
+    updatedAt: stamp,
+  });
   return id;
 }
 

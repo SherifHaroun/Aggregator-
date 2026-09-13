@@ -62,6 +62,8 @@ function useCustomerMutation<TResult, TInput>(mutationFn: (input: TInput) => Pro
     mutationFn,
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: customerKeys.all });
+      /* A signed-in customer carries their cart count in the session too. */
+      void queryClient.invalidateQueries({ queryKey: ['auth'] });
     },
   });
 }

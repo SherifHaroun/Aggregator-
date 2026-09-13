@@ -13,3 +13,4 @@ export * from './comparison-request';
 export * from './ProviderListLink';
 export * from './usePlanDocument';
 export * from './plan-document';
+export * from './PlanBody';

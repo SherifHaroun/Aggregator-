@@ -11,3 +11,4 @@ export * from './rank.js';
 export * from './plan-presentation.js';
 export * from './import-review.js';
 export * from './customer-cart.js';
+export * from './tiered-results.js';

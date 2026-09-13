@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { HadbrokLogo } from '@/components/ui/HadbrokLogo';
 import { IconClose, IconMenu } from '@/components/ui/icons';
 import { APP_NAME, APP_TAGLINE } from '@/config/navigation';
 import { ROUTES } from '@/config/routes';
+import { useSession, useSignOut } from '@/features/auth/auth.api';
 import { CartButton } from '@/features/customers/CartButton';
 import { HelpWalkthrough } from '@/features/help';
 import { cn } from '@/lib/cn';
@@ -23,6 +24,16 @@ export function AppShell() {
    */
   const [helpOpen, setHelpOpen] = useState(false);
   const { pathname } = useLocation();
+  const session = useSession();
+  const signOut = useSignOut();
+  const navigate = useNavigate();
+  const staffEmail = session.data?.kind === 'admin' ? session.data.email : null;
+
+  /* Signing out lands on the customer site, which is where the door is. */
+  function leave() {
+    signOut();
+    navigate(ROUTES.home);
+  }
 
   // Close the drawer whenever navigation happens, so a tap never leaves it open.
   useEffect(() => setNavOpen(false), [pathname]);
@@ -56,6 +67,7 @@ export function AppShell() {
           <BrandMark />
         </div>
         <SidebarNav onOpenHelp={openHelp} />
+        <SignedInAs email={staffEmail} onSignOut={leave} />
       </aside>
 
       {/* Mobile drawer */}
@@ -80,6 +92,7 @@ export function AppShell() {
               </button>
             </div>
             <SidebarNav onNavigate={() => setNavOpen(false)} onOpenHelp={openHelp} />
+            <SignedInAs email={staffEmail} onSignOut={leave} />
           </aside>
         </div>
       ) : null}
@@ -99,6 +112,29 @@ export function AppShell() {
       </main>
 
       <HelpWalkthrough open={helpOpen} onClose={() => setHelpOpen(false)} />
+    </div>
+  );
+}
+
+/** Who is signed in, and the way out — pinned to the foot of the sidebar. */
+function SignedInAs({ email, onSignOut }: { email: string | null; onSignOut: () => void }) {
+  return (
+    <div className="border-border-subtle bg-sidebar absolute inset-x-0 bottom-0 border-t px-5 py-3">
+      <p className="text-content-subtle truncate text-xs">
+        Signed in as <span className="text-content font-medium">{email ?? 'staff'}</span>
+      </p>
+      <div className="mt-1.5 flex items-center gap-3">
+        <Link to={ROUTES.home} className="text-brand-strong text-xs font-semibold hover:underline">
+          Customer site
+        </Link>
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="text-content-muted hover:text-content text-xs font-semibold hover:underline"
+        >
+          Sign out
+        </button>
+      </div>
     </div>
   );
 }

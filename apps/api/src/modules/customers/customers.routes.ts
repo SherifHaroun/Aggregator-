@@ -1,6 +1,7 @@
-import { Router } from 'express';
-import { success } from '../../lib/api-response.js';
+import { Router, type Request } from 'express';
+import { HttpError, success } from '../../lib/api-response.js';
 import { param } from '../../lib/request.js';
+import { isAdmin, requireAdmin } from '../../middleware/access.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
 import {
   addCartItemSchema,
@@ -24,14 +25,46 @@ import {
 /**
  * Customers and their carts.
  *
- * Mounted behind the write gate like every other data resource: a customer
- * record is the broker's, and a public aggregator has no business reading
- * who rang in.
+ * WHO MAY SEE WHOM. An employee sees everyone. A customer who signed in on
+ * the website sees exactly one record — their own, addressed as `me` — and
+ * may keep plans in, and remove them from, that one cart. Nobody else sees
+ * anything: a customer record is the broker's, and the public site has no
+ * business reading who rang in.
  */
 export const customersRouter: Router = Router();
 
+const ME = 'me';
+
+/** The customer a route is about: the signed-in one for `me`, else the id given. */
+function customerIdOf(req: Request): string {
+  const id = param(req, 'id');
+  if (id !== ME) return id;
+  if (req.auth?.kind !== 'customer') {
+    throw new HttpError(401, 'UNAUTHENTICATED', 'Sign in to see your cart.');
+  }
+  return req.auth.customerId;
+}
+
+/**
+ * The rule, applied once for every `/:id` route: `me` needs a signed-in
+ * customer, anything else needs an employee.
+ */
+customersRouter.param('id', (req, _res, next, id: string) => {
+  if (id === ME) {
+    if (req.auth?.kind === 'customer') return next();
+    return next(new HttpError(401, 'UNAUTHENTICATED', 'Sign in to see your cart.'));
+  }
+  if (isAdmin(req)) return next();
+  next(
+    req.auth
+      ? new HttpError(403, 'FORBIDDEN', 'Only Hadbrok staff can see other customers.')
+      : new HttpError(401, 'UNAUTHENTICATED', 'Sign in as Hadbrok staff to continue.'),
+  );
+});
+
 customersRouter.get(
   '/',
+  requireAdmin,
   asyncHandler(async (req, res) => {
     res.json(success(await listCustomers(listCustomersQuerySchema.parse(req.query))));
   }),
@@ -39,6 +72,7 @@ customersRouter.get(
 
 customersRouter.post(
   '/',
+  requireAdmin,
   asyncHandler(async (req, res) => {
     res.status(201).json(success(await createCustomer(createCustomerSchema.parse(req.body))));
   }),
@@ -47,6 +81,7 @@ customersRouter.post(
 /** Everything waiting in every cart. Declared before `/:id`. */
 customersRouter.get(
   '/cart',
+  requireAdmin,
   asyncHandler(async (_req, res) => {
     res.json(success(await getCartSummary()));
   }),
@@ -55,21 +90,25 @@ customersRouter.get(
 customersRouter.get(
   '/:id',
   asyncHandler(async (req, res) => {
-    res.json(success(await getCustomer(param(req, 'id'))));
+    res.json(success(await getCustomer(customerIdOf(req))));
   }),
 );
 
 customersRouter.patch(
   '/:id',
   asyncHandler(async (req, res) => {
-    res.json(success(await updateCustomer(param(req, 'id'), updateCustomerSchema.parse(req.body))));
+    res.json(
+      success(await updateCustomer(customerIdOf(req), updateCustomerSchema.parse(req.body))),
+    );
   }),
 );
 
+/** Deleting a customer is the broker's call, never the customer's own. */
 customersRouter.delete(
   '/:id',
+  requireAdmin,
   asyncHandler(async (req, res) => {
-    await deleteCustomer(param(req, 'id'));
+    await deleteCustomer(customerIdOf(req));
     res.status(204).send();
   }),
 );
@@ -81,7 +120,7 @@ customersRouter.post(
   asyncHandler(async (req, res) => {
     res
       .status(201)
-      .json(success(await addCartItem(param(req, 'id'), addCartItemSchema.parse(req.body))));
+      .json(success(await addCartItem(customerIdOf(req), addCartItemSchema.parse(req.body))));
   }),
 );
 
@@ -91,7 +130,7 @@ customersRouter.patch(
     res.json(
       success(
         await updateCartItem(
-          param(req, 'id'),
+          customerIdOf(req),
           param(req, 'itemId'),
           updateCartItemSchema.parse(req.body),
         ),
@@ -103,7 +142,7 @@ customersRouter.patch(
 customersRouter.delete(
   '/:id/cart/:itemId',
   asyncHandler(async (req, res) => {
-    await removeCartItem(param(req, 'id'), param(req, 'itemId'));
+    await removeCartItem(customerIdOf(req), param(req, 'itemId'));
     res.status(204).send();
   }),
 );

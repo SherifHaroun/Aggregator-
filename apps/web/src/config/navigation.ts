@@ -43,7 +43,7 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Compare plans',
     to: ROUTES.comparison.new,
     icon: IconSparkle,
-    matchPrefix: '/comparison',
+    matchPrefix: `${ROUTES.dashboard}/comparison`,
   },
   {
     label: 'Customers',

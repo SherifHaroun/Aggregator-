@@ -5,3 +5,4 @@ export * from './configuration.js';
 export * from './insurance.js';
 export * from './plan-import.js';
 export * from './customers.js';
+export * from './auth.js';

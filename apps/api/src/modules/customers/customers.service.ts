@@ -54,6 +54,7 @@ function toCustomerDto(customer: CustomerWithCounts): CustomerDto {
   return {
     id: customer.id,
     name: customer.name,
+    source: customer.source === 'WEBSITE' ? 'WEBSITE' : 'STAFF',
     phone: customer.phone,
     email: customer.email,
     createdAt: toIso(customer.createdAt),

@@ -25,6 +25,11 @@ afterEach(async () => {
 async function startApp(token?: string): Promise<string> {
   if (token === undefined) delete process.env['ADMIN_API_TOKEN'];
   else process.env['ADMIN_API_TOKEN'] = token;
+  /* No staff sign-in either: the internal-only deployment, exactly as it was.
+     Blanked rather than deleted, so a developer's .env cannot fill them back
+     in when dotenv loads. */
+  process.env['ADMIN_EMAIL'] = '';
+  process.env['ADMIN_PASSWORD'] = '';
   vi.resetModules();
   const { createApp } = await import('../src/app.js');
   server = createApp().listen(0);
@@ -55,9 +60,8 @@ const WRITES: [string, string][] = [
   ['POST', '/api/v1/plan-configurations'],
   ['PUT', '/api/v1/plan-options/abc/values'],
   ['POST', '/api/v1/uploads/image'],
-  ['POST', '/api/v1/customers'],
-  ['DELETE', '/api/v1/customers/abc/cart/xyz'],
 ];
+/* Customers are not insurance data: they have their own rules (auth.test.ts). */
 
 describe('with no token configured (today’s internal-only deployment)', () => {
   it('leaves writes working exactly as before', async () => {

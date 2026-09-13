@@ -13,9 +13,13 @@
 import type { CustomerTypeId } from '../config/customer-types.js';
 import type { ComparisonRequestInput } from './comparison-results.js';
 
+/** Who wrote the customer down: an employee, or the customer on the website. */
+export type CustomerSource = 'STAFF' | 'WEBSITE';
+
 export interface CustomerDto {
   id: string;
   name: string;
+  source: CustomerSource;
   /** Optional: a caller may leave no number. */
   phone: string | null;
   /** Optional: a caller may leave no address. */
