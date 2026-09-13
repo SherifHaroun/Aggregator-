@@ -27,6 +27,7 @@ export const createCustomerSchema = z.object({
     .pipe(z.string().email('Enter a valid email address.').nullable())
     .nullable()
     .optional(),
+  companyName: optionalText(200),
 });
 
 export const updateCustomerSchema = createCustomerSchema.partial();

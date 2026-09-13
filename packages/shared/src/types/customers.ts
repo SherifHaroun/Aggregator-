@@ -24,6 +24,8 @@ export interface CustomerDto {
   phone: string | null;
   /** Optional: a caller may leave no address. */
   email: string | null;
+  /** The company they buy for, when they gave one. */
+  companyName: string | null;
   /** ISO 8601. */
   createdAt: string;
   /** ISO 8601. */

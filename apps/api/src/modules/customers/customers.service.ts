@@ -57,6 +57,7 @@ function toCustomerDto(customer: CustomerWithCounts): CustomerDto {
     source: customer.source === 'WEBSITE' ? 'WEBSITE' : 'STAFF',
     phone: customer.phone,
     email: customer.email,
+    companyName: customer.companyName,
     createdAt: toIso(customer.createdAt),
     updatedAt: toIso(customer.updatedAt),
     cartCount: customer.cartItems.length,
@@ -132,7 +133,12 @@ export async function getCustomer(id: string): Promise<CustomerWithCartDto> {
 
 export async function createCustomer(input: CreateCustomerInput): Promise<CustomerDto> {
   const customer = await getPrisma().customer.create({
-    data: { name: input.name, phone: input.phone ?? null, email: input.email ?? null },
+    data: {
+      name: input.name,
+      phone: input.phone ?? null,
+      email: input.email ?? null,
+      companyName: input.companyName ?? null,
+    },
     include: withCounts,
   });
   return toCustomerDto(customer);
@@ -149,6 +155,7 @@ export async function updateCustomer(id: string, input: UpdateCustomerInput): Pr
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.phone !== undefined ? { phone: input.phone } : {}),
       ...(input.email !== undefined ? { email: input.email } : {}),
+      ...(input.companyName !== undefined ? { companyName: input.companyName } : {}),
     },
     include: withCounts,
   });

@@ -34,6 +34,12 @@ export const ROUTES = {
     cart: '/my-cart',
     /** One door for customers and staff alike. */
     login: '/login',
+    /** The broker's own pages: who they are and how to reach them. */
+    about: '/about',
+    services: '/services',
+    regional: '/regional-capabilities',
+    affiliated: '/affiliated-companies',
+    contact: '/contact',
   },
 
   /** The employee area. */

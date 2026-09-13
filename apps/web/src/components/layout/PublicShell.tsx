@@ -5,15 +5,16 @@ import { IconCart, IconClose, IconMenu } from '@/components/ui/icons';
 import { ROUTES } from '@/config/routes';
 import { useCustomerSession, useSession, useSignOut } from '@/features/auth/auth.api';
 import { loginUrl } from '@/features/auth/guards';
-import { cn } from '@/lib/cn';
+import { HOURS, PHONE_MOBILE, PHONE_OFFICE, tel } from '@/pages/public/CompanyPages';
 
 /**
  * THE CUSTOMER SITE'S FRAME.
  *
- * A slim navy bar with the broker's mark, three anchors into the home page,
- * and on the right the two things a visitor needs: their cart, and a way to
- * sign in — or their own name and a way out, once they have. Underneath, the
- * page; at the foot, how to reach the broker.
+ * A slim navy bar with the broker's mark, the compare card and the broker's
+ * own pages, and on the right the two things a visitor needs: their cart,
+ * and a way to sign in — or their own name and a way out, once they have.
+ * Underneath, the page; at the foot, how to reach the broker. Every link
+ * stays on this site: nothing sends a visitor off to the old company site.
  */
 export function PublicShell() {
   const { customer } = useCustomerSession();
@@ -32,8 +33,9 @@ export function PublicShell() {
 
   const links = [
     { label: 'Compare plans', to: `${ROUTES.home}#compare` },
-    { label: 'Services', to: `${ROUTES.home}#services` },
-    { label: 'Contact', to: `${ROUTES.home}#contact` },
+    { label: 'About us', to: ROUTES.public.about },
+    { label: 'Services', to: ROUTES.public.services },
+    { label: 'Contact', to: ROUTES.public.contact },
   ];
 
   return (
@@ -102,7 +104,7 @@ export function PublicShell() {
               </>
             ) : (
               <Link
-                to={loginUrl(pathname)}
+                to={pathname === ROUTES.public.login ? ROUTES.public.login : loginUrl(pathname)}
                 className="bg-accent text-brand-strong rounded-(--radius-control) px-4 py-2 text-sm font-bold shadow-(--shadow-card) transition-transform hover:scale-[1.02]"
               >
                 Log in / Sign up
@@ -152,9 +154,6 @@ export function PublicShell() {
   );
 }
 
-const PHONE_MOBILE = '+20 12 2235 2235';
-const PHONE_OFFICE = '+2 02 3304 4664';
-
 /** How to reach the broker: the same details the company site carries. */
 function SiteFooter() {
   return (
@@ -169,38 +168,33 @@ function SiteFooter() {
         </div>
 
         <FooterColumn title="Our company">
-          <FooterLink href="https://www.hadbrok.com/main/phib">About us</FooterLink>
-          <FooterLink href="https://www.hadbrok.com/main/know">Services</FooterLink>
-          <FooterLink href="https://www.hadbrok.com/main/regional">
-            Regional capabilities
-          </FooterLink>
-          <FooterLink href="https://www.hadbrok.com/main/affiliated_companies">
-            Affiliated companies
-          </FooterLink>
-          <FooterLink href="https://www.hadbrok.com/main/contact_us">
-            Contact us · Careers
-          </FooterLink>
+          <FooterLink to={ROUTES.public.about}>About us</FooterLink>
+          <FooterLink to={ROUTES.public.services}>Services</FooterLink>
+          <FooterLink to={ROUTES.public.regional}>Regional capabilities</FooterLink>
+          <FooterLink to={ROUTES.public.affiliated}>Affiliated companies</FooterLink>
+          <FooterLink to={ROUTES.public.contact}>Contact us</FooterLink>
+          <FooterLink to={`${ROUTES.public.contact}#careers`}>Careers</FooterLink>
         </FooterColumn>
 
         <FooterColumn title="Insurance types">
-          <li className="text-sm text-white/80">Medical · Individual</li>
-          <li className="text-sm text-white/80">Medical · Family</li>
-          <li className="text-sm text-white/80">Medical · SME</li>
-          <li className="text-sm text-white/80">Motor</li>
+          <FooterLink to={`${ROUTES.home}#compare`}>Medical · Individual</FooterLink>
+          <FooterLink to={`${ROUTES.home}#compare`}>Medical · Family</FooterLink>
+          <FooterLink to={`${ROUTES.home}#compare`}>Medical · SME</FooterLink>
+          <li className="text-sm text-white/60">Motor · coming soon</li>
         </FooterColumn>
 
         <FooterColumn title="Get in touch">
           <li>
-            <a href={`tel:${PHONE_MOBILE.replace(/\s/g, '')}`} className={footerLinkClass}>
+            <a href={tel(PHONE_MOBILE)} className={footerLinkClass}>
               {PHONE_MOBILE}
             </a>
           </li>
           <li>
-            <a href={`tel:${PHONE_OFFICE.replace(/\s/g, '')}`} className={footerLinkClass}>
+            <a href={tel(PHONE_OFFICE)} className={footerLinkClass}>
               {PHONE_OFFICE}
             </a>
           </li>
-          <li className="text-sm text-white/80">9am to 5pm, Sunday to Thursday</li>
+          <li className="text-sm text-white/80">{HOURS}</li>
           <li className="flex gap-4 pt-1">
             <a href="https://www.facebook.com/hadbrok" className={footerLinkClass}>
               Facebook
@@ -235,12 +229,12 @@ function FooterColumn({ title, children }: { title: string; children: React.Reac
   );
 }
 
-function FooterLink({ href, children }: { href: string; children: React.ReactNode }) {
+function FooterLink({ to, children }: { to: string; children: React.ReactNode }) {
   return (
     <li>
-      <a href={href} target="_blank" rel="noreferrer" className={cn(footerLinkClass)}>
+      <Link to={to} className={footerLinkClass}>
         {children}
-      </a>
+      </Link>
     </li>
   );
 }

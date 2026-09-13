@@ -74,7 +74,15 @@ function givenAropeSilverOnSale() {
 }
 
 function givenCustomer(id: string, name: string, phone: string | null = null) {
-  store.customers.push({ id, name, source: 'STAFF', phone, email: null, ...timestamps });
+  store.customers.push({
+    id,
+    name,
+    source: 'STAFF',
+    phone,
+    email: null,
+    companyName: null,
+    ...timestamps,
+  });
   return id;
 }
 

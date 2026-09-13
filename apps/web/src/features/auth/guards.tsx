@@ -3,10 +3,9 @@ import { ROUTES } from '@/config/routes';
 import { useSession, useSessionToken } from './auth.api';
 
 /** Where to come back to after signing in: the page that was asked for. */
-export function loginUrl(next: string, options: { staff?: boolean } = {}): string {
+export function loginUrl(next: string): string {
   const params = new URLSearchParams();
   if (next && next !== ROUTES.home) params.set('next', next);
-  if (options.staff) params.set('staff', '1');
   const query = params.toString();
   return `${ROUTES.public.login}${query ? `?${query}` : ''}`;
 }
@@ -37,13 +36,13 @@ function useGate(kind: 'admin' | 'customer') {
   return session.data?.kind === kind ? ('allow' as const) : ('refuse' as const);
 }
 
-/** The employee area: staff only. Anybody else is sent to sign in as staff. */
+/** The employee area: staff only. Anybody else is sent to the door. */
 export function RequireAdmin() {
   const gate = useGate('admin');
   const location = useLocation();
   if (gate === 'checking') return <Checking />;
   if (gate === 'allow') return <Outlet />;
-  return <Navigate to={loginUrl(location.pathname + location.search, { staff: true })} replace />;
+  return <Navigate to={loginUrl(location.pathname + location.search)} replace />;
 }
 
 /** A plan in full, or a cart: the customer's own, so a customer must be signed in. */

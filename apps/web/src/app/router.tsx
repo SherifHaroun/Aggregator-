@@ -20,6 +20,13 @@ import { PlanConfigurationDetailPage } from '@/pages/manage/PlanConfigurationDet
 import { PlanDetailPage } from '@/pages/manage/PlanDetailPage';
 import { PlanImportPage } from '@/pages/manage/PlanImportPage';
 import { PlansPage } from '@/pages/manage/PlansPage';
+import {
+  AboutPage,
+  AffiliatedPage,
+  ContactPage,
+  RegionalPage,
+  ServicesPage,
+} from '@/pages/public/CompanyPages';
 import { HomePage } from '@/pages/public/HomePage';
 import { LoginPage } from '@/pages/public/LoginPage';
 import { MyCartPage } from '@/pages/public/MyCartPage';
@@ -45,6 +52,12 @@ export const routes: RouteObject[] = [
       { index: true, element: <HomePage /> },
       { path: ROUTES.public.results, element: <PublicResultsPage /> },
       { path: ROUTES.public.login, element: <LoginPage /> },
+      /* The broker's own pages: who they are and how to reach them. */
+      { path: ROUTES.public.about, element: <AboutPage /> },
+      { path: ROUTES.public.services, element: <ServicesPage /> },
+      { path: ROUTES.public.regional, element: <RegionalPage /> },
+      { path: ROUTES.public.affiliated, element: <AffiliatedPage /> },
+      { path: ROUTES.public.contact, element: <ContactPage /> },
       {
         element: <RequireCustomer />,
         children: [

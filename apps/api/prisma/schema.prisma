@@ -648,8 +648,15 @@ model Customer {
   name  String
   phone String?
   email String?
-  /** "STAFF" when an employee wrote them down, "WEBSITE" when they signed in. */
+  /** "STAFF" when an employee wrote them down, "WEBSITE" when they signed up. */
   source String @default("STAFF") @db.VarChar(16)
+  /** The company they buy for, when they gave one. */
+  companyName String?
+  /**
+   * Set once they have an account on the website: scrypt, salted, never the
+   * password itself. Null for a caller the broker wrote down who never signed up.
+   */
+  passwordHash String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

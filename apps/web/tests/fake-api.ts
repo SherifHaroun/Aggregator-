@@ -81,6 +81,8 @@ export interface FakeStore {
   importAnswer: { result: ImportedDocument | null; error: string | null };
   /** Who rang in. Counts are worked out from `cartItems` on every read. */
   customers: Omit<CustomerDto, 'cartCount' | 'chosenItemId'>[];
+  /** Who has signed up on the website, and with what — plain here, hashed for real. */
+  passwords: Map<string, string>;
   /** Every comparison kept for every customer, with its running number. */
   cartItems: (CustomerCartItemDto & { nameSequence: number })[];
   /**
@@ -111,6 +113,7 @@ export function createStore(): FakeStore {
     planImports: [],
     importAnswer: { result: null, error: 'No answer was scripted for this import.' },
     customers: [],
+    passwords: new Map(),
     cartItems: [],
     failNext: null,
   };
@@ -240,38 +243,60 @@ function route({
       if (!customer) return fail(401, 'UNAUTHENTICATED', 'Not signed in.');
       return ok({ kind: 'customer', customer: publicCustomer(customer) });
     }
-    if (first === 'admin' && second === 'login' && method === 'POST') {
-      if (body.email === 'info@hadbrok.com' && body.password === 'HADBROK123') {
-        return ok({ token: ADMIN_TOKEN, session: { kind: 'admin', email: 'info@hadbrok.com' } });
-      }
-      return fail(401, 'INVALID_CREDENTIALS', 'That email and password do not match.');
-    }
-    if (first === 'customer' && second === 'login' && method === 'POST') {
-      const name = String(body.name ?? '').trim();
+    if (first === 'login' && method === 'POST') {
       const email = String(body.email ?? '')
         .trim()
         .toLowerCase();
-      const phone = String(body.phone ?? '').trim();
-      if (!name || !email || !phone) {
-        return fail(400, 'VALIDATION_ERROR', 'Enter your name, email and phone number.');
+      const password = String(body.password ?? '');
+      if (email === 'info@hadbrok.com' && password === 'HADBROK123') {
+        return ok({ token: ADMIN_TOKEN, session: { kind: 'admin', email } });
       }
-      let customer = store.customers.find((row) => (row.email ?? '').toLowerCase() === email);
-      if (!customer) {
-        customer = {
-          id: id('customer'),
-          name,
-          phone,
-          email,
-          source: 'WEBSITE',
-          createdAt: now(),
-          updatedAt: now(),
-        };
-        store.customers.push(customer);
+      const customer = store.customers.find((row) => (row.email ?? '').toLowerCase() === email);
+      if (!customer || !password || store.passwords.get(customer.id) !== password) {
+        return fail(401, 'INVALID_CREDENTIALS', 'That email and password do not match.');
       }
       return ok({
         token: customerToken(customer.id),
         session: { kind: 'customer', customer: publicCustomer(customer) },
       });
+    }
+    if (first === 'signup' && method === 'POST') {
+      const name = String(body.name ?? '').trim();
+      const email = String(body.email ?? '')
+        .trim()
+        .toLowerCase();
+      const password = String(body.password ?? '');
+      const companyName = String(body.companyName ?? '').trim() || null;
+      if (!name || !email || password.length < 8) {
+        return fail(400, 'VALIDATION_ERROR', 'Enter your name, email and a password.');
+      }
+      let customer = store.customers.find((row) => (row.email ?? '').toLowerCase() === email);
+      if (customer && store.passwords.has(customer.id)) {
+        return fail(409, 'ACCOUNT_EXISTS', 'That email already has an account. Log in instead.');
+      }
+      if (!customer) {
+        customer = {
+          id: id('customer'),
+          name,
+          phone: null,
+          email,
+          companyName,
+          source: 'WEBSITE',
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        store.customers.push(customer);
+      } else if (companyName && !customer.companyName) {
+        customer.companyName = companyName;
+      }
+      store.passwords.set(customer.id, password);
+      return ok(
+        {
+          token: customerToken(customer.id),
+          session: { kind: 'customer', customer: publicCustomer(customer) },
+        },
+        201,
+      );
     }
     return null;
   }
@@ -1054,6 +1079,7 @@ function route({
       const customer = {
         id: id('customer'),
         name,
+        companyName: (body.companyName as string | null | undefined) ?? null,
         source: 'STAFF' as const,
         phone: (body.phone as string | null | undefined) ?? null,
         email: (body.email as string | null | undefined) ?? null,

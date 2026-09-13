@@ -15,6 +15,7 @@ export function givenAnyCustomer(store: FakeStore, id = 'customer_test', name = 
     source: 'STAFF',
     phone: null,
     email: null,
+    companyName: null,
     createdAt: stamp,
     updatedAt: stamp,
   });

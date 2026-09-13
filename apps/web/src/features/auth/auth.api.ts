@@ -7,12 +7,7 @@
  * dropped quietly, and the visitor is simply nobody again.
  */
 
-import type {
-  AdminLoginInput,
-  CustomerLoginInput,
-  LoginResultDto,
-  SessionDto,
-} from '@aggregator/shared';
+import type { LoginInput, LoginResultDto, SessionDto, SignUpInput } from '@aggregator/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useSyncExternalStore } from 'react';
 import { ApiError, api } from '@/lib/api-client';
@@ -62,7 +57,7 @@ export function useCustomerSession() {
   };
 }
 
-function useSignIn<TInput>(path: string) {
+function useEnter<TInput>(path: string) {
   const queryClient = useQueryClient();
   return useMutation<LoginResultDto, unknown, TInput>({
     mutationFn: (input) => api.post<LoginResultDto>(path, input),
@@ -75,12 +70,14 @@ function useSignIn<TInput>(path: string) {
   });
 }
 
-export function useAdminSignIn() {
-  return useSignIn<AdminLoginInput>('/auth/admin/login');
+/** One door: email and password, and the server says who they are. */
+export function useSignIn() {
+  return useEnter<LoginInput>('/auth/login');
 }
 
-export function useCustomerSignIn() {
-  return useSignIn<CustomerLoginInput>('/auth/customer/login');
+/** A new customer: name, email, password, and the company they buy for. */
+export function useSignUp() {
+  return useEnter<SignUpInput>('/auth/signup');
 }
 
 export function useSignOut() {

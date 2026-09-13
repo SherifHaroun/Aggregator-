@@ -98,7 +98,8 @@ function CustomerCard({ customer }: { customer: CustomerDto }) {
         <div className="min-w-0 flex-1">
           <p className="text-content truncate text-base font-semibold">{customer.name}</p>
           <p className="text-content-muted mt-0.5 truncate text-sm">
-            {[customer.phone, customer.email].filter(Boolean).join(' · ') || 'No contact details'}
+            {[customer.companyName, customer.phone, customer.email].filter(Boolean).join(' · ') ||
+              'No contact details'}
           </p>
         </div>
       </div>

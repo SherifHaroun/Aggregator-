@@ -2,23 +2,27 @@ import { Router } from 'express';
 import { HttpError, success } from '../../lib/api-response.js';
 import { asyncHandler } from '../../middleware/async-handler.js';
 import { getCustomer } from '../customers/customers.service.js';
-import { adminLoginSchema, customerLoginSchema } from './auth.schemas.js';
-import { signInAdmin, signInCustomer } from './auth.service.js';
+import { loginSchema, signUpSchema } from './auth.schemas.js';
+import { signIn, signUp } from './auth.service.js';
 
 /**
- * Sign in, and ask who is signed in. Mounted before every gate: signing in
- * is how a caller becomes somebody the gates let through.
+ * Sign in, sign up, and ask who is signed in. Mounted before every gate:
+ * signing in is how a caller becomes somebody the gates let through.
  */
 export const authRouter: Router = Router();
 
-authRouter.post('/admin/login', (req, res) => {
-  res.json(success(signInAdmin(adminLoginSchema.parse(req.body))));
-});
+/** One door: the broker's account and every customer sign in here. */
+authRouter.post(
+  '/login',
+  asyncHandler(async (req, res) => {
+    res.json(success(await signIn(loginSchema.parse(req.body))));
+  }),
+);
 
 authRouter.post(
-  '/customer/login',
+  '/signup',
   asyncHandler(async (req, res) => {
-    res.json(success(await signInCustomer(customerLoginSchema.parse(req.body))));
+    res.status(201).json(success(await signUp(signUpSchema.parse(req.body))));
   }),
 );
 

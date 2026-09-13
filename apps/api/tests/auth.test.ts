@@ -1,12 +1,12 @@
 /**
  * SIGNING IN, and what a session lets you reach.
  *
- * An employee signs in with the configured email and password and may see
- * every customer. A customer signs in with who they are and sees only
- * themselves, as `me`. Nobody signed in sees anybody.
+ * ONE DOOR: everybody gives an email and a password. The configured account
+ * comes out as the employee and may see every customer; anybody else is a
+ * customer who sees only themselves, as `me`. Nobody signed in sees anybody.
  *
- * The customer sign-in itself writes to the database, so that part runs only
- * with `TEST_DATABASE_URL`; everything about tokens and gates runs anywhere.
+ * Signing up and signing in as a customer write to the database, so that
+ * part runs only with `TEST_DATABASE_URL`; tokens and gates run anywhere.
  */
 
 import type { AddressInfo } from 'node:net';
@@ -86,19 +86,19 @@ describe('staff sign-in', () => {
     const base = await startApp(STAFF);
 
     const wrong = await fetch(
-      `${base}/api/v1/auth/admin/login`,
+      `${base}/api/v1/auth/login`,
       json({ email: 'info@hadbrok.com', password: 'nope' }),
     );
     expect(wrong.status).toBe(401);
 
     const other = await fetch(
-      `${base}/api/v1/auth/admin/login`,
+      `${base}/api/v1/auth/login`,
       json({ email: 'someone@else.com', password: 'pw-for-tests' }),
     );
     expect(other.status).toBe(401);
 
     const right = await fetch(
-      `${base}/api/v1/auth/admin/login`,
+      `${base}/api/v1/auth/login`,
       json({ email: 'INFO@hadbrok.com', password: 'pw-for-tests' }),
     );
     expect(right.status).toBe(200);
@@ -117,13 +117,13 @@ describe('staff sign-in', () => {
     expect(customers.status).not.toBe(403);
   });
 
-  it('says so when no staff account is configured', async () => {
+  it('treats the broker’s email as nobody special when no staff account is configured', async () => {
     const base = await startApp({});
     const response = await fetch(
-      `${base}/api/v1/auth/admin/login`,
+      `${base}/api/v1/auth/login`,
       json({ email: 'info@hadbrok.com', password: 'anything' }),
     );
-    expect(response.status).toBe(503);
+    expect(response.status).toBe(401);
   });
 });
 
@@ -181,27 +181,52 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-describe.skipIf(!url)('customer sign-in', () => {
-  it('writes a new customer down from the website, and finds them again next time', async () => {
+describe.skipIf(!url)('customer sign-up and sign-in', () => {
+  it('writes a new customer down from the website, and lets them back in with their password', async () => {
     const base = await startApp(STAFF);
     const email = `${PREFIX.toLowerCase()}@example.com`;
 
-    const first = await fetch(
-      `${base}/api/v1/auth/customer/login`,
-      json({ name: `${PREFIX} Mona`, email: email.toUpperCase(), phone: '0100 123 4567' }),
+    const created = await fetch(
+      `${base}/api/v1/auth/signup`,
+      json({
+        name: `${PREFIX} Mona`,
+        email: email.toUpperCase(),
+        password: 'a-good-password',
+        companyName: 'Mona Trading',
+      }),
     );
-    expect(first.status).toBe(200);
-    const { data } = (await first.json()) as {
-      data: { token: string; session: { kind: string; customer: { id: string; source: string } } };
+    expect(created.status).toBe(201);
+    const { data } = (await created.json()) as {
+      data: {
+        token: string;
+        session: {
+          kind: string;
+          customer: { id: string; source: string; companyName: string | null; email: string };
+        };
+      };
     };
     expect(data.session.kind).toBe('customer');
-    expect(data.session.customer.source).toBe('WEBSITE');
+    expect(data.session.customer).toMatchObject({
+      source: 'WEBSITE',
+      companyName: 'Mona Trading',
+      email,
+    });
 
-    /** The same address again is the same person, however it is spelt. */
-    const again = await fetch(
-      `${base}/api/v1/auth/customer/login`,
-      json({ name: `${PREFIX} Mona A.`, email, phone: '01001234567' }),
+    /** The same email cannot sign up twice. */
+    const twice = await fetch(
+      `${base}/api/v1/auth/signup`,
+      json({ name: 'Mona', email, password: 'another-password' }),
     );
+    expect(twice.status).toBe(409);
+
+    /** Back in with the right password, however the email is spelt; not with the wrong one. */
+    const wrong = await fetch(`${base}/api/v1/auth/login`, json({ email, password: 'nope' }));
+    expect(wrong.status).toBe(401);
+    const again = await fetch(
+      `${base}/api/v1/auth/login`,
+      json({ email: email.toUpperCase(), password: 'a-good-password' }),
+    );
+    expect(again.status).toBe(200);
     const second = (await again.json()) as { data: { session: { customer: { id: string } } } };
     expect(second.data.session.customer.id).toBe(data.session.customer.id);
 
@@ -212,23 +237,33 @@ describe.skipIf(!url)('customer sign-in', () => {
     expect(me.status).toBe(200);
     expect(((await me.json()) as { data: { id: string } }).data.id).toBe(data.session.customer.id);
 
-    /** A staff-written customer who signs in is matched by phone and completed. */
+    /** A customer the broker wrote down cannot log in until they sign up... */
+    const omarEmail = `${PREFIX.toLowerCase()}.omar@example.com`;
     const written = await prisma!.customer.create({
-      data: { name: `${PREFIX} Omar`, phone: '0111 222 3333' },
+      data: { name: `${PREFIX} Omar`, phone: '0111 222 3333', email: omarEmail },
     });
-    const omar = await fetch(
-      `${base}/api/v1/auth/customer/login`,
-      json({
-        name: 'Omar',
-        email: `${PREFIX.toLowerCase()}.omar@example.com`,
-        phone: '01112223333',
-      }),
+    const early = await fetch(
+      `${base}/api/v1/auth/login`,
+      json({ email: omarEmail, password: 'omar-password' }),
     );
+    expect(early.status).toBe(401);
+
+    /** ...and signing up gives THAT record the password rather than writing a second Omar. */
+    const omar = await fetch(
+      `${base}/api/v1/auth/signup`,
+      json({ name: 'Omar', email: omarEmail, password: 'omar-password' }),
+    );
+    expect(omar.status).toBe(201);
     const matched = (await omar.json()) as {
-      data: { session: { customer: { id: string; email: string | null; source: string } } };
+      data: { session: { customer: { id: string; source: string; phone: string | null } } };
     };
     expect(matched.data.session.customer.id).toBe(written.id);
-    expect(matched.data.session.customer.email).toBe(`${PREFIX.toLowerCase()}.omar@example.com`);
     expect(matched.data.session.customer.source).toBe('STAFF');
+    expect(matched.data.session.customer.phone).toBe('0111 222 3333');
+
+    /** Passwords are never stored as given. */
+    const row = await prisma!.customer.findUnique({ where: { id: written.id } });
+    expect(row?.passwordHash).toMatch(/^scrypt\$/);
+    expect(row?.passwordHash).not.toContain('omar-password');
   });
 });

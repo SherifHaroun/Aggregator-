@@ -189,13 +189,21 @@ function Services() {
           <h2 className="text-brand-strong text-3xl font-extrabold tracking-tight uppercase">
             Services
           </h2>
-          <p className="border-brand text-content max-w-3xl border-l-4 pl-5 text-base leading-relaxed sm:text-lg">
-            Hadbrok has been involved in the Egyptian market since 1982 as Paul Haddad Insurance
-            Brokerage. It is Egypt’s leading insurance broker, working with the public and private
-            sector — from private individuals to large conglomerates. Our objective is to make sure
-            you understand your risk exposure and buy the required insurance, optimising your buying
-            power and protection.
-          </p>
+          <div className="border-brand max-w-3xl border-l-4 pl-5">
+            <p className="text-content text-base leading-relaxed sm:text-lg">
+              Hadbrok has been involved in the Egyptian market since 1982 as Paul Haddad Insurance
+              Brokerage. It is Egypt’s leading insurance broker, working with the public and private
+              sector — from private individuals to large conglomerates. Our objective is to make
+              sure you understand your risk exposure and buy the required insurance, optimising your
+              buying power and protection.
+            </p>
+            <Link
+              to={ROUTES.public.services}
+              className="text-brand mt-4 inline-flex items-center gap-1 text-sm font-semibold hover:underline"
+            >
+              Everything we manage for you →
+            </Link>
+          </div>
         </div>
 
         <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">

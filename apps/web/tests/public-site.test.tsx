@@ -2,10 +2,11 @@
  * THE CUSTOMER SITE.
  *
  * A visitor lands on the home page, compares, and sees the best three plans
- * in each tier. Opening one asks them to sign in with their name, email and
- * phone; that writes them down as a customer the employees can see, sends
- * them on to the plan, and what they save is in their cart — and in the
- * admin's. The admin area itself is behind a staff sign-in.
+ * in each tier. Opening one asks them to log in — or sign up with a name, an
+ * email, a password and their company; that writes them down as a customer
+ * the employees can see, sends them on to the plan, and what they save is in
+ * their cart — and in the admin's. The admin area is behind the same door:
+ * the broker's own email and password come out as staff.
  *
  * Every test starts from an EMPTY store, signed in as nobody unless said.
  */
@@ -91,18 +92,43 @@ describe('the front door', () => {
     expect(screen.queryByRole('link', { name: 'Customers' })).not.toBeInTheDocument();
   });
 
-  it('keeps the admin area behind a staff sign-in, and lets staff through', async () => {
+  it('keeps the admin area behind the door, and lets the broker’s account through', async () => {
     const user = userEvent.setup();
     renderApp(ROUTES.customers.list, 'anonymous');
-    expect(await screen.findByRole('heading', { name: 'Employee sign in' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText(/Work email/), 'info@hadbrok.com');
+    await user.type(screen.getByLabelText(/^Email/), 'info@hadbrok.com');
     await user.type(screen.getByLabelText(/^Password/), 'HADBROK123');
-    await user.click(screen.getByRole('button', { name: /Sign in to the admin area/ }));
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
 
     /* On to the page that was asked for, inside the admin shell. */
     expect(await screen.findByRole('heading', { name: 'Customers' })).toBeInTheDocument();
     expect(screen.getAllByText(/Signed in as/).length).toBeGreaterThan(0);
+  });
+
+  it('keeps every company page on this site', async () => {
+    const user = userEvent.setup();
+    renderApp(ROUTES.home, 'anonymous');
+    await screen.findByRole('heading', { level: 1, name: /Confused\?/ });
+
+    const footer = within(screen.getByRole('contentinfo'));
+    for (const link of footer.getAllByRole('link')) {
+      expect(link).not.toHaveAttribute('href', expect.stringContaining('hadbrok.com/'));
+    }
+
+    await user.click(footer.getByRole('link', { name: 'About us' }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /insurance broker since 1982/ }),
+    ).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole('contentinfo')).getByRole('link', { name: 'Services' }),
+    );
+    expect(await screen.findByRole('heading', { level: 1, name: /Know-how/ })).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole('contentinfo')).getByRole('link', { name: 'Contact us' }),
+    );
+    expect(await screen.findByRole('heading', { name: 'Careers' })).toBeInTheDocument();
+    expect(screen.getByText(/licence no\. 17/)).toBeInTheDocument();
   });
 
   it('turns a customer away from the admin area', async () => {
@@ -119,6 +145,7 @@ function givenCustomerOnRecord(id: string, name: string) {
     source: 'WEBSITE',
     phone: '0100 000 0000',
     email: `${id}@example.com`,
+    companyName: null,
     ...timestamps,
   });
 }
@@ -153,16 +180,20 @@ describe('comparing as a visitor', () => {
     expect(open).toHaveTextContent('Sign in to view details');
     expect(open).toHaveAttribute('href', expect.stringContaining(`${ROUTES.public.login}?next=`));
     await user.click(open);
-    expect(await screen.findByRole('heading', { name: 'Welcome to Hadbrok' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
 
-    /** Name, email, phone — and they are on record for the employees, from the website. */
+    /** No account yet: name, email, a password and the company — and they are on record for the employees, from the website. */
+    await user.click(screen.getByRole('tab', { name: 'Sign up' }));
     await user.type(screen.getByLabelText(/Full name/), 'Mona Adel');
     await user.type(screen.getByLabelText(/^Email/), 'mona@example.com');
-    await user.type(screen.getByLabelText(/Phone number/), '0100 123 4567');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.type(screen.getByLabelText(/^Password/), 'mona-secret-1');
+    await user.type(screen.getByLabelText(/Company name/), 'Mona Trading');
+    await user.click(screen.getByRole('button', { name: 'Create account' }));
 
     await waitFor(() =>
-      expect(store.customers.map((c) => [c.name, c.source])).toEqual([['Mona Adel', 'WEBSITE']]),
+      expect(store.customers.map((c) => [c.name, c.source, c.companyName])).toEqual([
+        ['Mona Adel', 'WEBSITE', 'Mona Trading'],
+      ]),
     );
 
     /** Straight on to the plan they chose, in full. */
@@ -185,6 +216,29 @@ describe('comparing as a visitor', () => {
     expect(await screen.findByRole('heading', { name: /Mona Adel’s plans/ })).toBeInTheDocument();
     expect(screen.getByText('Arope Individual 1')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Choose this plan/ })).toBeInTheDocument();
+  });
+
+  it('lets a customer back in with their email and password', async () => {
+    const user = userEvent.setup();
+    givenPlan('gold', 'Gold', 150_000, 5_000);
+    givenCustomerOnRecord('customer_mona', 'Mona Adel');
+    store.passwords.set('customer_mona', 'mona-secret-1');
+
+    renderApp(`${ROUTES.public.login}?next=${encodeURIComponent(results)}`, 'anonymous');
+    await screen.findByRole('heading', { name: 'Welcome back' });
+    await user.type(screen.getByLabelText(/^Email/), 'CUSTOMER_MONA@example.com');
+    await user.type(screen.getByLabelText(/^Password/), 'wrong');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    expect(await screen.findByText(/do not match/)).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText(/^Password/));
+    await user.type(screen.getByLabelText(/^Password/), 'mona-secret-1');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+    /** Back where they were headed, and known: the plan opens without another door. */
+    await screen.findByRole('heading', { level: 1, name: /best plans? for you/ });
+    expect(screen.getByRole('link', { name: 'View details for Gold' })).toHaveTextContent(
+      'View details',
+    );
   });
 
   it('opens a plan straight away for a customer who is already signed in', async () => {

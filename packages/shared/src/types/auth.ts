@@ -1,26 +1,29 @@
 /**
  * API contracts for SIGNING IN.
  *
- * Two kinds of people use the site. An EMPLOYEE signs in with the broker's
- * email and password and reaches the admin area. A CUSTOMER signs in with
- * their name, email and phone number — no password: the site is a shop
- * window, and a caller who has to invent a password to read a plan walks
- * away. The customer record that creates is the same one the employees see
- * in the admin's Customers page, so what a customer keeps in their cart is
- * what the broker calls them about.
+ * ONE DOOR. Everybody signs in the same way — an email and a password — and
+ * the server says who they turned out to be. The broker's own account
+ * (configured on the server, never in the database) comes back as `admin`
+ * and reaches the employee area; anybody else is a customer, whose record
+ * is the same one the employees see in the admin's Customers page, so what
+ * they keep in their cart is what the broker calls them about.
+ *
+ * A customer without an account SIGNS UP first: their name, email, a
+ * password of their choosing, and the company they buy for if any.
  */
 
 import type { CustomerDto } from './customers.js';
 
-export interface AdminLoginInput {
+export interface LoginInput {
   email: string;
   password: string;
 }
 
-export interface CustomerLoginInput {
+export interface SignUpInput {
   name: string;
   email: string;
-  phone: string;
+  password: string;
+  companyName?: string | null;
 }
 
 export type SessionDto =

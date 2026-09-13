@@ -753,20 +753,28 @@ one React app (`apps/web`) reading one API and one database, so a plan or a
 company an employee publishes is on the customer site the moment it is saved.
 
 **Signing in** (`apps/api/src/modules/auth/`, `apps/web/src/features/auth/`).
-A session is a signed token — the kind of session, the subject, an expiry,
-HMAC-SHA256 under `SESSION_SECRET` — carried as `Authorization: Bearer` on
-every request and kept in `localStorage` (`lib/session-store.ts`). Nothing is
-stored server-side. `readSession` reads it on every request into `req.auth`.
+ONE DOOR: everybody gives an email and a password to `POST /auth/login`,
+and the server says who they turned out to be. A session is a signed token —
+the kind of session, the subject, an expiry, HMAC-SHA256 under
+`SESSION_SECRET` — carried as `Authorization: Bearer` on every request and
+kept in `localStorage` (`lib/session-store.ts`). Nothing is stored
+server-side. `readSession` reads it on every request into `req.auth`.
 
-- _Staff_ sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from the API's
-  environment (`POST /auth/admin/login`) — never from the database, never
-  from the code. Both must be set on Railway as well as locally.
-- _Customers_ sign in with their name, email and phone number and NO
-  password (`POST /auth/customer/login`): the customer already on record is
-  matched by email, then by phone digits; otherwise a new one is written down
-  with `source = "WEBSITE"`, which the admin's Customers page shows as
-  "From website". Either way it is the same `Customer` row and the same cart
-  the employees see.
+- If the email is `ADMIN_EMAIL` from the API's environment, the password is
+  checked against `ADMIN_PASSWORD` — never from the database, never from
+  the code — and the session is the employee's. Both must be set on Railway
+  as well as locally.
+- Otherwise the email is looked up among the customers and the password
+  checked against the scrypt hash on their record (`passwordHash`, salted,
+  never the password itself). A customer without one — a caller the broker
+  wrote down, or a record from before passwords — cannot log in until they
+  sign up.
+- A newcomer signs up (`POST /auth/signup`) with their name, email, a
+  password and the company they buy for (`companyName`). A record already
+  on file under that email is not written twice: it simply gains the
+  password. A new one is written down with `source = "WEBSITE"`, which the
+  admin's Customers page shows as "From website". Either way it is the same
+  `Customer` row and the same cart the employees see.
 - `GET /auth/session` says who the token belongs to; the web client asks on
   every page load (`useSession`) and drops a token the API rejects.
 
@@ -783,6 +791,13 @@ plan in full and the cart; either sends a stranger to `/login` with `next=`
 the page they wanted, and a token whose check merely failed (the API not
 answering) is let through so the page shows its own error.
 
+**The broker's own pages** (`pages/public/CompanyPages.tsx`). About us,
+Services, Regional capabilities, Affiliated companies and Contact us ·
+Careers are pages of THIS site, written from what the old company site
+said, in this site's frame. Nothing in the header or footer sends a
+visitor off to hadbrok.com: the phone numbers, the licence and the address
+are constants in that one file, and the footer reads them from there.
+
 **The customer's comparison** (`features/public/QuickCompareForm.tsx`,
 `pages/public/PublicResultsPage.tsx`). The compare card asks who is being
 insured, the age (or the workforce, or the youngest and eldest — the same
@@ -792,7 +807,7 @@ ranked list read through `topPlansByTier` (`packages/shared/src/rules/
 tiered-results.ts`): up to three plans per tier — Basic, Standard, Premium,
 read off the annual limit as everywhere else — in the engine's order, the
 first in each tier flagged as its best value. Opening a plan requires a
-customer sign-in; the plan page (`PublicPlanPage`) shares `PlanBody` with the
+customer to be logged in; the plan page (`PublicPlanPage`) shares `PlanBody` with the
 employee's page, so the figures, the bands, the benefits and the PDF (named
 for the customer) are identical, and "Save to my cart" writes to
 `/customers/me/cart`. `MyCartPage` is `CartItemList` with

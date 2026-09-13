@@ -119,6 +119,7 @@ export function CustomerDetailPage() {
                       { label: 'Name', value: data.name },
                       { label: 'Phone number', value: data.phone ?? 'Not given' },
                       { label: 'Email', value: data.email ?? 'Not given' },
+                      { label: 'Company', value: data.companyName ?? 'Not given' },
                       {
                         label: 'Chosen plan',
                         value: chosen ? (
