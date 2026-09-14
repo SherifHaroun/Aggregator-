@@ -199,6 +199,20 @@ export const IconCollapse = (props: SVGProps<SVGSVGElement>) => (
   </svg>
 );
 
+/** Stop something that moves on its own. */
+export const IconPause = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M7.5 5v10M12.5 5v10" />
+  </Icon>
+);
+
+/** Set it moving again. */
+export const IconPlay = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M6.5 4.5v11l9-5.5z" />
+  </Icon>
+);
+
 /** Saving something to keep — a plan document. */
 export function IconDownload({ className }: { className?: string }) {
   return (

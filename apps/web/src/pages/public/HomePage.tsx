@@ -5,6 +5,7 @@ import { IconCheck, IconGlobe, IconLayers, IconShield, IconSparkle } from '@/com
 import { ROUTES } from '@/config/routes';
 import { useSession } from '@/features/auth/auth.api';
 import { loginUrl } from '@/features/auth/guards';
+import { ClientCarousel } from '@/features/public/ClientCarousel';
 import { useCompanies } from '@/features/insurance-data/insurance-data.api';
 import { QuickCompareForm } from '@/features/public/QuickCompareForm';
 
@@ -15,7 +16,7 @@ import { QuickCompareForm } from '@/features/public/QuickCompareForm';
  * done for real: the compare card runs the same engine the employees use,
  * against the same plans, and the three steps on the left are literally the
  * three steps. Below it, what the broker does, who it compares, and how to
- * get hold of a person.
+ * get hold of a person — and, last, the companies that already do.
  */
 export function HomePage() {
   return (
@@ -25,6 +26,7 @@ export function HomePage() {
       <Insurers />
       <Services />
       <FindAnAgent />
+      <ClientCarousel />
     </>
   );
 }
