@@ -792,8 +792,10 @@ describe('empty states', () => {
     renderApp(ROUTES.dashboard);
 
     expect(await screen.findByText('Could not load the overview')).toBeInTheDocument();
-    expect(screen.getByText(/cannot reach the server/i)).toBeInTheDocument();
+    // The overview and the offers card each say so, neither pretending it is empty.
+    expect(screen.getAllByText(/cannot reach the server/i).length).toBeGreaterThan(0);
     expect(screen.queryByText('There is nothing to compare yet')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nobody has a plan in their cart yet/)).not.toBeInTheDocument();
     // Counts read as unknown rather than a misleading zero.
     expect(screen.queryByText('0')).not.toBeInTheDocument();
   });

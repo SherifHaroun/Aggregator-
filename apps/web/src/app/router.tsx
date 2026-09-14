@@ -16,6 +16,7 @@ import { CustomersPage } from '@/pages/manage/CustomersPage';
 import { BenefitsPage } from '@/pages/manage/BenefitsPage';
 import { PlanTiersPage } from '@/pages/manage/PlanTiersPage';
 import { MedicalNetworksPage } from '@/pages/manage/MedicalNetworksPage';
+import { OffersRequestedPage } from '@/pages/manage/OffersRequestedPage';
 import { PlanConfigurationDetailPage } from '@/pages/manage/PlanConfigurationDetailPage';
 import { PlanDetailPage } from '@/pages/manage/PlanDetailPage';
 import { PlanImportPage } from '@/pages/manage/PlanImportPage';
@@ -92,6 +93,8 @@ export const routes: RouteObject[] = [
           /* Who rang in, and the comparisons kept for each of them. */
           { path: ROUTES.customers.list, element: <CustomersPage /> },
           { path: ROUTE_PATTERNS.customerDetail, element: <CustomerDetailPage /> },
+          /* Everyone with a plan in their cart, spread out in full. */
+          { path: ROUTES.offers.list, element: <OffersRequestedPage /> },
 
           { path: ROUTES.comparison.new, element: <NewComparisonPage /> },
           { path: ROUTES.comparison.results, element: <ComparisonResultsPage /> },

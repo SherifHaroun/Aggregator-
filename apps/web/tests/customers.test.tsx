@@ -314,3 +314,102 @@ describe('the cart on the customer page', () => {
     expect(screen.getByText(/1 comparison in the cart/)).toBeInTheDocument();
   });
 });
+
+describe('offers requested', () => {
+  /** Mona has two plans kept, one linked and one with a note; Omar has none. */
+  function givenMonaWithOffersAndOmarWithout() {
+    givenAropeSilverOnSale();
+    givenCustomer('customer_mona', 'Mona Adel', '0100 123 4567');
+    store.customers[0]!.email = 'mona@example.com';
+    store.customers[0]!.companyName = 'Nile Trading Co.';
+    store.customers[0]!.source = 'WEBSITE';
+    givenCartItem('customer_mona', 1, 'Wants a private room');
+    givenCartItem('customer_mona', 2);
+    store.cartItems[1]!.isChosen = true;
+    store.cartItems[1]!.chosenAt = new Date(3 * 60_000).toISOString();
+    givenCustomer('customer_omar', 'Omar Said');
+  }
+
+  it('counts the customers with a plan in their cart on the dashboard, by name and company', async () => {
+    givenMonaWithOffersAndOmarWithout();
+    renderApp(ROUTES.dashboard);
+
+    const card = await screen.findByTestId('offers-requested');
+    expect(within(card).getByRole('heading', { name: 'Offers requested' })).toBeInTheDocument();
+    /** One customer — whoever filled the cart — and two plans between them. */
+    expect(
+      await within(card).findByRole('link', { name: '1 customer has requested an offer' }),
+    ).toHaveTextContent(/1\s*customer · 2 plans in carts/);
+    const rows = within(card).getByRole('list', { name: 'Customers with offers requested' });
+    expect(within(rows).getByText('Mona Adel')).toBeInTheDocument();
+    expect(within(rows).getByText('Nile Trading Co.')).toBeInTheDocument();
+    expect(within(rows).getByText('2 plans')).toBeInTheDocument();
+    expect(within(rows).getByText('Linked')).toBeInTheDocument();
+    /** An empty cart is not an offer. */
+    expect(within(card).queryByText('Omar Said')).not.toBeInTheDocument();
+  });
+
+  it('says so when nobody has asked for anything, and does not mistake a failure for that', async () => {
+    givenCustomer('customer_omar', 'Omar Said');
+    renderApp(ROUTES.dashboard);
+    const card = await screen.findByTestId('offers-requested');
+    expect(
+      await within(card).findByText(/Nobody has a plan in their cart yet/),
+    ).toBeInTheDocument();
+    expect(
+      within(card).getByRole('link', { name: '0 customers have requested an offer' }),
+    ).toHaveTextContent(/0\s*customers · 0 plans in carts/);
+  });
+
+  it('opens onto every customer in full — details, notes, plans, the linked one — and leads to their record', async () => {
+    const user = userEvent.setup();
+    givenMonaWithOffersAndOmarWithout();
+    renderApp(ROUTES.dashboard);
+
+    const card = await screen.findByTestId('offers-requested');
+    await user.click(await within(card).findByRole('link', { name: /See all offers/ }));
+    await screen.findByRole('heading', { name: 'Offers requested', level: 1 });
+    expect(screen.getByText(/1 customer with 2 plans in their carts/)).toBeInTheDocument();
+
+    /** One card per customer with something in their cart; Omar has nothing. */
+    const offers = await screen.findAllByTestId('offer');
+    expect(offers).toHaveLength(1);
+    const mona = within(offers[0]!);
+    expect(mona.getByRole('heading', { name: 'Mona Adel' })).toBeInTheDocument();
+    /** The company is under the name and again among the details. */
+    expect(mona.getAllByText('Nile Trading Co.')).toHaveLength(2);
+    expect(mona.getByText('0100 123 4567')).toBeInTheDocument();
+    expect(mona.getByText('mona@example.com')).toBeInTheDocument();
+    /** The note: once among the details, once under the plan it was written on. */
+    expect(mona.getAllByText('Wants a private room', { exact: false })).toHaveLength(2);
+    expect(screen.queryByText('Omar Said')).not.toBeInTheDocument();
+
+    /** Both plans, in order, and the linked one marked as such. */
+    const plans = mona.getByRole('list', { name: 'Mona Adel’s cart' });
+    const rows = within(plans).getAllByRole('listitem');
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]!).getByText('Arope Individual 1')).toBeInTheDocument();
+    expect(within(rows[1]!).getByText('Linked to customer')).toBeInTheDocument();
+    expect(within(rows[0]!).queryByText('Linked to customer')).not.toBeInTheDocument();
+    expect(mona.getByText('Arope Individual 2', { selector: 'span' })).toBeInTheDocument();
+
+    /** The door to the customer's record, where they are edited or deleted. */
+    await user.click(mona.getByRole('link', { name: /Go to customer data/ }));
+    expect(await screen.findByRole('heading', { name: 'Mona Adel', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Edit customer/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Delete/ })).toBeInTheDocument();
+  });
+
+  it('is reached from one row of the dashboard card, opening on that customer', async () => {
+    const user = userEvent.setup();
+    givenMonaWithOffersAndOmarWithout();
+    renderApp(ROUTES.dashboard);
+
+    const card = await screen.findByTestId('offers-requested');
+    const rows = await within(card).findByRole('list', { name: 'Customers with offers requested' });
+    await user.click(within(rows).getByRole('link', { name: /Mona Adel/ }));
+    await screen.findByRole('heading', { name: 'Offers requested', level: 1 });
+    const offer = (await screen.findAllByTestId('offer'))[0]!;
+    expect(offer).toHaveAttribute('id', 'offer-customer_mona');
+  });
+});

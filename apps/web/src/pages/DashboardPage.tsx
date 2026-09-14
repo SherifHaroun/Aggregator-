@@ -14,6 +14,7 @@ import {
 } from '@/components/ui';
 import { PLAN_TIER_IDS } from '@aggregator/shared';
 import { ROUTES } from '@/config/routes';
+import { OffersRequestedCard } from '@/features/customers/OffersRequestedCard';
 import {
   useCompanies,
   useInsuranceOptions,
@@ -47,9 +48,7 @@ export function DashboardPage() {
   const allLoaded = queries.every((query) => query.data !== undefined);
 
   const total =
-    (companies.data?.length ?? 0) +
-    (plans.data?.length ?? 0) +
-    (benefits.data?.length ?? 0);
+    (companies.data?.length ?? 0) + (plans.data?.length ?? 0) + (benefits.data?.length ?? 0);
 
   const isEmpty = !loading && failure === undefined && allLoaded && total === 0;
 
@@ -73,6 +72,12 @@ export function DashboardPage() {
           </ButtonLink>
         </div>
       </section>
+
+      {/* Who is waiting on an offer: every customer with a plan in their
+          cart, kept on the website or by an employee. Leads to the full page. */}
+      <div className="mt-6">
+        <OffersRequestedCard />
+      </div>
 
       {/* Secondary: how much there is to compare. Every number comes from the
           database — nothing here is a placeholder figure. */}

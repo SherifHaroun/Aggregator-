@@ -88,6 +88,15 @@ export const ROUTES = {
     list: `${ADMIN}/customers`,
     detail: (customerId: string) => `${ADMIN}/customers/${customerId}`,
   },
+  offers: {
+    /**
+     * OFFERS REQUESTED: every customer with a plan in their cart — kept by
+     * the customer on the website or by an employee on a call — each spread
+     * out in full: who they are, how to reach them, the notes, the plans, and
+     * the one they linked. The dashboard's card leads here.
+     */
+    list: `${ADMIN}/offers`,
+  },
   comparison: {
     new: `${ADMIN}/comparison/new`,
     results: `${ADMIN}/comparison/results`,

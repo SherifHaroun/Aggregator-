@@ -742,6 +742,20 @@ cart out with the same controls the customer's page has. Reads and writes go thr
 customers.api.ts`; every write invalidates every customer read, so the
 count, the list and the open page never disagree.
 
+**Offers requested.** The dashboard opens with a card
+(`features/customers/OffersRequestedCard.tsx`) that counts the customers
+with a plan in their cart — kept by the customer on the website or by an
+employee on a call, it is the same `CustomerCartItem` either way — and lists
+them by name and company, with how many plans are waiting and whether one is
+linked. Every part of the card leads to `/admin/offers`
+(`pages/manage/OffersRequestedPage.tsx`), where each such customer is spread
+out in full: name, company, phone, email, every note written on their plans,
+the plans first to last with the linked one marked, and a _Go to customer
+data_ button onto their own page, where they are edited or deleted. Both read
+`GET /customers/cart`, the same summary the cart button reads, so nothing
+is counted twice or differently. A row of the card carries `?customer=` so
+the page scrolls to that customer.
+
 ---
 
 ### The customer site, and who is signed in
