@@ -226,6 +226,18 @@ function route({
   const segments = path.split('/').filter(Boolean);
   const [resource, first, second, third, fourth] = segments;
 
+  /**
+   * The real API's one write gate: reads are open, and every change to
+   * insurance data — a JSON body or a file — needs the employee's token.
+   * Signing in, a customer's own cart and running a comparison sit in front
+   * of the gate there too.
+   */
+  const inFrontOfGate =
+    resource === 'auth' || resource === 'customers' || resource === 'comparison';
+  if (!inFrontOfGate && method !== 'GET' && auth?.kind !== 'admin') {
+    return fail(403, 'FORBIDDEN', 'You do not have permission to change insurance data.');
+  }
+
   // --- signing in ------------------------------------------------------------
   if (resource === 'auth') {
     const publicCustomer = (customer: FakeStore['customers'][number]) => {

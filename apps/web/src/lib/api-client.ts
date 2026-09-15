@@ -158,8 +158,10 @@ export async function uploadFile<T>(path: string, file: File, method = 'PUT'): P
 
   let response: Response;
   try {
-    // No Content-Type header: the browser sets the multipart boundary.
-    response = await fetch(`${BASE_URL}${path}`, { method, body });
+    // No Content-Type header: the browser sets the multipart boundary. The
+    // session goes with it as with every other request: the API refuses an
+    // anonymous write, and an upload is a write.
+    response = await fetch(`${BASE_URL}${path}`, { method, headers: authHeaders(), body });
   } catch (cause) {
     console.error(`[api] ${path} upload failed:`, cause);
     throw new ApiError('NETWORK_ERROR', 'Could not reach the API server.', 0);

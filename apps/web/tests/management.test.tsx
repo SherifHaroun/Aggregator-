@@ -22,7 +22,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ROUTES } from '@/config/routes';
-import { createStore, installFakeApi, type FakeStore } from './fake-api';
+import { ADMIN_TOKEN, createStore, installFakeApi, type FakeStore } from './fake-api';
 import { givenAnyCustomer, newComparisonFor } from './for-customer';
 import { renderApp } from './render';
 
@@ -1107,6 +1107,7 @@ describe('medical networks', () => {
     // target. The endpoint the list calls on drop is exercised directly.
     await fetch('/api/v1/medical-networks/reorder', {
       method: 'POST',
+      headers: { Authorization: `Bearer ${ADMIN_TOKEN}` },
       body: JSON.stringify({ orderedIds: ['net_1', 'net_3', 'net_2'] }),
     });
 
