@@ -1,13 +1,13 @@
 import type { ComponentType, SVGProps } from 'react';
 import { Link } from 'react-router-dom';
-import { CompanyLogo } from '@/components/ui/CompanyLogo';
 import { IconCheck, IconGlobe, IconLayers, IconShield, IconSparkle } from '@/components/ui/icons';
 import { ROUTES } from '@/config/routes';
 import { useSession } from '@/features/auth/auth.api';
 import { loginUrl } from '@/features/auth/guards';
-import { ClientCarousel } from '@/features/public/ClientCarousel';
-import { useCompanies } from '@/features/insurance-data/insurance-data.api';
+import { InsuranceSolutions } from '@/features/public/InsuranceSolutions';
+import { PlanShowcase } from '@/features/public/PlanShowcase';
 import { QuickCompareForm } from '@/features/public/QuickCompareForm';
+import { TrustedLogos } from '@/features/public/TrustedLogos';
 
 /**
  * THE FRONT DOOR.
@@ -15,18 +15,20 @@ import { QuickCompareForm } from '@/features/public/QuickCompareForm';
  * What the old company site promised — fill in, compare, instant quotes —
  * done for real: the compare card runs the same engine the employees use,
  * against the same plans, and the three steps on the left are literally the
- * three steps. Below it, what the broker does, who it compares, and how to
- * get hold of a person — and, last, the companies that already do.
+ * three steps. Below it, the insurers it compares and the companies that
+ * already trust the broker, what the broker does, and how to get hold of a
+ * person.
  */
 export function HomePage() {
   return (
     <>
       <Hero />
       <Steps />
-      <Insurers />
+      <InsuranceSolutions />
+      <PlanShowcase />
+      <TrustedLogos />
       <Services />
       <FindAnAgent />
-      <ClientCarousel />
     </>
   );
 }
@@ -125,31 +127,6 @@ function Steps() {
             </div>
           </div>
         ))}
-      </div>
-    </section>
-  );
-}
-
-/** The insurers on record, straight from the same database the admin fills in. */
-function Insurers() {
-  const companies = useCompanies({ isActive: true });
-  const list = companies.data ?? [];
-  if (list.length === 0) return null;
-
-  return (
-    <section className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-center">
-        <h2 className="border-brand text-brand-strong shrink-0 border-l-4 pl-4 text-2xl font-extrabold tracking-tight uppercase lg:w-64">
-          Supported and assisted by
-        </h2>
-        <ul className="bg-surface border-border-subtle flex flex-1 flex-wrap items-center justify-center gap-x-10 gap-y-6 rounded-(--radius-card) border px-6 py-6 shadow-(--shadow-card)">
-          {list.map((company) => (
-            <li key={company.id} className="flex items-center gap-3">
-              <CompanyLogo name={company.name} logoUrl={company.logoUrl} size="md" />
-              <span className="text-content text-sm font-semibold">{company.name}</span>
-            </li>
-          ))}
-        </ul>
       </div>
     </section>
   );

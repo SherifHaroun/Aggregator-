@@ -2,7 +2,6 @@ import type { ComponentType, ReactNode, SVGProps } from 'react';
 import { Link } from 'react-router-dom';
 import {
   IconBuilding,
-  IconCheck,
   IconGlobe,
   IconLayers,
   IconShield,
@@ -107,19 +106,6 @@ function FeatureCard({
       <h3 className="text-brand-strong mt-4 text-lg font-bold">{title}</h3>
       <div className="text-content-muted mt-2 text-sm leading-relaxed">{children}</div>
     </article>
-  );
-}
-
-function CheckList({ items }: { items: string[] }) {
-  return (
-    <ul className="mt-3 space-y-2">
-      {items.map((item) => (
-        <li key={item} className="flex gap-3 text-sm leading-relaxed">
-          <IconCheck className="text-brand mt-0.5 size-4 shrink-0" />
-          <span>{item}</span>
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -266,115 +252,7 @@ export function AboutPage() {
   );
 }
 
-// --- Services ------------------------------------------------------------------------
-
-const PILLARS: { icon: Icon; title: string; points: string[]; role: string }[] = [
-  {
-    icon: IconShield,
-    title: 'Risk management',
-    points: [
-      'Risk profile: identification and evaluation',
-      'Risk control: elimination, reduction and prevention',
-      'Risk transfer: external and internal',
-    ],
-    role: 'Our role is to make sure the insured risks are covered at their replacement value.',
-  },
-  {
-    icon: IconUsers,
-    title: 'Claims management',
-    points: [
-      'The shortest line of communication between you, the insurer and any third-party administrator',
-      'Daily claim handling through to a conclusion, facilitating and resolving disputes',
-      'Statistics and comparisons for your renewal strategy, and losses handled below retention',
-    ],
-    role: 'Our role is to stand with you at claim time, through a comprehensive approach to settlement.',
-  },
-  {
-    icon: IconLayers,
-    title: 'Premium management',
-    points: ['Premium invoicing', 'Supervision and payment', 'Local requirements and taxes'],
-    role: 'Our role is to hold every insurer to our standard: financially sound, responsive, and good at service.',
-  },
-  {
-    icon: IconBuilding,
-    title: 'Policy management',
-    points: [
-      'A lighter administrative load: policies, wordings and procedures handled for you',
-      'An effective renewal strategy from periodic reviews and up-to-date risk information',
-      'New cover for new exposures or new sites',
-    ],
-    role: 'Our role is to find the best practice on the local market, or the international one through our worldwide network.',
-  },
-];
-
-export function ServicesPage() {
-  return (
-    <CompanyPage
-      eyebrow="Services"
-      title="Know-how, and what it adds"
-      lede="Our objective is simple: every risk you carry is evaluated, quantified and covered, and every insurer we place you with earns the trust."
-    >
-      <div className="grid gap-10 lg:grid-cols-2">
-        <section className="bg-surface border-border-subtle rounded-(--radius-card) border p-7 shadow-(--shadow-card)">
-          <SectionTitle>How we approach your risks</SectionTitle>
-          <ol className="mt-5 space-y-4">
-            {[
-              'Identify the non-commercial risks that could do financial damage to your activity.',
-              'Quantify them, using every tool of risk measurement.',
-              'Rank them by potential damage and how likely they are to strike together.',
-              'Reduce every risk that can be controlled.',
-              'Decide, risk by risk, whether to retain it or transfer it to an insurer.',
-            ].map((step, index) => (
-              <li key={step} className="flex gap-4">
-                <span className="bg-brand-strong flex size-8 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white">
-                  {index + 1}
-                </span>
-                <p className="text-content pt-1 text-sm leading-relaxed">{step}</p>
-              </li>
-            ))}
-          </ol>
-        </section>
-
-        <section className="bg-surface border-border-subtle rounded-(--radius-card) border p-7 shadow-(--shadow-card)">
-          <SectionTitle>Between you and the insurer</SectionTitle>
-          <CheckList
-            items={[
-              'Insured risks are covered at their replacement value.',
-              'The best practice on the market, locally or internationally through our worldwide network.',
-              'Every insurer meets our standard for financial strength, service, quality and reactivity.',
-              'You are never alone at claim time: a comprehensive approach to settlement.',
-            ]}
-          />
-        </section>
-      </div>
-
-      <section className="mt-14">
-        <SectionTitle>What we manage for you</SectionTitle>
-        <div className="mt-6 grid gap-5 md:grid-cols-2">
-          {PILLARS.map(({ icon: Icon, title, points, role }) => (
-            <article
-              key={title}
-              className="bg-surface border-border-subtle flex flex-col rounded-(--radius-card) border shadow-(--shadow-card)"
-            >
-              <div className="bg-brand-gradient flex items-center gap-4 rounded-t-(--radius-card) px-6 py-5 text-white">
-                <Icon className="size-7" />
-                <h3 className="text-lg font-bold">{title}</h3>
-              </div>
-              <div className="flex flex-1 flex-col p-6">
-                <CheckList items={points} />
-                <p className="border-brand text-content-muted mt-5 border-l-4 pl-4 text-sm italic">
-                  {role}
-                </p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <NextSteps />
-    </CompanyPage>
-  );
-}
+// The Services page has its own file: `ServicesPage.tsx`.
 
 // --- Regional capabilities -------------------------------------------------------------
 

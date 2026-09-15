@@ -151,7 +151,102 @@
   }
 }
 
+/*
+ * The plan cards in the home page's showcase drift a little, each out of step
+ * with its neighbours (`--float-delay`), and the tick on the chosen plan
+ * breathes. Slow enough to be felt rather than watched.
+ */
+@keyframes showcase-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -0.5rem, 0);
+  }
+}
+
+@keyframes showcase-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 oklch(0.7 0.15 200 / 0.45);
+  }
+  50% {
+    transform: scale(1.08);
+    box-shadow: 0 0 0 6px oklch(0.7 0.15 200 / 0);
+  }
+}
+
+/*
+ * The spark on the client-approach thread of the services page: one point
+ * of light travelling the line end to end, then again. Along the x axis on
+ * a wide screen, down the y axis on a narrow one — the utility says which.
+ */
+@keyframes approach-travel-x {
+  from {
+    left: 0;
+    opacity: 0;
+  }
+  8%,
+  92% {
+    opacity: 1;
+  }
+  to {
+    left: 100%;
+    opacity: 0;
+  }
+}
+
+@keyframes approach-travel-y {
+  from {
+    top: 0;
+    opacity: 0;
+  }
+  8%,
+  92% {
+    opacity: 1;
+  }
+  to {
+    top: 100%;
+    opacity: 0;
+  }
+}
+
 @layer utilities {
+  .animate-approach-travel {
+    animation: approach-travel-y 9s linear infinite;
+  }
+
+  @media (width >= 64rem) {
+    .animate-approach-travel {
+      animation-name: approach-travel-x;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-approach-travel {
+      animation: none;
+      opacity: 0;
+    }
+  }
+
+  .animate-showcase-float {
+    animation: showcase-float 7s ease-in-out infinite;
+    animation-delay: var(--float-delay, 0s);
+  }
+
+  .animate-showcase-pulse {
+    animation: showcase-pulse 2.8s ease-in-out infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-showcase-float,
+    .animate-showcase-pulse {
+      animation: none;
+    }
+  }
+
   .animate-import-sheen {
     animation: import-sheen 1.6s ease-in-out infinite;
   }

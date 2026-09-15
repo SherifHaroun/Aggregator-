@@ -21,14 +21,9 @@ import { PlanConfigurationDetailPage } from '@/pages/manage/PlanConfigurationDet
 import { PlanDetailPage } from '@/pages/manage/PlanDetailPage';
 import { PlanImportPage } from '@/pages/manage/PlanImportPage';
 import { PlansPage } from '@/pages/manage/PlansPage';
-import {
-  AboutPage,
-  AffiliatedPage,
-  ContactPage,
-  RegionalPage,
-  ServicesPage,
-} from '@/pages/public/CompanyPages';
+import { AboutPage, AffiliatedPage, ContactPage, RegionalPage } from '@/pages/public/CompanyPages';
 import { HomePage } from '@/pages/public/HomePage';
+import { ServicesPage } from '@/pages/public/ServicesPage';
 import { LoginPage } from '@/pages/public/LoginPage';
 import { MyCartPage } from '@/pages/public/MyCartPage';
 import { PublicPlanPage } from '@/pages/public/PublicPlanPage';

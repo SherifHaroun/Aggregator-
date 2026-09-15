@@ -123,7 +123,9 @@ describe('the front door', () => {
     await user.click(
       within(screen.getByRole('contentinfo')).getByRole('link', { name: 'Services' }),
     );
-    expect(await screen.findByRole('heading', { level: 1, name: /Know-how/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /Know-how and added value/ }),
+    ).toBeInTheDocument();
     await user.click(
       within(screen.getByRole('contentinfo')).getByRole('link', { name: 'Contact us' }),
     );
