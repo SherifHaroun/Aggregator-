@@ -7,14 +7,21 @@ import {
   type PlanTierId,
 } from '@aggregator/shared';
 import { useMemo } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { Badge, ButtonLink, EmptyState, IconChevronRight, describeError } from '@/components/ui';
+import { Link, Navigate, useSearchParams } from 'react-router-dom';
+import {
+  Badge,
+  ButtonLink,
+  EmptyState,
+  IconCheck,
+  IconChevronRight,
+  describeError,
+} from '@/components/ui';
 import { CompanyLogo } from '@/components/ui/CompanyLogo';
 import { ROUTES } from '@/config/routes';
-import { useCustomerSession } from '@/features/auth/auth.api';
-import { loginUrl } from '@/features/auth/guards';
 import { parseComparisonRequest } from '@/features/comparison';
 import { useComparison } from '@/features/insurance-data/insurance-data.api';
+import { leadIdOf, withoutLead } from '@/features/leads/lead-session';
+import { useLead } from '@/features/leads/leads.api';
 import { cn } from '@/lib/cn';
 
 /**
@@ -23,15 +30,17 @@ import { cn } from '@/lib/cn';
  * The same engine, the same ranking and the same criteria as the employee's
  * results — but read for a customer choosing, not an adviser comparing:
  * three tiers, three plans each, the first in every tier marked as its best
- * value, and one button per plan. Opening a plan asks the customer to sign
- * in, because from that point on what they keep is theirs.
+ * value, and one button per plan. The visitor has already left their
+ * details — the lead travels in the URL beside the comparison — so opening
+ * a plan is one click, and a visitor who arrives without a lead is sent to
+ * the one final step first.
  */
 export function PublicResultsPage() {
   const [params] = useSearchParams();
   const request = useMemo(() => parseComparisonRequest(params), [params]);
-  const comparison = useComparison(request);
-  const { customer } = useCustomerSession();
-  const criteria = params.toString();
+  const leadId = leadIdOf(params);
+  const comparison = useComparison(leadId ? request : null);
+  const lead = useLead(leadId);
 
   if (request === null) {
     return (
@@ -45,20 +54,28 @@ export function PublicResultsPage() {
     );
   }
 
+  /* The results are for somebody: the one final step comes first. */
+  if (leadId === null) {
+    return <Navigate to={`${ROUTES.public.details}?${params.toString()}`} replace />;
+  }
+
   const result = comparison.data;
   const tiers = result ? topPlansByTier(result.plans) : [];
   const total = tiers.reduce((sum, tier) => sum + tier.plans.length, 0);
+  const opened = new Set(lead.data?.views.map((view) => view.planConfigurationId) ?? []);
+  const chosenId = lead.data?.choice?.planConfigurationId ?? null;
 
-  const planHref = (plan: ComparisonPlanResult) => {
-    const page = `${ROUTES.public.plan(plan.configurationId)}?${criteria}`;
-    return customer ? page : loginUrl(page);
-  };
+  const planHref = (plan: ComparisonPlanResult) =>
+    `${ROUTES.public.plan(plan.configurationId)}?${params.toString()}`;
+  const changeDetails = `${ROUTES.home}?${withoutLead(params).toString()}#compare`;
 
   return (
     <div className="pb-8">
       <section className="bg-brand-gradient text-white">
         <div className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
-          <p className="text-accent text-xs font-bold tracking-[0.2em] uppercase">Your results</p>
+          <p className="text-accent text-xs font-bold tracking-[0.2em] uppercase">
+            {lead.data ? `Your results, ${lead.data.firstName}` : 'Your results'}
+          </p>
           <h1 className="mt-2 text-3xl font-extrabold tracking-tight sm:text-4xl">
             {result
               ? total === 0
@@ -81,7 +98,7 @@ export function PublicResultsPage() {
               </Chip>
               {result.criteria.currency ? <Chip>{result.criteria.currency}</Chip> : null}
               <Link
-                to={`${ROUTES.home}#compare`}
+                to={changeDetails}
                 className="ml-auto inline-flex items-center gap-1 text-sm font-semibold text-white/85 hover:text-white hover:underline"
               >
                 Change details
@@ -123,10 +140,9 @@ export function PublicResultsPage() {
             <EmptyState
               title="No plans match these details"
               description={
-                result.blockers[0]?.message ??
-                'Try a different age, coverage area or customer type.'
+                result.blockers[0]?.message ?? 'Try a different coverage area or workforce.'
               }
-              action={<ButtonLink to={`${ROUTES.home}#compare`}>Change details</ButtonLink>}
+              action={<ButtonLink to={changeDetails}>Change details</ButtonLink>}
             />
           </div>
         ) : (
@@ -164,7 +180,8 @@ export function PublicResultsPage() {
                         tier={tier.tier}
                         rank={index + 1}
                         href={planHref(plan)}
-                        signedIn={Boolean(customer)}
+                        opened={opened.has(plan.configurationId)}
+                        chosen={chosenId === plan.configurationId}
                       />
                     ))}
                   </ol>
@@ -214,13 +231,15 @@ function PlanCard({
   tier,
   rank,
   href,
-  signedIn,
+  opened,
+  chosen,
 }: {
   plan: ComparisonPlanResult;
   tier: PlanTierId;
   rank: number;
   href: string;
-  signedIn: boolean;
+  opened: boolean;
+  chosen: boolean;
 }) {
   const covered = plan.benefits.length - plan.missingBenefitCount;
   const best = rank === 1;
@@ -229,16 +248,26 @@ function PlanCard({
     <li
       className={cn(
         'bg-surface flex flex-col overflow-hidden rounded-(--radius-card) border shadow-(--shadow-card) transition-transform hover:-translate-y-1',
-        best ? 'border-brand border-2' : 'border-border-subtle',
+        chosen
+          ? 'border-success border-2'
+          : best
+            ? 'border-brand border-2'
+            : 'border-border-subtle',
       )}
     >
       <div
         className={cn(
           'flex items-center justify-between px-5 py-2 text-xs font-bold tracking-wide uppercase',
-          best ? TIER_STYLE[tier].ribbon : 'bg-surface-muted text-content-muted',
+          chosen
+            ? 'bg-success text-content-inverted'
+            : best
+              ? TIER_STYLE[tier].ribbon
+              : 'bg-surface-muted text-content-muted',
         )}
       >
-        <span>{best ? `Best value · ${TIER_LABEL[tier]}` : TIER_LABEL[tier]}</span>
+        <span>
+          {chosen ? 'Your choice' : best ? `Best value · ${TIER_LABEL[tier]}` : TIER_LABEL[tier]}
+        </span>
         <span aria-label={`Rank ${rank}`} className="tabular-nums">
           #{rank}
         </span>
@@ -293,10 +322,16 @@ function PlanCard({
         <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
           {plan.isCheapest ? <Badge tone="success">Lowest price</Badge> : null}
           {plan.isHighestCoverage ? <Badge tone="brand">Widest cover</Badge> : null}
+          {opened && !chosen ? (
+            <Badge tone="neutral">
+              <IconCheck className="mr-1 size-3.5" />
+              PDF sent to you
+            </Badge>
+          ) : null}
         </div>
 
         <ButtonLink to={href} fullWidth aria-label={`View details for ${plan.planName}`}>
-          {signedIn ? 'View details' : 'Sign in to view details'}
+          {chosen ? 'View your plan' : 'View details'}
           <IconChevronRight className="size-4" />
         </ButtonLink>
       </div>

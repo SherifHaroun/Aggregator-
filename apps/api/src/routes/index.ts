@@ -15,6 +15,8 @@ import { comparisonRouter } from '../modules/comparison/comparison.routes.js';
 import { configurationRouter } from '../modules/configuration/configuration.routes.js';
 import { customersRouter } from '../modules/customers/customers.routes.js';
 import { healthRouter } from '../modules/health/health.routes.js';
+import { leadsRouter } from '../modules/leads/leads.routes.js';
+import { notificationsRouter } from '../modules/leads/notifications.routes.js';
 import {
   insuranceOptionsRouter,
   optionFieldsRouter,
@@ -31,14 +33,17 @@ apiRouter.use('/health', healthRouter);
 apiRouter.use('/configuration', configurationRouter);
 /** Read-only, and public: running a comparison never writes. */
 apiRouter.use('/comparison', comparisonRouter);
-/** Signing in, and asking who is signed in. */
+/** Signing in, and asking who is signed in. The broker's account only. */
 apiRouter.use('/auth', authRouter);
 /**
- * Customers carry their own rules rather than the write gate's: an employee
- * sees everyone, a signed-in customer sees only themselves (`/customers/me`),
- * and nobody else sees anything. Mounted before the gate so a customer can
- * write to their own cart without being staff.
+ * THE CUSTOMER SITE'S WRITES: a visitor leaves their details, opens a plan,
+ * chooses one. Nobody is signed in there, so this sits in front of the
+ * gate; each route is rate-limited and reaches only the lead it names.
  */
+apiRouter.use('/leads', leadsRouter);
+/** The employee's bell: the leads, newest activity first. Staff only. */
+apiRouter.use('/notifications', notificationsRouter);
+/** Customers and their carts are the broker's records: staff only, inside. */
 apiRouter.use('/customers', customersRouter);
 
 /**

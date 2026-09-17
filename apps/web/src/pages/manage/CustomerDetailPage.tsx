@@ -12,6 +12,7 @@ import {
   IconCart,
   IconCheck,
   IconEdit,
+  IconGlobe,
   IconTrash,
   PageHeader,
   SummaryList,
@@ -21,14 +22,18 @@ import {
 import { ROUTES } from '@/config/routes';
 import { CartItemList } from '@/features/customers/CartItemList';
 import { CustomerFormDialog } from '@/features/customers/CustomerFormDialog';
+import { LeadActivityList } from '@/features/customers/LeadActivityList';
 import { useCustomer, useDeleteCustomer } from '@/features/customers/customers.api';
 
 /**
- * ONE CUSTOMER, AND THEIR CART.
+ * ONE CUSTOMER, THEIR CART, AND THEIR VISITS.
  *
  * Who they are and how to reach them, then every comparison kept for them,
  * first to last, with the date, the note, and the controls: link the one
- * they chose, remove the ones they did not, open any of them again.
+ * they chose, remove the ones they did not, open any of them again. And,
+ * for a customer who came through the website, what they did there: the
+ * comparison they ran, the plans they opened, the one they chose, and
+ * whether each PDF reached them.
  */
 export function CustomerDetailPage() {
   const { customerId } = useParams<{ customerId: string }>();
@@ -121,6 +126,10 @@ export function CustomerDetailPage() {
                       { label: 'Email', value: data.email ?? 'Not given' },
                       { label: 'Company', value: data.companyName ?? 'Not given' },
                       {
+                        label: 'Came from',
+                        value: data.source === 'WEBSITE' ? 'The website' : 'An employee',
+                      },
+                      {
                         label: 'Chosen plan',
                         value: chosen ? (
                           <Badge tone="success">
@@ -136,16 +145,33 @@ export function CustomerDetailPage() {
                 </CardBody>
               </Card>
 
-              <Card>
-                <CardHeader
-                  title="Cart"
-                  description="Every comparison kept for this customer, first to last. Link the one they choose."
-                  icon={<IconCart className="size-5" />}
-                />
-                <CardBody>
-                  <CartItemList customerId={data.id} customerName={data.name} items={data.items} />
-                </CardBody>
-              </Card>
+              <div className="space-y-5">
+                <Card>
+                  <CardHeader
+                    title="Cart"
+                    description="Every comparison kept for this customer, first to last. Link the one they choose."
+                    icon={<IconCart className="size-5" />}
+                  />
+                  <CardBody>
+                    <CartItemList
+                      customerId={data.id}
+                      customerName={data.name}
+                      items={data.items}
+                    />
+                  </CardBody>
+                </Card>
+
+                <Card>
+                  <CardHeader
+                    title="Website activity"
+                    description="What this customer did on the website: the comparison they ran, the plans they opened, and the one they chose."
+                    icon={<IconGlobe className="size-5" />}
+                  />
+                  <CardBody>
+                    <LeadActivityList leads={data.leads} />
+                  </CardBody>
+                </Card>
+              </div>
             </div>
           ) : null
         }
@@ -160,7 +186,7 @@ export function CustomerDetailPage() {
         onClose={() => setConfirmingDelete(false)}
         onConfirm={deleteCustomer}
         title={`Delete ${data?.name ?? 'this customer'}?`}
-        description="Their cart goes with them. This cannot be undone."
+        description="Their cart and their website visits go with them. This cannot be undone."
         busy={remove.isPending}
       />
     </>

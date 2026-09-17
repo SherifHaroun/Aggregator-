@@ -5,9 +5,9 @@ import { useSession, useSessionToken } from './auth.api';
 /** Where to come back to after signing in: the page that was asked for. */
 export function loginUrl(next: string): string {
   const params = new URLSearchParams();
-  if (next && next !== ROUTES.home) params.set('next', next);
+  if (next && next !== ROUTES.dashboard) params.set('next', next);
   const query = params.toString();
-  return `${ROUTES.public.login}${query ? `?${query}` : ''}`;
+  return `${ROUTES.login}${query ? `?${query}` : ''}`;
 }
 
 function Checking() {
@@ -19,7 +19,7 @@ function Checking() {
 }
 
 /**
- * The gate, shared by both areas.
+ * THE GATE ON THE EMPLOYEE AREA: staff only. Anybody else is sent to the door.
  *
  * A token whose check FAILED for a reason other than the token — the API
  * not answering during its boot window, say — lets the page through: the
@@ -27,29 +27,13 @@ function Checking() {
  * the API refuses anything it should. A token the API rejected has already
  * been dropped by `useSession`, so that case arrives here as no token at all.
  */
-function useGate(kind: 'admin' | 'customer') {
+export function RequireAdmin() {
   const token = useSessionToken();
   const session = useSession();
-  if (!token) return 'refuse' as const;
-  if (session.isPending) return 'checking' as const;
-  if (session.isError) return 'allow' as const;
-  return session.data?.kind === kind ? ('allow' as const) : ('refuse' as const);
-}
-
-/** The employee area: staff only. Anybody else is sent to the door. */
-export function RequireAdmin() {
-  const gate = useGate('admin');
   const location = useLocation();
-  if (gate === 'checking') return <Checking />;
-  if (gate === 'allow') return <Outlet />;
-  return <Navigate to={loginUrl(location.pathname + location.search)} replace />;
-}
 
-/** A plan in full, or a cart: the customer's own, so a customer must be signed in. */
-export function RequireCustomer() {
-  const gate = useGate('customer');
-  const location = useLocation();
-  if (gate === 'checking') return <Checking />;
-  if (gate === 'allow') return <Outlet />;
+  if (!token) return <Navigate to={loginUrl(location.pathname + location.search)} replace />;
+  if (session.isPending) return <Checking />;
+  if (session.isError || session.data?.kind === 'admin') return <Outlet />;
   return <Navigate to={loginUrl(location.pathname + location.search)} replace />;
 }

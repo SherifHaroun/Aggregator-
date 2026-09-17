@@ -401,10 +401,14 @@ describe('navigation', () => {
     expect(screen.queryByText(/Which benefits matter to you/i)).not.toBeInTheDocument();
     expect(screen.queryByText('Aurora Wellness Programme')).not.toBeInTheDocument();
 
-    // An individual types their own age.
-    await user.click(screen.getByRole('radio', { name: /Individual/i }));
-    await user.type(screen.getByLabelText(/^Age/), '52');
-    expect(screen.getByLabelText(/^Age/)).toHaveValue(52);
+    /**
+     * ONLY SME IS ON SALE. Individual and Family are drawn so the employee
+     * sees they are coming, greyed and impossible to pick — the same pills
+     * the customer sees on the website.
+     */
+    expect(screen.getByRole('radio', { name: /Individual/i })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /Family/i })).toBeDisabled();
+    expect(screen.getAllByText('Coming soon')).toHaveLength(2);
 
     /**
      * A BUSINESS IS ASKED FOR ITS WORKFORCE, not for an age.
@@ -422,10 +426,6 @@ describe('navigation', () => {
     // What it asks for instead: how many employees are in each age group.
     expect(screen.getByText('Employee ages')).toBeInTheDocument();
     expect(screen.getByText(/0 employees/)).toBeInTheDocument();
-
-    // Switching back hands the customer their own figure again.
-    await user.click(screen.getByRole('radio', { name: /Individual/i }));
-    await waitFor(() => expect(screen.getByLabelText(/^Age/)).toHaveValue(52));
   });
 
   it('shows the three plan tiers, with nothing to add', async () => {
@@ -490,8 +490,8 @@ describe('navigation', () => {
 
     renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
-    await user.click(screen.getByRole('radio', { name: /Individual/i }));
 
+    // Before a buyer is chosen the form still offers an age field.
     const age = screen.getByLabelText(/^Age/);
     await user.type(age, '35');
     expect(age).toHaveValue(35);
@@ -535,7 +535,7 @@ describe('navigation', () => {
     expect(search).toHaveFocus();
   });
 
-  it('asks a family for a youngest and an eldest, and validates the order', async () => {
+  it('keeps Individual and Family off the form until they are on sale', async () => {
     const user = userEvent.setup();
     givenCompany();
     givenInsuranceType();
@@ -545,24 +545,26 @@ describe('navigation', () => {
     renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
 
-    // An individual is one age.
-    await user.click(screen.getByRole('radio', { name: /Individual/i }));
-    expect(screen.getByLabelText(/^Age/)).toBeInTheDocument();
+    /**
+     * The two lines are drawn, greyed and marked, so nobody wonders where
+     * they went — and neither can be picked. Their age questions (one age for
+     * a person, a youngest and an eldest for a family) stay in the code
+     * behind the shared registry's flag, and come back with it.
+     */
+    for (const name of [/Individual/i, /Family/i]) {
+      const radio = screen.getByRole('radio', { name });
+      expect(radio).toBeDisabled();
+      expect(radio.closest('label')).toHaveTextContent('Coming soon');
+      await user.click(radio);
+      expect(radio).not.toBeChecked();
+    }
+    expect(screen.queryByLabelText(/^Age from/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/^Age to/i)).not.toBeInTheDocument();
 
-    // A family covers a group, so it needs both ends of the range.
-    await user.click(screen.getByRole('radio', { name: /Family/i }));
-    expect(await screen.findByLabelText(/^Age from/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/^Age to/i)).toBeInTheDocument();
-
-    // Still no slider, and still no range for a single person.
+    // The business is the one buyer, and it is asked for its workforce.
+    await user.click(screen.getByRole('radio', { name: /SME/i }));
+    expect(await screen.findByText('Employee ages')).toBeInTheDocument();
     expect(document.querySelectorAll('input[type="range"]')).toHaveLength(0);
-
-    // A backwards range is refused.
-    await user.type(screen.getByLabelText(/^Age from/i), '50');
-    await user.type(screen.getByLabelText(/^Age to/i), '30');
-    await user.click(screen.getByRole('button', { name: /Compare Plans/i }));
-    expect(await screen.findByText('Age From cannot be greater than Age To.')).toBeInTheDocument();
   });
 
   it('offers a worked-out budget or a typed one, and asks for it last', async () => {
@@ -803,9 +805,10 @@ describe('empty states', () => {
   it('prompts for the first plan of the section being viewed', async () => {
     givenCompany();
     renderApp(ROUTES.companies.detail('company_1'));
-    // Individual opens first, and the prompt names it: a company's three books
-    // are separate products, so "no plans" is always about one of them.
-    expect(await screen.findByText('No individual plans yet')).toBeInTheDocument();
+    // The book on sale opens first — SME, the shared registry's call — and the
+    // prompt names it: a company's three books are separate products, so
+    // "no plans" is always about one of them.
+    expect(await screen.findByText('No sme plans yet')).toBeInTheDocument();
   });
 
   it('offers Individual, Family and SME as the way into a company', async () => {
@@ -821,6 +824,10 @@ describe('empty states', () => {
     for (const expected of ['Individual', 'Family', 'SME']) {
       expect(labels.some((label) => label.includes(expected))).toBe(true);
     }
+    /** The books not on sale to customers say so, and are still there to manage. */
+    expect(within(tabs).getByRole('tab', { name: /Individual/ })).toHaveTextContent('Soon');
+    expect(within(tabs).getByRole('tab', { name: /Family/ })).toHaveTextContent('Soon');
+    expect(within(tabs).getByRole('tab', { name: /SME/ })).not.toHaveTextContent('Soon');
   });
 
   it('shows only the plans of the section that is open', async () => {
@@ -837,6 +844,11 @@ describe('empty states', () => {
     });
 
     renderApp(ROUTES.companies.detail('company_1'));
+
+    // SME opens first and holds nothing; the Individual book, not on sale but
+    // still managed, holds its plan.
+    expect(await screen.findByText('No sme plans yet')).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /Individual/i }));
 
     // The same displayed name under two customer types: one record each, and
     // only one of them is ever on screen.
@@ -1287,10 +1299,10 @@ describe('plans', () => {
      */
     expect(store.plans[0]).toMatchObject({
       name: 'Tier One',
-      code: 'TIER-ONE-INDIVIDUAL',
-      customerType: 'INDIVIDUAL',
+      code: 'TIER-ONE-SME',
+      customerType: 'SME',
     });
-    expect(store.plans[0]?.name).not.toContain('INDIVIDUAL');
+    expect(store.plans[0]?.name).not.toContain('SME');
   });
 
   it('stores the price on the configuration, never on the plan', async () => {
@@ -1317,8 +1329,8 @@ describe('plans', () => {
       geographicalCoverage: 'LOCAL',
       annualLimit: 600000,
     });
-    // Who the plan is for is the PLAN's.
-    expect(store.plans[0]?.customerType).toBe('INDIVIDUAL');
+    // Who the plan is for is the PLAN's: the section that was open.
+    expect(store.plans[0]?.customerType).toBe('SME');
     expect(store.configurations[0]?.priceBands).toMatchObject([
       { ageFrom: 1, ageTo: 17, annualPrice: 7500 },
     ]);

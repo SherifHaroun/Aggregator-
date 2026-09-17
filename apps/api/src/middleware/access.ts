@@ -7,9 +7,12 @@ import { verifySessionToken } from '../modules/auth/auth.tokens.js';
 /** Methods that only read. Everything else changes insurance data. */
 const READ_ONLY_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-/** Who is making the request, once their token has been read. */
-export type AuthContext =
-  { kind: 'admin'; email: string } | { kind: 'customer'; customerId: string };
+/**
+ * Who is making the request, once their token has been read. Only an
+ * employee has a session: the customer site has no accounts, and a visitor
+ * there is identified by the lead they left, never by a token.
+ */
+export type AuthContext = { kind: 'admin'; email: string };
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -52,8 +55,7 @@ export const readSession: RequestHandler = (req, _res, next) => {
   const token = bearer(req);
   if (token !== '') {
     const claims = verifySessionToken(token);
-    if (claims?.kind === 'admin') req.auth = { kind: 'admin', email: claims.subject };
-    if (claims?.kind === 'customer') req.auth = { kind: 'customer', customerId: claims.subject };
+    if (claims) req.auth = { kind: 'admin', email: claims.subject };
   }
   next();
 };
@@ -65,11 +67,7 @@ export function isAdmin(req: Request): boolean {
 /** Refuse anyone who is not a signed-in employee. */
 export const requireAdmin: RequestHandler = (req, _res, next) => {
   if (isAdmin(req)) return next();
-  next(
-    req.auth
-      ? new HttpError(403, 'FORBIDDEN', 'Only Hadbrok staff can do that.')
-      : new HttpError(401, 'UNAUTHENTICATED', 'Sign in as Hadbrok staff to continue.'),
-  );
+  next(new HttpError(401, 'UNAUTHENTICATED', 'Sign in as Hadbrok staff to continue.'));
 };
 
 /**

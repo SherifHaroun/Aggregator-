@@ -113,7 +113,7 @@ describe('services page', () => {
 });
 
 describe('insurance solutions', () => {
-  it('shows the four lines, with motor marked as coming and still open', () => {
+  it('shows the four lines, with only SME open and the rest marked as coming', () => {
     render(
       <MemoryRouter>
         <InsuranceSolutions />
@@ -127,11 +127,11 @@ describe('insurance solutions', () => {
     ]) {
       expect(screen.getByRole('heading', { name: title })).toBeInTheDocument();
     }
-    expect(screen.getByText('Coming soon')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Register interest/ })).toHaveAttribute(
-      'href',
-      ROUTES.public.contact,
-    );
-    expect(screen.getAllByRole('link', { name: /Compare plans/ })).toHaveLength(3);
+    /** Individual, Family and Motor are on their way; only SME compares. */
+    expect(screen.getAllByText('Coming soon')).toHaveLength(3);
+    const register = screen.getAllByRole('link', { name: /Register interest/ });
+    expect(register).toHaveLength(3);
+    for (const link of register) expect(link).toHaveAttribute('href', ROUTES.public.contact);
+    expect(screen.getAllByRole('link', { name: /Compare plans/ })).toHaveLength(1);
   });
 });

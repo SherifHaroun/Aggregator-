@@ -1,5 +1,6 @@
 import type { ComponentType, SVGProps } from 'react';
 import { Link } from 'react-router-dom';
+import { CUSTOMER_TYPES } from '@aggregator/shared';
 import {
   IconBuilding,
   IconChevronRight,
@@ -24,10 +25,18 @@ type Solution = {
   comingSoon?: boolean;
 };
 
+/** A line is on sale when the shared registry says so; otherwise it is on its way. */
+const compareOrRegister = (enabled: boolean) =>
+  enabled
+    ? { label: 'Compare plans', to: `${ROUTES.home}#compare` }
+    : { label: 'Register interest', to: ROUTES.public.contact };
+
 /**
  * What Hadbrok insures, in the words the footer already uses — medical cover
- * for one person, a family or a business — and the one line on its way.
- * Photographs live in `public/images/solutions/`.
+ * for one person, a family or a business — and the lines on their way.
+ * Which medical lines are on sale is the shared registry's call, never a
+ * flag written here; motor is not a customer type yet, so it is always
+ * "coming soon". Photographs live in `public/images/solutions/`.
  */
 const SOLUTIONS: Solution[] = [
   {
@@ -35,18 +44,22 @@ const SOLUTIONS: Solution[] = [
     icon: IconShield,
     photo: '/images/solutions/individual.jpg',
     focus: 'object-[50%_20%]',
-    detail:
-      'Medical cover for you alone, compared across every insurer we work with and priced for your age.',
-    action: { label: 'Compare plans', to: `${ROUTES.home}#compare` },
+    detail: CUSTOMER_TYPES.INDIVIDUAL.enabled
+      ? 'Medical cover for you alone, compared across every insurer we work with and priced for your age.'
+      : 'Medical cover for you alone is on its way. Leave your details and we will tell you the moment it is live.',
+    action: compareOrRegister(CUSTOMER_TYPES.INDIVIDUAL.enabled),
+    comingSoon: !CUSTOMER_TYPES.INDIVIDUAL.enabled,
   },
   {
     title: 'Family insurance',
     icon: IconUsers,
     photo: '/images/solutions/family.jpg',
     focus: 'object-[35%_35%]',
-    detail:
-      'One policy for the whole household, parents and children together, with the best three plans in each tier.',
-    action: { label: 'Compare plans', to: `${ROUTES.home}#compare` },
+    detail: CUSTOMER_TYPES.FAMILY.enabled
+      ? 'One policy for the whole household, parents and children together, with the best three plans in each tier.'
+      : 'One policy for the whole household is on its way. Leave your details and we will tell you the moment it is live.',
+    action: compareOrRegister(CUSTOMER_TYPES.FAMILY.enabled),
+    comingSoon: !CUSTOMER_TYPES.FAMILY.enabled,
   },
   {
     title: 'SME insurance',
@@ -55,7 +68,8 @@ const SOLUTIONS: Solution[] = [
     focus: 'object-[55%_30%]',
     detail:
       'Group medical cover for your team, priced on the ages of your workforce rather than a brochure rate.',
-    action: { label: 'Compare plans', to: `${ROUTES.home}#compare` },
+    action: compareOrRegister(CUSTOMER_TYPES.SME.enabled),
+    comingSoon: !CUSTOMER_TYPES.SME.enabled,
   },
   {
     title: 'Motor insurance',
@@ -94,8 +108,8 @@ export function InsuranceSolutions() {
           Insurance solutions
         </h2>
         <p className="text-content-muted mt-3 text-base leading-relaxed sm:text-lg">
-          Cover for one person, a family or a whole workforce, compared for you in a minute — and
-          the line we are adding next.
+          Group medical cover for your workforce, compared for you in a minute — and the lines we
+          are adding next.
         </p>
       </div>
 

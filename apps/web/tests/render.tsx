@@ -4,7 +4,7 @@ import { MemoryRouter, useRoutes } from 'react-router-dom';
 import { ToastProvider } from '@/components/ui';
 import { routes } from '@/app/router';
 import { writeSessionToken } from '@/lib/session-store';
-import { ADMIN_TOKEN, customerToken } from './fake-api';
+import { ADMIN_TOKEN } from './fake-api';
 
 /**
  * Mount the real route map at a given path, with real providers.
@@ -21,14 +21,13 @@ function AppRoutes() {
 
 /**
  * Who the test is signed in as. Staff by default — most tests are about the
- * employee's screens — or a named customer, or nobody at all.
+ * employee's screens — or nobody at all, which is every visitor to the
+ * customer site: there are no customer accounts.
  */
-export type RenderAs = 'staff' | 'anonymous' | { customerId: string };
+export type RenderAs = 'staff' | 'anonymous';
 
 export function renderApp(initialPath: string, as: RenderAs = 'staff') {
-  writeSessionToken(
-    as === 'staff' ? ADMIN_TOKEN : as === 'anonymous' ? null : customerToken(as.customerId),
-  );
+  writeSessionToken(as === 'staff' ? ADMIN_TOKEN : null);
 
   const queryClient = new QueryClient({
     defaultOptions: {

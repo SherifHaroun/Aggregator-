@@ -3,6 +3,12 @@
  *
  * The list is exactly: Individual, Family, SME.
  * To add, rename, reorder or retire a customer type, edit this file only.
+ *
+ * ONLY SME IS ON SALE FOR NOW. Individual and Family are `enabled: false`:
+ * they stay in the codebase, their plans stay in the database and remain
+ * valid for every record that names them, but neither the customer site nor
+ * the employee's comparison offers them — the site says "coming soon"
+ * instead. Turning one back on is this one flag.
  */
 
 import { SME_FIXED_AVERAGE_AGE } from './business-rules.js';
@@ -39,7 +45,7 @@ export const CUSTOMER_TYPES: OptionRegistry<CustomerTypeId, CustomerTypeOption> 
     label: 'Individual',
     description: 'Cover for a single person.',
     order: 1,
-    enabled: true,
+    enabled: false,
     ageInputMode: 'SINGLE_AGE',
     fixedAverageAge: null,
   },
@@ -48,7 +54,7 @@ export const CUSTOMER_TYPES: OptionRegistry<CustomerTypeId, CustomerTypeOption> 
     label: 'Family',
     description: 'Cover for a family group.',
     order: 2,
-    enabled: true,
+    enabled: false,
     ageInputMode: 'AGE_RANGE',
     fixedAverageAge: null,
   },
@@ -62,3 +68,11 @@ export const CUSTOMER_TYPES: OptionRegistry<CustomerTypeId, CustomerTypeOption> 
     fixedAverageAge: SME_FIXED_AVERAGE_AGE,
   },
 };
+
+/** The customer types on sale, in display order. */
+export const ENABLED_CUSTOMER_TYPE_IDS: readonly CustomerTypeId[] = CUSTOMER_TYPE_IDS.filter(
+  (id) => CUSTOMER_TYPES[id].enabled,
+);
+
+/** The first customer type on sale — what a form opens on. */
+export const DEFAULT_CUSTOMER_TYPE_ID: CustomerTypeId = ENABLED_CUSTOMER_TYPE_IDS[0] ?? 'SME';

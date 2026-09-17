@@ -5,20 +5,23 @@
  * expires — encoded and signed with HMAC-SHA256 under the server's secret.
  * Nothing is stored server-side: the signature is the proof. Rotating the
  * secret signs everybody out, which is the one thing it is for.
+ *
+ * Only employees have sessions. A token that claims any other kind — one
+ * issued before the customer site lost its accounts, say — is nobody.
  */
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { env } from '../../config/env.js';
 
 export interface SessionClaims {
-  kind: 'admin' | 'customer';
-  /** The admin's email, or the customer's id. */
+  kind: 'admin';
+  /** The admin's email. */
   subject: string;
   /** Unix milliseconds. */
   expiresAt: number;
 }
 
-/** Thirty days: a customer who comes back next month is still signed in. */
+/** Thirty days: an employee who comes back next month is still signed in. */
 export const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000;
 
 const encode = (value: string) => Buffer.from(value, 'utf8').toString('base64url');
@@ -52,14 +55,14 @@ export function verifySessionToken(token: string): SessionClaims | null {
   try {
     const claims = JSON.parse(decode(payload)) as Partial<SessionClaims>;
     if (
-      (claims.kind !== 'admin' && claims.kind !== 'customer') ||
+      claims.kind !== 'admin' ||
       typeof claims.subject !== 'string' ||
       typeof claims.expiresAt !== 'number' ||
       claims.expiresAt <= Date.now()
     ) {
       return null;
     }
-    return { kind: claims.kind, subject: claims.subject, expiresAt: claims.expiresAt };
+    return { kind: 'admin', subject: claims.subject, expiresAt: claims.expiresAt };
   } catch {
     return null;
   }

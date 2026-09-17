@@ -9,7 +9,7 @@
 
 import {
   ANY_COVERAGE_LABEL,
-  DEFAULT_COMPARISON_AGE,
+  SME_FIXED_AVERAGE_AGE,
   type ComparisonRequestInput,
 } from '@aggregator/shared';
 import { screen, waitFor } from '@testing-library/react';
@@ -28,7 +28,7 @@ let requested: ComparisonRequestInput[];
 const timestamps = { createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() };
 
 /** One individual plan, priced across three bands, in the only currency on record. */
-function givenAnIndividualPlanOnSale() {
+function givenAnSmePlanOnSale() {
   store.companies.push({
     id: 'company_1',
     name: 'Northwind Assurance',
@@ -45,7 +45,7 @@ function givenAnIndividualPlanOnSale() {
   store.plans.push({
     id: 'plan_1',
     companyId: 'company_1',
-    customerType: 'INDIVIDUAL',
+    customerType: 'SME',
     name: 'Silver',
     code: 'SILVER',
     description: null,
@@ -94,25 +94,25 @@ afterEach(() => {
 describe('working it out for me', () => {
   it('runs on who is being insured, and nothing else', async () => {
     const user = userEvent.setup();
-    givenAnIndividualPlanOnSale();
+    givenAnSmePlanOnSale();
 
     renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
-    await user.click(screen.getByRole('radio', { name: /Individual/i }));
+    await user.click(screen.getByRole('radio', { name: /SME/i }));
     await user.click(screen.getByRole('button', { name: /Work it out for me/i }));
 
     /**
-     * ONLY the customer type travels. No age, no coverage, no currency, no
-     * budget — every one of them is the engine's to fill, and sending a
+     * ONLY the customer type travels. No workforce, no coverage, no currency,
+     * no budget — every one of them is the engine's to fill, and sending a
      * guess from the screen would make it the customer's answer instead.
      */
     await waitFor(() => expect(requested).not.toHaveLength(0));
-    expect(requested.at(-1)).toEqual({ customerTypeId: 'INDIVIDUAL' });
+    expect(requested.at(-1)).toEqual({ customerTypeId: 'SME' });
   });
 
   it('will not work it out for nobody', async () => {
     const user = userEvent.setup();
-    givenAnIndividualPlanOnSale();
+    givenAnSmePlanOnSale();
 
     renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
@@ -125,20 +125,21 @@ describe('working it out for me', () => {
 
   it('names every assumption on the results', async () => {
     const user = userEvent.setup();
-    givenAnIndividualPlanOnSale();
+    givenAnSmePlanOnSale();
 
     renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
-    await user.click(screen.getByRole('radio', { name: /Individual/i }));
+    await user.click(screen.getByRole('radio', { name: /SME/i }));
     await user.click(screen.getByRole('button', { name: /Work it out for me/i }));
 
     /**
-     * The age, the coverage and the currency were all ours. Each is marked
-     * as such: an assumption that is not named reads as something the
-     * customer chose, and a premium at age 35 handed to a 60-year-old as
-     * "their" price is a mis-sale.
+     * The coverage and the currency were ours, and each is marked as such:
+     * an assumption that is not named reads as something the customer chose.
+     * The age is NOT an assumption for a business — SME cover is sold at the
+     * standard age as a rule, and the chip says the age without "(assumed)".
      */
-    expect(await screen.findByText(`Age ${DEFAULT_COMPARISON_AGE} (assumed)`)).toBeInTheDocument();
+    expect(await screen.findByText(`Age ${SME_FIXED_AVERAGE_AGE}`)).toBeInTheDocument();
+    expect(screen.queryByText(/\(assumed\)/, { selector: 'span' })).not.toHaveTextContent('Age');
     expect(screen.getByText(ANY_COVERAGE_LABEL)).toBeInTheDocument();
     expect(screen.getByText('EGP (assumed)')).toBeInTheDocument();
     expect(screen.getByText(/Worked out for you:/i)).toBeInTheDocument();
@@ -149,31 +150,33 @@ describe('working it out for me', () => {
 
   it('compares with every other question left blank', async () => {
     const user = userEvent.setup();
-    givenAnIndividualPlanOnSale();
+    givenAnSmePlanOnSale();
 
     renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
-    await user.click(screen.getByRole('radio', { name: /Family/i }));
+    await user.click(screen.getByRole('radio', { name: /SME/i }));
 
     // The long way round, answering nothing else. Same outcome.
     await user.click(screen.getByRole('button', { name: /Compare Plans/i }));
 
     await waitFor(() => expect(requested).not.toHaveLength(0));
     const request = requested.at(-1)!;
-    expect(request.customerTypeId).toBe('FAMILY');
-    expect(request.ageFrom).toBeUndefined();
-    expect(request.ageTo).toBeUndefined();
+    expect(request.customerTypeId).toBe('SME');
+    expect(request.smeEmployees).toBeUndefined();
+    // A business is priced at the standard age by rule, so the form sends it.
+    expect(request.ageFrom).toBe(SME_FIXED_AVERAGE_AGE);
+    expect(request.ageTo).toBe(SME_FIXED_AVERAGE_AGE);
     expect(request.geographicalCoverageId).toBeUndefined();
     expect(screen.queryByText(/Enter the age/i)).not.toBeInTheDocument();
   });
 
   it('still refuses an age that is not an age', async () => {
     const user = userEvent.setup();
-    givenAnIndividualPlanOnSale();
+    givenAnSmePlanOnSale();
 
     renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
-    await user.click(screen.getByRole('radio', { name: /Individual/i }));
+    // Before a buyer is chosen the form still offers an age field.
     await user.type(screen.getByLabelText(/^Age/), '250');
     await user.click(screen.getByRole('button', { name: /Compare Plans/i }));
 

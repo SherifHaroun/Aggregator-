@@ -187,7 +187,7 @@ describe('importing a document into a company section', () => {
     );
     expect(screen.getByText('Elite — reading')).toBeInTheDocument();
     expect(store.planImports).toHaveLength(1);
-    expect(store.planImports[0]!.job.customerType).toBe('INDIVIDUAL');
+    expect(store.planImports[0]!.job.customerType).toBe('SME');
 
     /** The next poll brings the answer, and the page becomes the review. */
     expect(

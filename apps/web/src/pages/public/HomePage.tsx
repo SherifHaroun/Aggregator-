@@ -2,8 +2,6 @@ import type { ComponentType, SVGProps } from 'react';
 import { Link } from 'react-router-dom';
 import { IconCheck, IconGlobe, IconLayers, IconShield, IconSparkle } from '@/components/ui/icons';
 import { ROUTES } from '@/config/routes';
-import { useSession } from '@/features/auth/auth.api';
-import { loginUrl } from '@/features/auth/guards';
 import { InsuranceSolutions } from '@/features/public/InsuranceSolutions';
 import { PlanShowcase } from '@/features/public/PlanShowcase';
 import { QuickCompareForm } from '@/features/public/QuickCompareForm';
@@ -15,9 +13,9 @@ import { TrustedLogos } from '@/features/public/TrustedLogos';
  * What the old company site promised — fill in, compare, instant quotes —
  * done for real: the compare card runs the same engine the employees use,
  * against the same plans, and the three steps on the left are literally the
- * three steps. Below it, the insurers it compares and the companies that
- * already trust the broker, what the broker does, and how to get hold of a
- * person.
+ * three steps: say what you need, leave your details, get your results.
+ * Nobody signs in. Below it, what the broker insures and the companies that
+ * already trust it, what the broker does, and how to get hold of a person.
  */
 export function HomePage() {
   return (
@@ -61,12 +59,12 @@ function Hero() {
 
           <ol className="mt-10 space-y-5">
             {[
-              ['Fill information', 'Who is being insured, how old, and where the cover applies.'],
+              ['Fill information', 'Your workforce, and where the cover should apply.'],
+              ['Leave your details', 'Your name and how to reach you — no account, no password.'],
               [
-                'Compare insurance',
-                'The best three plans in each tier — Basic, Standard, Premium.',
+                'Instant quotes',
+                'The best three plans in each tier. Open any in full and get its PDF by email.',
               ],
-              ['Instant quotes', 'Open any plan in full, save it, and download it as a PDF.'],
             ].map(([title, detail], index) => (
               <li key={title} className="flex items-start gap-4">
                 <span className="bg-accent text-brand-strong flex size-11 shrink-0 items-center justify-center rounded-full text-lg font-extrabold shadow-(--shadow-card)">
@@ -104,8 +102,8 @@ const PROMISES: { icon: Icon; title: string; detail: string }[] = [
   },
   {
     icon: IconCheck,
-    title: 'Keep what you like',
-    detail: 'Save plans to your cart and a Hadbrok adviser will call you.',
+    title: 'Choose, and we call you',
+    detail: 'Pick the plan you want and a Hadbrok adviser calls you within 24 hours.',
   },
 ];
 
@@ -208,9 +206,6 @@ function Services() {
 }
 
 function FindAnAgent() {
-  const session = useSession();
-  const signedIn = session.data?.kind === 'customer';
-
   return (
     <section className="mx-auto w-full max-w-7xl px-4 py-16 sm:px-6 lg:px-8">
       <h2 className="text-brand-strong text-center text-3xl font-extrabold tracking-tight uppercase">
@@ -232,14 +227,12 @@ function FindAnAgent() {
         </a>
         <div className="bg-brand flex flex-col justify-center gap-3 rounded-(--radius-card) p-7 text-white shadow-(--shadow-raised)">
           <p className="text-sm text-white/80">Or let us call you</p>
-          <p className="text-xl font-bold">
-            {signedIn ? 'Save a plan and we will be in touch.' : 'Create your account in seconds.'}
-          </p>
+          <p className="text-xl font-bold">Compare, choose a plan, and we will be in touch.</p>
           <Link
-            to={signedIn ? `${ROUTES.home}#compare` : loginUrl(ROUTES.home)}
+            to={`${ROUTES.home}#compare`}
             className="bg-accent text-brand-strong mt-1 inline-flex w-fit items-center rounded-(--radius-control) px-5 py-2.5 text-sm font-bold shadow-(--shadow-card)"
           >
-            {signedIn ? 'Compare plans' : 'Log in / Sign up'}
+            Compare plans
           </Link>
         </div>
       </div>

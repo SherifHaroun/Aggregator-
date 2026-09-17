@@ -4,6 +4,8 @@
  * The broker's employees take calls. A caller becomes a customer record and
  * the comparisons run for them go into the customer's CART — a working list,
  * first to last, until the customer settles on one and it is marked chosen.
+ * A visitor to the website becomes the same kind of record, through
+ * `leads.service.ts`, and a plan they choose lands in this same cart.
  *
  * WHAT IS KEPT is honest about where it came from. An entry is made by
  * running the customer's comparison again on the server and reading the
@@ -29,6 +31,12 @@ import { toIso, toNumber } from '../../lib/decimal.js';
 import { badRequest, notFound } from '../../lib/errors.js';
 import { getPrisma } from '../../lib/prisma.js';
 import { runComparison } from '../comparison/comparison.service.js';
+import {
+  leadInclude,
+  leadsNewestFirst,
+  toLeadDto,
+  type LeadRecord,
+} from '../leads/leads.mapper.js';
 import type {
   AddCartItemPayload,
   CreateCustomerInput,
@@ -48,7 +56,15 @@ const withCounts = {
   cartItems: { select: { id: true, chosenAt: true }, ...itemsInOrder },
 } as const;
 
-const withCart = { cartItems: itemsInOrder } as const;
+/**
+ * A customer read in full: the cart, and what they did on the website. The
+ * leads come too because a customer's page is where an employee sees the
+ * whole story — the call, and the visit before it.
+ */
+const withCart = {
+  cartItems: itemsInOrder,
+  leads: { include: leadInclude, ...leadsNewestFirst },
+} as const;
 
 function toCustomerDto(customer: CustomerWithCounts): CustomerDto {
   return {
@@ -96,11 +112,12 @@ export function toCartItemDto(item: CustomerCartItem): CustomerCartItemDto {
 }
 
 function toCustomerWithCartDto(
-  customer: Customer & { cartItems: CustomerCartItem[] },
+  customer: Customer & { cartItems: CustomerCartItem[]; leads: LeadRecord[] },
 ): CustomerWithCartDto {
   return {
     ...toCustomerDto(customer),
     items: customer.cartItems.map(toCartItemDto),
+    leads: customer.leads.map(toLeadDto),
   };
 }
 

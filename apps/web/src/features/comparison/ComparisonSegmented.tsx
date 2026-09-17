@@ -3,6 +3,14 @@ import { cn } from '@/lib/cn';
 export interface SegmentedOption {
   id: string;
   label: string;
+  /**
+   * Shown but not offered — a line the broker is adding next. The pill is
+   * drawn greyed with a small tag, so a visitor sees it is coming rather
+   * than wondering why it is missing, and cannot pick it.
+   */
+  disabled?: boolean;
+  /** The tag on a disabled pill. "Coming soon" when not said. */
+  disabledLabel?: string;
 }
 
 /** The id the "no preference" pill answers with. Never a real option's id. */
@@ -52,15 +60,18 @@ export function ComparisonSegmented({
       <div className="flex flex-wrap gap-3">
         {choices.map((option) => {
           const selected = option.id === NONE ? value === null : option.id === value;
+          const disabled = option.disabled === true;
           return (
             <label
               key={option.id}
               className={cn(
-                'min-w-0 flex-1 cursor-pointer rounded-(--radius-control) border px-4 py-3 text-center text-sm transition',
+                'min-w-0 flex-1 rounded-(--radius-control) border px-4 py-3 text-center text-sm transition',
                 'basis-[calc(50%-0.375rem)] sm:basis-0',
-                selected
-                  ? 'border-brand bg-brand-soft text-brand-strong font-semibold'
-                  : 'border-border-subtle bg-surface text-content-muted hover:border-brand-border',
+                disabled
+                  ? 'border-border-subtle bg-surface-muted text-content-subtle cursor-not-allowed'
+                  : selected
+                    ? 'border-brand bg-brand-soft text-brand-strong cursor-pointer font-semibold'
+                    : 'border-border-subtle bg-surface text-content-muted hover:border-brand-border cursor-pointer',
               )}
             >
               <input
@@ -68,6 +79,7 @@ export function ComparisonSegmented({
                 name={name}
                 className="sr-only"
                 checked={selected}
+                disabled={disabled}
                 onChange={() => (option.id === NONE ? onClear?.() : onChange(option.id))}
                 onClick={() => {
                   // Already chosen and optional: choosing it again withdraws it.
@@ -75,6 +87,11 @@ export function ComparisonSegmented({
                 }}
               />
               <span className="block truncate">{option.label}</span>
+              {disabled ? (
+                <span className="text-accent mt-1 block text-[0.65rem] font-bold tracking-[0.15em] uppercase">
+                  {option.disabledLabel ?? 'Coming soon'}
+                </span>
+              ) : null}
             </label>
           );
         })}

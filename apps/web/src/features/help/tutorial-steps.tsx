@@ -154,7 +154,7 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
         />
       </VisualFrame>
     ),
-    note: `For ${typedAgeLabels}, you set the age range yourself.${fixedAgeSentence} You filled the first configuration in when you added the plan — add another for a different customer type, coverage area or age band.`,
+    note: `${typedAgeLabels ? `For ${typedAgeLabels}, you set the age range yourself.` : ''}${fixedAgeSentence} You filled the first configuration in when you added the plan — add another for a different customer type, coverage area or age band.`.trim(),
   },
 
   {

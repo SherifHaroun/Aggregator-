@@ -1,5 +1,6 @@
 import {
   CUSTOMER_TYPES,
+  DEFAULT_CUSTOMER_TYPE_ID,
   optionLabel,
   type CompanyDto,
   type CustomerTypeId,
@@ -62,12 +63,11 @@ export function CompanyDetailPage() {
   const deletePlan = useDeletePlan();
 
   /**
-   * Which of the company's three books is open. Individual first because it is
-   * the one most companies have most of, and because a section always has to be
-   * chosen — there is no "all plans" view, since the three do not belong in one
-   * list.
+   * Which of the company's three books is open. The one on sale first — the
+   * shared registry says which — because a section always has to be chosen:
+   * there is no "all plans" view, since the three do not belong in one list.
    */
-  const [customerType, setCustomerType] = useState<CustomerTypeId>('INDIVIDUAL');
+  const [customerType, setCustomerType] = useState<CustomerTypeId>(DEFAULT_CUSTOMER_TYPE_ID);
 
   const [editingCompany, setEditingCompany] = useState(false);
   const [addingPlan, setAddingPlan] = useState(false);

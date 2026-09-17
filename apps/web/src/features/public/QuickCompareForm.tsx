@@ -1,11 +1,13 @@
 import {
   CUSTOMER_TYPES,
   DEFAULT_COMPARISON_AGE,
+  DEFAULT_CUSTOMER_TYPE_ID,
   GEOGRAPHICAL_COVERAGES,
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
   describeSmeDistributionProblem,
   emptySmeEmployeeCounts,
+  listAllOptions,
   listEnabledOptions,
   totalSmeEmployees,
   usesAgeRange,
@@ -33,12 +35,19 @@ import { cn } from '@/lib/cn';
  * for a business, how many people in each age group), and where the cover
  * should apply. The same shared rules the employee's form uses decide which
  * questions appear — an SME is asked for a workforce, a family for the
- * youngest and eldest — and the answers travel to the results in the URL
- * exactly as the admin's do, so both sites run one engine.
+ * youngest and eldest — and the answers travel on in the URL exactly as the
+ * admin's do, so both sites run one engine.
+ *
+ * WHO IS ON SALE is the shared registry's call: a customer type switched
+ * off there is still drawn, greyed and marked "coming soon", so a visitor
+ * sees the line is on its way rather than wondering why it is missing.
+ *
+ * The card does not lead to the results directly. It leads to ONE FINAL
+ * STEP — the visitor's name and how to reach them — and the results follow.
  */
 export function QuickCompareForm({ className }: { className?: string }) {
   const navigate = useNavigate();
-  const [customerTypeId, setCustomerTypeId] = useState<CustomerTypeId>('INDIVIDUAL');
+  const [customerTypeId, setCustomerTypeId] = useState<CustomerTypeId>(DEFAULT_CUSTOMER_TYPE_ID);
   const [coverageId, setCoverageId] = useState<GeographicalCoverageId | null>(null);
   const [typedAge, setTypedAge] = useState('');
   const [typedAgeTo, setTypedAgeTo] = useState('');
@@ -81,7 +90,7 @@ export function QuickCompareForm({ className }: { className?: string }) {
         ? { ageTo: (ageIsRange ? ageToNumber : ageNumber) as number }
         : {}),
     };
-    navigate(`${ROUTES.public.results}?${comparisonRequestParams(request).toString()}`);
+    navigate(`${ROUTES.public.details}?${comparisonRequestParams(request).toString()}`);
   }
 
   return (
@@ -93,12 +102,20 @@ export function QuickCompareForm({ className }: { className?: string }) {
         className,
       )}
     >
+      <div className="mb-5 flex items-center gap-3">
+        <span className="bg-brand text-content-inverted rounded-(--radius-pill) px-3 py-1 text-xs font-bold">
+          1 / 3
+        </span>
+        <span className="text-content text-sm font-medium">Tell us what you need</span>
+      </div>
+
       <ComparisonSegmented
         name="publicCustomerType"
         legend="Who do you want to insure?"
-        options={listEnabledOptions(CUSTOMER_TYPES).map((option) => ({
+        options={listAllOptions(CUSTOMER_TYPES).map((option) => ({
           id: option.id,
           label: option.label,
+          disabled: !option.enabled,
         }))}
         value={customerTypeId}
         onChange={(id) => setCustomerTypeId(id as CustomerTypeId)}
@@ -177,7 +194,7 @@ export function QuickCompareForm({ className }: { className?: string }) {
         <IconChevronRight className="size-4" />
       </Button>
       <p className="text-content-subtle mt-3 text-center text-xs">
-        Instant quotes from every insurer we work with. No sign-up needed to compare.
+        Instant quotes from every insurer we work with. No account needed.
       </p>
     </form>
   );

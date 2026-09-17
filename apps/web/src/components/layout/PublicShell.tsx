@@ -1,35 +1,25 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { HadbrokLogo } from '@/components/ui/HadbrokLogo';
-import { IconCart, IconClose, IconMenu } from '@/components/ui/icons';
+import { IconClose, IconMenu } from '@/components/ui/icons';
 import { ROUTES } from '@/config/routes';
-import { useCustomerSession, useSession, useSignOut } from '@/features/auth/auth.api';
-import { loginUrl } from '@/features/auth/guards';
 import { HOURS, PHONE_MOBILE, PHONE_OFFICE, tel } from '@/pages/public/CompanyPages';
 
 /**
  * THE CUSTOMER SITE'S FRAME.
  *
  * A slim navy bar with the broker's mark, the compare card and the broker's
- * own pages, and on the right the two things a visitor needs: their cart,
- * and a way to sign in — or their own name and a way out, once they have.
- * Underneath, the page; at the foot, how to reach the broker. Every link
- * stays on this site: nothing sends a visitor off to the old company site.
+ * own pages, and on the right one thing a visitor might want: a way to
+ * call. No sign-in, no cart — nobody has an account here; a visitor
+ * compares, leaves their details, and is called back. Underneath, the page;
+ * at the foot, how to reach the broker. Every link stays on this site:
+ * nothing sends a visitor off to the old company site.
  */
 export function PublicShell() {
-  const { customer } = useCustomerSession();
-  const session = useSession();
-  const signOut = useSignOut();
-  const navigate = useNavigate();
   const { pathname } = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => setMenuOpen(false), [pathname]);
-
-  function leave() {
-    signOut();
-    navigate(ROUTES.home);
-  }
 
   const links = [
     { label: 'Compare plans', to: `${ROUTES.home}#compare` },
@@ -59,57 +49,18 @@ export function PublicShell() {
           </nav>
 
           <div className="ml-auto flex items-center gap-2">
-            {customer ? (
-              <>
-                <Link
-                  to={ROUTES.public.cart}
-                  className="relative flex size-10 items-center justify-center rounded-(--radius-control) text-white/90 transition-colors hover:bg-white/10"
-                  aria-label={`My cart, ${customer.cartCount} ${customer.cartCount === 1 ? 'plan' : 'plans'}`}
-                >
-                  <IconCart className="size-5" />
-                  <span
-                    aria-hidden
-                    data-testid="my-cart-count"
-                    className="bg-accent text-brand-strong absolute -top-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[0.7rem] font-bold tabular-nums"
-                  >
-                    {customer.cartCount}
-                  </span>
-                </Link>
-                <span className="hidden max-w-40 truncate text-sm font-medium sm:block">
-                  {customer.name}
-                </span>
-                <button
-                  type="button"
-                  onClick={leave}
-                  className="rounded-(--radius-control) border border-white/25 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-                >
-                  Sign out
-                </button>
-              </>
-            ) : session.data?.kind === 'admin' ? (
-              <>
-                <Link
-                  to={ROUTES.dashboard}
-                  className="rounded-(--radius-control) border border-white/25 px-3 py-1.5 text-sm font-semibold text-white transition-colors hover:bg-white/10"
-                >
-                  Admin area
-                </Link>
-                <button
-                  type="button"
-                  onClick={leave}
-                  className="px-2 py-1.5 text-sm font-medium text-white/80 hover:text-white"
-                >
-                  Sign out
-                </button>
-              </>
-            ) : (
-              <Link
-                to={pathname === ROUTES.public.login ? ROUTES.public.login : loginUrl(pathname)}
-                className="bg-accent text-brand-strong rounded-(--radius-control) px-4 py-2 text-sm font-bold shadow-(--shadow-card) transition-transform hover:scale-[1.02]"
-              >
-                Log in / Sign up
-              </Link>
-            )}
+            <a
+              href={tel(PHONE_MOBILE)}
+              className="hidden text-sm font-semibold text-white/85 transition-colors hover:text-white sm:block"
+            >
+              {PHONE_MOBILE}
+            </a>
+            <Link
+              to={`${ROUTES.home}#compare`}
+              className="bg-accent text-brand-strong rounded-(--radius-control) px-4 py-2 text-sm font-bold shadow-(--shadow-card) transition-transform hover:scale-[1.02]"
+            >
+              Get a quote
+            </Link>
             <button
               type="button"
               onClick={() => setMenuOpen((open) => !open)}
@@ -133,14 +84,12 @@ export function PublicShell() {
                 {link.label}
               </NavLink>
             ))}
-            {customer ? (
-              <NavLink
-                to={ROUTES.public.cart}
-                className="block rounded-(--radius-control) px-3 py-2.5 text-sm font-medium text-white/90 hover:bg-white/10"
-              >
-                My cart
-              </NavLink>
-            ) : null}
+            <a
+              href={tel(PHONE_MOBILE)}
+              className="block rounded-(--radius-control) px-3 py-2.5 text-sm font-medium text-white/90 hover:bg-white/10"
+            >
+              Call {PHONE_MOBILE}
+            </a>
           </nav>
         ) : null}
       </header>
@@ -177,9 +126,9 @@ function SiteFooter() {
         </FooterColumn>
 
         <FooterColumn title="Insurance types">
-          <FooterLink to={`${ROUTES.home}#compare`}>Medical · Individual</FooterLink>
-          <FooterLink to={`${ROUTES.home}#compare`}>Medical · Family</FooterLink>
           <FooterLink to={`${ROUTES.home}#compare`}>Medical · SME</FooterLink>
+          <li className="text-sm text-white/60">Medical · Individual · coming soon</li>
+          <li className="text-sm text-white/60">Medical · Family · coming soon</li>
           <li className="text-sm text-white/60">Motor · coming soon</li>
         </FooterColumn>
 

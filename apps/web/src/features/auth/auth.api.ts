@@ -1,13 +1,16 @@
 /**
- * WHO IS SIGNED IN, and signing in and out.
+ * WHO IS SIGNED IN — the employee, or nobody.
  *
  * The session is one query keyed on the token: when the token changes the
  * query changes, so a sign-in is felt everywhere at once. A token the server
  * no longer honours — expired, or signed under a rotated secret — is
  * dropped quietly, and the visitor is simply nobody again.
+ *
+ * Only the broker signs in. The customer site has no accounts: a visitor
+ * there is identified by the lead they left (`features/leads`).
  */
 
-import type { LoginInput, LoginResultDto, SessionDto, SignUpInput } from '@aggregator/shared';
+import type { LoginInput, LoginResultDto, SessionDto } from '@aggregator/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useSyncExternalStore } from 'react';
 import { ApiError, api } from '@/lib/api-client';
@@ -48,19 +51,11 @@ export function useSession() {
   });
 }
 
-/** The signed-in customer, or `null` for staff and strangers alike. */
-export function useCustomerSession() {
-  const session = useSession();
-  return {
-    ...session,
-    customer: session.data?.kind === 'customer' ? session.data.customer : null,
-  };
-}
-
-function useEnter<TInput>(path: string) {
+/** The broker's door: email and password, and the server says it is them. */
+export function useSignIn() {
   const queryClient = useQueryClient();
-  return useMutation<LoginResultDto, unknown, TInput>({
-    mutationFn: (input) => api.post<LoginResultDto>(path, input),
+  return useMutation<LoginResultDto, unknown, LoginInput>({
+    mutationFn: (input) => api.post<LoginResultDto>('/auth/login', input),
     onSuccess: (result) => {
       /* Everything cached was somebody else's view: start again as them. */
       queryClient.clear();
@@ -68,16 +63,6 @@ function useEnter<TInput>(path: string) {
       writeSessionToken(result.token);
     },
   });
-}
-
-/** One door: email and password, and the server says who they are. */
-export function useSignIn() {
-  return useEnter<LoginInput>('/auth/login');
-}
-
-/** A new customer: name, email, password, and the company they buy for. */
-export function useSignUp() {
-  return useEnter<SignUpInput>('/auth/signup');
 }
 
 export function useSignOut() {

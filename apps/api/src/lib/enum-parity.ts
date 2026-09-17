@@ -12,10 +12,19 @@
  * stops compiling. Adding a value therefore means editing the shared config,
  * the Prisma enum, and generating a migration — together, or not at all.
  *
+ * The lead stages and email statuses are held to the same rule: the bell
+ * reads them straight off the row, so the shared contract must name exactly
+ * what the database can hold.
+ *
  * This file is types only; it emits no runtime code.
  */
 
-import type { CustomerTypeId, GeographicalCoverageId } from '@aggregator/shared';
+import type {
+  CustomerTypeId,
+  GeographicalCoverageId,
+  LeadEmailStatusId,
+  LeadStageId,
+} from '@aggregator/shared';
 import type { $Enums } from '@prisma/client';
 
 /** Resolves to `true` only when the two unions have exactly the same members. */
@@ -30,9 +39,19 @@ export type GeographicalCoverageParity = MutuallyAssignable<
   $Enums.GeographicalCoverage
 >;
 
+/** Fails to compile if `LeadStage` and `LEAD_STAGE_IDS` disagree. */
+export type LeadStageParity = MutuallyAssignable<LeadStageId, $Enums.LeadStage>;
+
+/** Fails to compile if `LeadEmailStatus` and `LEAD_EMAIL_STATUS_IDS` disagree. */
+export type LeadEmailStatusParity = MutuallyAssignable<LeadEmailStatusId, $Enums.LeadEmailStatus>;
+
 // Instantiating the aliases is what triggers the check.
 const _customerTypeParity: CustomerTypeParity = true;
 const _geographicalCoverageParity: GeographicalCoverageParity = true;
+const _leadStageParity: LeadStageParity = true;
+const _leadEmailStatusParity: LeadEmailStatusParity = true;
 
 void _customerTypeParity;
 void _geographicalCoverageParity;
+void _leadStageParity;
+void _leadEmailStatusParity;

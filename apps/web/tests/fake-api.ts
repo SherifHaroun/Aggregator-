@@ -32,6 +32,8 @@ import {
   type CustomerCartItemDto,
   type CustomerDto,
   type ImportedDocument,
+  type LeadDto,
+  type LeadEmailStatusId,
   type InsuranceOptionDto,
   type PlanImportJobDto,
   type InsuranceTypeDto,
@@ -79,12 +81,14 @@ export interface FakeStore {
   planImports: { job: PlanImportJobDto; polls: number }[];
   /** What the next import settles to: an answer, or a reason it failed. */
   importAnswer: { result: ImportedDocument | null; error: string | null };
-  /** Who rang in. Counts are worked out from `cartItems` on every read. */
+  /** Who rang in or came through the website. Counts are worked out from `cartItems` on every read. */
   customers: Omit<CustomerDto, 'cartCount' | 'chosenItemId'>[];
-  /** Who has signed up on the website, and with what — plain here, hashed for real. */
-  passwords: Map<string, string>;
   /** Every comparison kept for every customer, with its running number. */
   cartItems: (CustomerCartItemDto & { nameSequence: number })[];
+  /** Every visit to the customer site that left a name. */
+  leads: LeadDto[];
+  /** How the fake's "email" goes: sent, unless a test says the server has no mail. */
+  emailOutcome: LeadEmailStatusId;
   /**
    * Set to make the next matching request fail, e.g. to test error states.
    * `delayMs` holds the response back, which is what makes an optimistic UI
@@ -113,8 +117,9 @@ export function createStore(): FakeStore {
     planImports: [],
     importAnswer: { result: null, error: 'No answer was scripted for this import.' },
     customers: [],
-    passwords: new Map(),
     cartItems: [],
+    leads: [],
+    emailOutcome: 'SENT',
     failNext: null,
   };
 }
@@ -147,24 +152,24 @@ const meta = () => ({ isActive: true, createdAt: now(), updatedAt: now() });
 
 /** Install the fake API for the duration of a test. Returns the store. */
 /**
- * WHO IS ASKING, from the token the client sends. The fake honours two shapes:
- * `ADMIN_TOKEN` is the employee, and `customerToken(id)` is that customer.
+ * WHO IS ASKING, from the token the client sends. The fake honours one:
+ * `ADMIN_TOKEN` is the employee. Nobody else has a session — a visitor to
+ * the customer site is known by the lead they left.
  */
 export const ADMIN_TOKEN = 'fake-admin-token';
-export const customerToken = (customerId: string) => `fake-customer:${customerId}`;
 
-type FakeAuth = { kind: 'admin' } | { kind: 'customer'; customerId: string } | null;
+type FakeAuth = { kind: 'admin' } | null;
 
 function readAuth(init?: RequestInit): FakeAuth {
   const headers = new Headers(init?.headers ?? {});
   const header = headers.get('authorization') ?? '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  if (token === ADMIN_TOKEN) return { kind: 'admin' };
-  if (token.startsWith('fake-customer:')) {
-    return { kind: 'customer', customerId: token.slice('fake-customer:'.length) };
-  }
-  return null;
+  return token === ADMIN_TOKEN ? { kind: 'admin' } : null;
 }
+
+/** A clock that only goes forward, for rows that are ordered by time. */
+let tick = 0;
+const later = () => new Date((tick += 1000)).toISOString();
 
 export function installFakeApi(store: FakeStore = createStore()): FakeStore {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -194,6 +199,51 @@ export function installFakeApi(store: FakeStore = createStore()): FakeStore {
   }) as typeof fetch;
 
   return store;
+}
+
+/**
+ * Keep a plan in a customer's cart, named as the real service names it —
+ * "<company> <section> <n>" — and priced at the variant's first band. Used
+ * by an employee's "Add to cart" and by a visitor's choice alike, because
+ * it is the same cart.
+ */
+function addToCart(
+  store: FakeStore,
+  customer: FakeStore['customers'][number],
+  priced: { configuration: PlanConfigurationDto; plan: PlanDto; company: CompanyDto },
+  criteria: CustomerCartItemDto['criteria'],
+  note: string | null,
+): FakeStore['cartItems'][number] {
+  const { configuration, plan, company } = priced;
+  const peers = store.cartItems
+    .filter((item) => item.customerId === customer.id)
+    .map((item) => ({
+      companyId: item.companyId,
+      customerTypeId: item.customerTypeId,
+      nameSequence: item.nameSequence,
+    }));
+  const sequence = nextCartNameSequence(peers, company.id, plan.customerType);
+  const item: FakeStore['cartItems'][number] = {
+    id: id('cart'),
+    customerId: customer.id,
+    name: cartItemName(company.name, plan.customerType, sequence),
+    nameSequence: sequence,
+    note,
+    planConfigurationId: configuration.id,
+    planId: plan.id,
+    companyId: company.id,
+    companyName: company.name,
+    planName: plan.name,
+    customerTypeId: plan.customerType,
+    annualPrice: configuration.priceBands?.[0]?.annualPrice ?? null,
+    currency: configuration.currency,
+    criteria,
+    isChosen: false,
+    chosenAt: null,
+    createdAt: later(),
+  };
+  store.cartItems.push(item);
+  return item;
 }
 
 /** Resolve the network's name onto a plan, as the real API does when reading one. */
@@ -229,31 +279,19 @@ function route({
   /**
    * The real API's one write gate: reads are open, and every change to
    * insurance data — a JSON body or a file — needs the employee's token.
-   * Signing in, a customer's own cart and running a comparison sit in front
-   * of the gate there too.
+   * Signing in, a visitor's lead and running a comparison sit in front of
+   * the gate there too.
    */
-  const inFrontOfGate =
-    resource === 'auth' || resource === 'customers' || resource === 'comparison';
+  const inFrontOfGate = resource === 'auth' || resource === 'leads' || resource === 'comparison';
   if (!inFrontOfGate && method !== 'GET' && auth?.kind !== 'admin') {
     return fail(403, 'FORBIDDEN', 'You do not have permission to change insurance data.');
   }
 
-  // --- signing in ------------------------------------------------------------
+  // --- signing in: the broker's account, nobody else ------------------------
   if (resource === 'auth') {
-    const publicCustomer = (customer: FakeStore['customers'][number]) => {
-      const items = store.cartItems.filter((item) => item.customerId === customer.id);
-      return {
-        ...customer,
-        cartCount: items.length,
-        chosenItemId: items.find((item) => item.isChosen)?.id ?? null,
-      };
-    };
     if (first === 'session' && method === 'GET') {
       if (!auth) return fail(401, 'UNAUTHENTICATED', 'Not signed in.');
-      if (auth.kind === 'admin') return ok({ kind: 'admin', email: 'info@hadbrok.com' });
-      const customer = store.customers.find((row) => row.id === auth.customerId);
-      if (!customer) return fail(401, 'UNAUTHENTICATED', 'Not signed in.');
-      return ok({ kind: 'customer', customer: publicCustomer(customer) });
+      return ok({ kind: 'admin', email: 'info@hadbrok.com' });
     }
     if (first === 'login' && method === 'POST') {
       const email = String(body.email ?? '')
@@ -263,52 +301,183 @@ function route({
       if (email === 'info@hadbrok.com' && password === 'HADBROK123') {
         return ok({ token: ADMIN_TOKEN, session: { kind: 'admin', email } });
       }
-      const customer = store.customers.find((row) => (row.email ?? '').toLowerCase() === email);
-      if (!customer || !password || store.passwords.get(customer.id) !== password) {
-        return fail(401, 'INVALID_CREDENTIALS', 'That email and password do not match.');
-      }
-      return ok({
-        token: customerToken(customer.id),
-        session: { kind: 'customer', customer: publicCustomer(customer) },
-      });
+      return fail(401, 'INVALID_CREDENTIALS', 'That email and password do not match.');
     }
-    if (first === 'signup' && method === 'POST') {
-      const name = String(body.name ?? '').trim();
+    return null;
+  }
+
+  // --- leads: what a visitor to the customer site did -----------------------
+  if (resource === 'leads') {
+    if (method === 'POST' && !first) {
+      const firstName = String(body.firstName ?? '').trim();
+      const lastName = String(body.lastName ?? '').trim();
+      const phone = String(body.phone ?? '').trim();
       const email = String(body.email ?? '')
         .trim()
         .toLowerCase();
-      const password = String(body.password ?? '');
       const companyName = String(body.companyName ?? '').trim() || null;
-      if (!name || !email || password.length < 8) {
-        return fail(400, 'VALIDATION_ERROR', 'Enter your name, email and a password.');
+      const criteria = body.criteria as LeadDto['criteria'] | undefined;
+      if (!firstName || !lastName || phone.length < 6 || !email.includes('@') || !criteria) {
+        return fail(400, 'VALIDATION_ERROR', 'Enter your name, mobile number and email.');
       }
       let customer = store.customers.find((row) => (row.email ?? '').toLowerCase() === email);
-      if (customer && store.passwords.has(customer.id)) {
-        return fail(409, 'ACCOUNT_EXISTS', 'That email already has an account. Log in instead.');
-      }
-      if (!customer) {
+      const name = `${firstName} ${lastName}`;
+      if (customer) {
+        customer.name = name;
+        customer.phone = phone;
+        customer.companyName = companyName ?? customer.companyName;
+      } else {
         customer = {
           id: id('customer'),
           name,
-          phone: null,
+          phone,
           email,
           companyName,
           source: 'WEBSITE',
-          createdAt: now(),
+          createdAt: later(),
           updatedAt: now(),
         };
         store.customers.push(customer);
-      } else if (companyName && !customer.companyName) {
-        customer.companyName = companyName;
       }
-      store.passwords.set(customer.id, password);
-      return ok(
-        {
-          token: customerToken(customer.id),
-          session: { kind: 'customer', customer: publicCustomer(customer) },
-        },
-        201,
+      const at = later();
+      const lead: LeadDto = {
+        id: id('lead'),
+        customerId: customer.id,
+        firstName,
+        lastName,
+        name,
+        email,
+        phone,
+        companyName,
+        criteria,
+        stage: 'COMPARED',
+        views: [],
+        choice: null,
+        createdAt: at,
+        lastActivityAt: at,
+        seenAt: null,
+      };
+      store.leads.push(lead);
+      return ok(lead, 201);
+    }
+
+    const lead = store.leads.find((row) => row.id === first);
+    if (!lead) return fail(404, 'NOT_FOUND', 'Lead was not found.');
+    if (method === 'GET' && !second) return ok(lead);
+
+    /** The plan, as the real service reads it out of the comparison again. */
+    const pricedPlan = () => {
+      const configuration = store.configurations.find(
+        (item) => item.id === body.planConfigurationId,
       );
+      const plan = store.plans.find((item) => item.id === configuration?.planId);
+      const company = store.companies.find((item) => item.id === plan?.companyId);
+      if (
+        !configuration ||
+        !plan ||
+        !company ||
+        plan.customerType !== lead.criteria.customerTypeId
+      ) {
+        return null;
+      }
+      return { configuration, plan, company };
+    };
+
+    if (method === 'POST' && second === 'views') {
+      if (lead.views.some((view) => view.planConfigurationId === body.planConfigurationId)) {
+        return ok(lead);
+      }
+      const priced = pricedPlan();
+      if (!priced) {
+        return fail(400, 'BAD_REQUEST', 'That plan is not in your results.', {
+          planConfigurationId: ['Not in this comparison.'],
+        });
+      }
+      const at = later();
+      lead.views.push({
+        planConfigurationId: priced.configuration.id,
+        planId: priced.plan.id,
+        companyId: priced.company.id,
+        companyName: priced.company.name,
+        planName: priced.plan.name,
+        customerTypeId: priced.plan.customerType,
+        annualPrice: priced.configuration.priceBands?.[0]?.annualPrice ?? null,
+        currency: priced.configuration.currency,
+        emailStatus: store.emailOutcome,
+        emailedAt: store.emailOutcome === 'SENT' ? at : null,
+        viewedAt: at,
+      });
+      if (lead.stage === 'COMPARED') lead.stage = 'VIEWED';
+      lead.lastActivityAt = at;
+      lead.seenAt = null;
+      return ok(lead);
+    }
+
+    if (method === 'POST' && second === 'choice') {
+      const priced = pricedPlan();
+      if (!priced) {
+        return fail(400, 'BAD_REQUEST', 'That plan is not in your results.', {
+          planConfigurationId: ['Not in this comparison.'],
+        });
+      }
+      const customer = store.customers.find((row) => row.id === lead.customerId)!;
+      const existing = store.cartItems.find(
+        (item) => item.id === lead.choice?.cartItemId && item.customerId === customer.id,
+      );
+      const item =
+        existing && lead.choice?.planConfigurationId === priced.configuration.id
+          ? existing
+          : addToCart(store, customer, priced, lead.criteria, 'Chosen on the website.');
+      for (const other of store.cartItems) {
+        if (other.customerId === customer.id) {
+          other.isChosen = false;
+          other.chosenAt = null;
+        }
+      }
+      item.isChosen = true;
+      item.chosenAt = later();
+      const at = later();
+      lead.stage = 'CHOSEN';
+      lead.choice = {
+        cartItemId: item.id,
+        planConfigurationId: priced.configuration.id,
+        companyName: priced.company.name,
+        planName: priced.plan.name,
+        annualPrice: item.annualPrice,
+        currency: item.currency,
+        emailStatus: store.emailOutcome,
+        emailedAt: store.emailOutcome === 'SENT' ? at : null,
+        chosenAt: at,
+      };
+      lead.lastActivityAt = at;
+      lead.seenAt = null;
+      return ok(lead);
+    }
+    return null;
+  }
+
+  // --- the bell ------------------------------------------------------------
+  if (resource === 'notifications') {
+    if (auth?.kind !== 'admin') return fail(401, 'UNAUTHENTICATED', 'Staff only.');
+    const feed = () => {
+      const notifications = [...store.leads].sort((a, b) =>
+        b.lastActivityAt.localeCompare(a.lastActivityAt),
+      );
+      return {
+        unseenCount: notifications.filter((lead) => lead.seenAt === null).length,
+        notifications,
+      };
+    };
+    if (method === 'GET' && !first) return ok(feed());
+    if (method === 'POST' && first === 'seen' && !second) {
+      for (const lead of store.leads) lead.seenAt ??= later();
+      return ok(feed());
+    }
+    if (method === 'POST' && second === 'seen') {
+      const lead = store.leads.find((row) => row.id === first);
+      if (!lead) return fail(404, 'NOT_FOUND', 'Lead was not found.');
+      lead.seenAt = later();
+      return ok(lead);
     }
     return null;
   }
@@ -1041,30 +1210,18 @@ function route({
         cartCount: items.length,
         chosenItemId: items.find((item) => item.isChosen)?.id ?? null,
         items,
+        leads: store.leads
+          .filter((lead) => lead.customerId === customer.id)
+          .sort((a, b) => b.lastActivityAt.localeCompare(a.lastActivityAt)),
       };
     };
     const summary = (customer: FakeStore['customers'][number]) => {
-      const { items: _items, ...rest } = withCart(customer);
+      const { items: _items, leads: _leads, ...rest } = withCart(customer);
       return rest;
     };
 
-    /* `me` is the signed-in customer; anything else needs an employee. */
-    if (first === 'me') {
-      if (auth?.kind !== 'customer')
-        return fail(401, 'UNAUTHENTICATED', 'Sign in to see your cart.');
-      return route({
-        store,
-        path: path.replace('/customers/me', `/customers/${auth.customerId}`),
-        method,
-        body,
-        form,
-        search,
-        auth: { kind: 'admin' },
-      });
-    }
-    if (auth?.kind !== 'admin') {
-      return fail(auth ? 403 : 401, auth ? 'FORBIDDEN' : 'UNAUTHENTICATED', 'Staff only.');
-    }
+    /* The broker's records: staff only. */
+    if (auth?.kind !== 'admin') return fail(401, 'UNAUTHENTICATED', 'Staff only.');
 
     if (method === 'GET' && !first) {
       const needle = (search.get('search') ?? '').toLowerCase();
@@ -1125,6 +1282,7 @@ function route({
     if (method === 'DELETE' && !second) {
       store.customers = store.customers.filter((item) => item.id !== customer.id);
       store.cartItems = store.cartItems.filter((item) => item.customerId !== customer.id);
+      store.leads = store.leads.filter((lead) => lead.customerId !== customer.id);
       return noContent();
     }
 
@@ -1145,34 +1303,13 @@ function route({
           planConfigurationId: ['Not in this comparison.'],
         });
       }
-      const peers = store.cartItems
-        .filter((item) => item.customerId === customer.id)
-        .map((item) => ({
-          companyId: item.companyId,
-          customerTypeId: item.customerTypeId,
-          nameSequence: item.nameSequence,
-        }));
-      const sequence = nextCartNameSequence(peers, company.id, plan.customerType);
-      const item: FakeStore['cartItems'][number] = {
-        id: id('cart'),
-        customerId: customer.id,
-        name: cartItemName(company.name, plan.customerType, sequence),
-        nameSequence: sequence,
-        note: (body.note as string | null | undefined) ?? null,
-        planConfigurationId: configuration.id,
-        planId: plan.id,
-        companyId: company.id,
-        companyName: company.name,
-        planName: plan.name,
-        customerTypeId: plan.customerType,
-        annualPrice: configuration.priceBands?.[0]?.annualPrice ?? null,
-        currency: configuration.currency,
+      const item = addToCart(
+        store,
+        customer,
+        { configuration, plan, company },
         criteria,
-        isChosen: false,
-        chosenAt: null,
-        createdAt: new Date(counter).toISOString(),
-      };
-      store.cartItems.push(item);
+        (body.note as string | null | undefined) ?? null,
+      );
       const { nameSequence: _sequence, ...dto } = item;
       return ok(dto, 201);
     }

@@ -1,12 +1,12 @@
 /**
  * THE CUSTOMER SITE.
  *
- * A visitor lands on the home page, compares, and sees the best three plans
- * in each tier. Opening one asks them to log in — or sign up with a name, an
- * email, a password and their company; that writes them down as a customer
- * the employees can see, sends them on to the plan, and what they save is in
- * their cart — and in the admin's. The admin area is behind the same door:
- * the broker's own email and password come out as staff.
+ * A visitor lands on the home page and compares — SME only, the other lines
+ * are coming soon. Before the results they leave their details: that is a
+ * lead, and a customer the employees can see. The results show the best
+ * three in each tier; opening one notes it on the lead and sends the PDF;
+ * choosing one puts it in their cart as their choice, sends the PDF again,
+ * and says so. Nobody signs in. The admin is behind its own door.
  *
  * Every test starts from an EMPTY store, signed in as nobody unless said.
  */
@@ -25,6 +25,7 @@ const timestamps = { createdAt: new Date(0).toISOString(), updatedAt: new Date(0
 
 beforeEach(() => {
   store = installFakeApi(createStore());
+  window.sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -32,7 +33,7 @@ afterEach(() => {
   writeSessionToken(null);
 });
 
-/** One individual plan from one insurer, priced flat and with the ceiling given. */
+/** One SME plan from one insurer, priced flat and with the ceiling given. */
 function givenPlan(id: string, name: string, annualLimit: number, annualPrice: number) {
   if (!store.companies.some((company) => company.id === 'company_arope')) {
     store.companies.push({
@@ -53,7 +54,7 @@ function givenPlan(id: string, name: string, annualLimit: number, annualPrice: n
   store.plans.push({
     id: `plan_${id}`,
     companyId: 'company_arope',
-    customerType: 'INDIVIDUAL',
+    customerType: 'SME',
     name,
     code: id.toUpperCase(),
     description: null,
@@ -77,25 +78,37 @@ function givenPlan(id: string, name: string, annualLimit: number, annualPrice: n
   });
 }
 
-const results = `${ROUTES.public.results}?customerTypeId=INDIVIDUAL&ageFrom=30&ageTo=30`;
+const criteria = 'customerTypeId=SME&employees=30%E2%80%9334%3A6';
+const results = `${ROUTES.public.results}?${criteria}`;
 
 describe('the front door', () => {
-  it('opens on the customer site, with a way in at the top right', async () => {
+  it('opens on the customer site, with no sign-in anywhere and only SME on sale', async () => {
     renderApp(ROUTES.home, 'anonymous');
     expect(
       await screen.findByRole('heading', { level: 1, name: /Confused\?/ }),
     ).toBeInTheDocument();
     const header = within(screen.getByRole('banner'));
-    expect(header.getByRole('link', { name: /Log in \/ Sign up/ })).toBeInTheDocument();
+    expect(header.queryByRole('link', { name: /Log in/ })).not.toBeInTheDocument();
+    expect(header.queryByRole('link', { name: /cart/i })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Compare$/ })).toBeInTheDocument();
+
+    /** Individual and Family are drawn, greyed, and cannot be picked. */
+    const who = screen.getByRole('group', { name: 'Who do you want to insure?' });
+    expect(within(who).getByRole('radio', { name: /SME/ })).toBeChecked();
+    expect(within(who).getByRole('radio', { name: /Individual/ })).toBeDisabled();
+    expect(within(who).getByRole('radio', { name: /Family/ })).toBeDisabled();
+    expect(within(who).getAllByText('Coming soon')).toHaveLength(2);
+
     /* No employee furniture on the customer site. */
     expect(screen.queryByRole('link', { name: 'Customers' })).not.toBeInTheDocument();
   });
 
-  it('keeps the admin area behind the door, and lets the broker’s account through', async () => {
+  it('keeps the admin area behind its own door, and lets the broker’s account through', async () => {
     const user = userEvent.setup();
     renderApp(ROUTES.customers.list, 'anonymous');
     expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
+    /** Staff only: there is nothing to sign up for. */
+    expect(screen.queryByRole('tab', { name: 'Sign up' })).not.toBeInTheDocument();
 
     await user.type(screen.getByLabelText(/^Email/), 'info@hadbrok.com');
     await user.type(screen.getByLabelText(/^Password/), 'HADBROK123');
@@ -115,45 +128,65 @@ describe('the front door', () => {
     for (const link of footer.getAllByRole('link')) {
       expect(link).not.toHaveAttribute('href', expect.stringContaining('hadbrok.com/'));
     }
+    expect(footer.getByText(/Individual · coming soon/)).toBeInTheDocument();
 
     await user.click(footer.getByRole('link', { name: 'About us' }));
     expect(
       await screen.findByRole('heading', { level: 1, name: /insurance broker since 1982/ }),
     ).toBeInTheDocument();
     await user.click(
-      within(screen.getByRole('contentinfo')).getByRole('link', { name: 'Services' }),
-    );
-    expect(
-      await screen.findByRole('heading', { level: 1, name: /Know-how and added value/ }),
-    ).toBeInTheDocument();
-    await user.click(
       within(screen.getByRole('contentinfo')).getByRole('link', { name: 'Contact us' }),
     );
     expect(await screen.findByRole('heading', { name: 'Careers' })).toBeInTheDocument();
-    expect(screen.getByText(/licence no\. 17/)).toBeInTheDocument();
-  });
-
-  it('turns a customer away from the admin area', async () => {
-    givenCustomerOnRecord('customer_mona', 'Mona Adel');
-    renderApp(ROUTES.dashboard, { customerId: 'customer_mona' });
-    expect(await screen.findByText(/You are signed in as Mona Adel/)).toBeInTheDocument();
   });
 });
 
-function givenCustomerOnRecord(id: string, name: string) {
-  store.customers.push({
-    id,
-    name,
-    source: 'WEBSITE',
-    phone: '0100 000 0000',
-    email: `${id}@example.com`,
-    companyName: null,
-    ...timestamps,
-  });
-}
-
 describe('comparing as a visitor', () => {
-  it('shows the best three in each tier, flagged, and asks for a sign-in to open one', async () => {
+  it('asks for the visitor’s details before the results, and writes them down as a customer', async () => {
+    const user = userEvent.setup();
+    givenPlan('gold', 'Gold', 150_000, 5_000);
+
+    /** Straight to the results without a lead: sent to the one final step. */
+    renderApp(results, 'anonymous');
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /Your best plans/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('One final step')).toBeInTheDocument();
+
+    /** Nothing goes out without a name and a way to reach them. */
+    await user.click(screen.getByRole('button', { name: /Show my results/ }));
+    expect(await screen.findAllByRole('alert')).not.toHaveLength(0);
+    expect(store.leads).toHaveLength(0);
+
+    await user.type(screen.getByLabelText(/First name/), 'Mona');
+    await user.type(screen.getByLabelText(/Last name/), 'Adel');
+    await user.type(screen.getByLabelText(/Mobile number/), '+20 100 000 0000');
+    await user.type(screen.getByLabelText(/^Email/), 'mona@example.com');
+    await user.type(screen.getByLabelText(/Company/), 'Mona Trading');
+    await user.click(screen.getByRole('button', { name: /Show my results/ }));
+
+    /** A lead, and a customer from the website, with what was typed. */
+    await waitFor(() => expect(store.leads).toHaveLength(1));
+    expect(store.leads[0]).toMatchObject({
+      name: 'Mona Adel',
+      email: 'mona@example.com',
+      phone: '+20 100 000 0000',
+      companyName: 'Mona Trading',
+      stage: 'COMPARED',
+      criteria: { customerTypeId: 'SME' },
+    });
+    expect(store.customers.map((c) => [c.name, c.source, c.companyName, c.phone])).toEqual([
+      ['Mona Adel', 'WEBSITE', 'Mona Trading', '+20 100 000 0000'],
+    ]);
+
+    /** And the results, addressed to them. */
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /best plan for you/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Your results, Mona')).toBeInTheDocument();
+  });
+
+  it('shows the best three in each tier, notes what is opened, and sends the chosen plan', async () => {
     const user = userEvent.setup();
     givenPlan('bronze', 'Bronze', 30_000, 2_000);
     givenPlan('silver', 'Silver', 60_000, 3_000);
@@ -161,8 +194,9 @@ describe('comparing as a visitor', () => {
     givenPlan('platinum', 'Platinum', 200_000, 7_000);
     givenPlan('diamond', 'Diamond', 300_000, 9_000);
     givenPlan('crown', 'Crown', 400_000, 12_000);
+    givenLead('lead_mona');
 
-    renderApp(results, 'anonymous');
+    renderApp(`${results}&lead=lead_mona`, 'anonymous');
     await screen.findByRole('heading', { level: 1, name: /best plans for you/ });
 
     /** Three tiers, each headed and each holding at most three. */
@@ -175,80 +209,95 @@ describe('comparing as a visitor', () => {
     expect(within(premium).getAllByRole('listitem')).toHaveLength(3);
     expect(within(premium).queryByText('Crown')).not.toBeInTheDocument();
     expect(within(premium).getByText(/Best value · Premium/)).toBeInTheDocument();
-    expect(within(premium).getByText('Gold')).toBeInTheDocument();
 
-    /** Not signed in: the button says so and leads to the door, remembering the plan. */
+    /** Opening a plan: no door in the way, and the lead says which was opened. */
     const open = within(premium).getByRole('link', { name: 'View details for Gold' });
-    expect(open).toHaveTextContent('Sign in to view details');
-    expect(open).toHaveAttribute('href', expect.stringContaining(`${ROUTES.public.login}?next=`));
+    expect(open).toHaveTextContent('View details');
+    expect(open).toHaveAttribute('href', expect.stringContaining('lead=lead_mona'));
     await user.click(open);
-    expect(await screen.findByRole('heading', { name: 'Welcome back' })).toBeInTheDocument();
-
-    /** No account yet: name, email, a password and the company — and they are on record for the employees, from the website. */
-    await user.click(screen.getByRole('tab', { name: 'Sign up' }));
-    await user.type(screen.getByLabelText(/Full name/), 'Mona Adel');
-    await user.type(screen.getByLabelText(/^Email/), 'mona@example.com');
-    await user.type(screen.getByLabelText(/^Password/), 'mona-secret-1');
-    await user.type(screen.getByLabelText(/Company name/), 'Mona Trading');
-    await user.click(screen.getByRole('button', { name: 'Create account' }));
-
+    expect(await screen.findByRole('heading', { level: 1, name: 'Gold' })).toBeInTheDocument();
     await waitFor(() =>
-      expect(store.customers.map((c) => [c.name, c.source, c.companyName])).toEqual([
-        ['Mona Adel', 'WEBSITE', 'Mona Trading'],
+      expect(store.leads[0]!.views.map((view) => [view.planName, view.emailStatus])).toEqual([
+        ['Gold', 'SENT'],
       ]),
     );
-
-    /** Straight on to the plan they chose, in full. */
-    expect(await screen.findByRole('heading', { level: 1, name: 'Gold' })).toBeInTheDocument();
+    expect(store.leads[0]!.stage).toBe('VIEWED');
+    expect(await screen.findByText(/The PDF of this plan is in your inbox/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Download PDF/ })).toBeInTheDocument();
 
-    /** Saving it puts it in THEIR cart, which the corner counts. */
-    await user.click(screen.getByRole('button', { name: /Save to my cart/ }));
-    await waitFor(() => expect(store.cartItems).toHaveLength(1));
-    expect(store.cartItems[0]).toMatchObject({
-      customerId: store.customers[0]!.id,
-      planConfigurationId: 'cfg_gold',
-      name: 'Arope Individual 1',
-    });
-    await waitFor(() => expect(screen.getByTestId('my-cart-count')).toHaveTextContent('1'));
-    expect(await screen.findByRole('link', { name: /Saved · View my cart/ })).toBeInTheDocument();
+    /** Choosing it: into the cart as the choice, the PDF sent, and the page says so. */
+    await user.click(screen.getByRole('button', { name: /Choose this plan/ }));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /Your plan is on its way/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /The plan PDF has been sent to your email, and one of our team will contact you within 24 hours/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Arope · Gold')).toBeInTheDocument();
 
-    /** And the cart page lists it with the customer's own words. */
-    await user.click(screen.getByRole('link', { name: /Saved · View my cart/ }));
-    expect(await screen.findByRole('heading', { name: /Mona Adel’s plans/ })).toBeInTheDocument();
-    expect(screen.getByText('Arope Individual 1')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Choose this plan/ })).toBeInTheDocument();
+    expect(store.cartItems).toHaveLength(1);
+    expect(store.cartItems[0]).toMatchObject({
+      customerId: 'customer_mona',
+      planConfigurationId: 'cfg_gold',
+      name: 'Arope SME 1',
+      isChosen: true,
+      note: 'Chosen on the website.',
+    });
+    expect(store.leads[0]).toMatchObject({
+      stage: 'CHOSEN',
+      seenAt: null,
+      choice: { planName: 'Gold', cartItemId: store.cartItems[0]!.id, emailStatus: 'SENT' },
+    });
   });
 
-  it('lets a customer back in with their email and password', async () => {
+  it('says so honestly when the server could not email the PDF', async () => {
     const user = userEvent.setup();
     givenPlan('gold', 'Gold', 150_000, 5_000);
-    givenCustomerOnRecord('customer_mona', 'Mona Adel');
-    store.passwords.set('customer_mona', 'mona-secret-1');
+    givenLead('lead_mona');
+    store.emailOutcome = 'NOT_CONFIGURED';
 
-    renderApp(`${ROUTES.public.login}?next=${encodeURIComponent(results)}`, 'anonymous');
-    await screen.findByRole('heading', { name: 'Welcome back' });
-    await user.type(screen.getByLabelText(/^Email/), 'CUSTOMER_MONA@example.com');
-    await user.type(screen.getByLabelText(/^Password/), 'wrong');
-    await user.click(screen.getByRole('button', { name: 'Log in' }));
-    expect(await screen.findByText(/do not match/)).toBeInTheDocument();
+    renderApp(`${ROUTES.public.plan('cfg_gold')}?${criteria}&lead=lead_mona`, 'anonymous');
+    await screen.findByRole('heading', { level: 1, name: 'Gold' });
+    await user.click(await screen.findByRole('button', { name: /Choose this plan/ }));
 
-    await user.clear(screen.getByLabelText(/^Password/));
-    await user.type(screen.getByLabelText(/^Password/), 'mona-secret-1');
-    await user.click(screen.getByRole('button', { name: 'Log in' }));
-    /** Back where they were headed, and known: the plan opens without another door. */
-    await screen.findByRole('heading', { level: 1, name: /best plans? for you/ });
-    expect(screen.getByRole('link', { name: 'View details for Gold' })).toHaveTextContent(
-      'View details',
-    );
-  });
-
-  it('opens a plan straight away for a customer who is already signed in', async () => {
-    givenPlan('gold', 'Gold', 150_000, 5_000);
-    givenCustomerOnRecord('customer_mona', 'Mona Adel');
-    renderApp(results, { customerId: 'customer_mona' });
-    const open = await screen.findByRole('link', { name: 'View details for Gold' });
-    expect(open).toHaveTextContent('View details');
-    expect(open).toHaveAttribute('href', expect.stringContaining(ROUTES.public.plan('cfg_gold')));
+    expect(
+      await screen.findByRole('heading', { level: 1, name: /Your plan is chosen/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/We could not send the PDF to your email just now/),
+    ).toBeInTheDocument();
+    expect(store.cartItems[0]?.isChosen).toBe(true);
   });
 });
+
+/** A visitor who has already left their details this visit. */
+function givenLead(id: string) {
+  store.customers.push({
+    id: 'customer_mona',
+    name: 'Mona Adel',
+    source: 'WEBSITE',
+    phone: '+20 100 000 0000',
+    email: 'mona@example.com',
+    companyName: 'Mona Trading',
+    ...timestamps,
+  });
+  store.leads.push({
+    id,
+    customerId: 'customer_mona',
+    firstName: 'Mona',
+    lastName: 'Adel',
+    name: 'Mona Adel',
+    email: 'mona@example.com',
+    phone: '+20 100 000 0000',
+    companyName: 'Mona Trading',
+    criteria: { customerTypeId: 'SME', smeEmployees: { '30–34': 6 } },
+    stage: 'COMPARED',
+    views: [],
+    choice: null,
+    createdAt: timestamps.createdAt,
+    lastActivityAt: timestamps.createdAt,
+    seenAt: null,
+  });
+}

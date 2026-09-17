@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 /** One insurer with one individual plan, priced at 4,000 for every age. */
-function givenAropeSilverOnSale() {
+function givenAropeSilverOnSale(customerType: 'INDIVIDUAL' | 'SME' = 'INDIVIDUAL') {
   store.companies.push({
     id: 'company_arope',
     name: 'Arope',
@@ -49,7 +49,7 @@ function givenAropeSilverOnSale() {
   store.plans.push({
     id: 'plan_silver',
     companyId: 'company_arope',
-    customerType: 'INDIVIDUAL',
+    customerType,
     name: 'Silver',
     code: 'SILVER',
     description: null,
@@ -146,13 +146,13 @@ describe('customers', () => {
 describe('keeping a comparison for a customer', () => {
   it('will not compare for nobody, and once a customer is chosen adds straight to their cart', async () => {
     const user = userEvent.setup();
-    givenAropeSilverOnSale();
+    givenAropeSilverOnSale('SME');
     givenCustomer('customer_mona', 'Mona Adel', '0100 123 4567');
     givenCustomer('customer_omar', 'Omar Said');
 
     renderApp(ROUTES.comparison.new);
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
-    await user.click(screen.getByRole('radio', { name: /Individual/i }));
+    await user.click(screen.getByRole('radio', { name: /SME/i }));
 
     /** Who is being insured is answered; who it is FOR is not — and the page
         scrolls back up to say so. */
@@ -190,10 +190,10 @@ describe('keeping a comparison for a customer', () => {
     await waitFor(() => expect(store.cartItems).toHaveLength(1));
     expect(store.cartItems[0]).toMatchObject({
       customerId: 'customer_mona',
-      name: 'Arope Individual 1',
+      name: 'Arope SME 1',
       note: 'Wants a private room',
       planConfigurationId: 'cfg_silver',
-      criteria: { customerTypeId: 'INDIVIDUAL' },
+      criteria: { customerTypeId: 'SME' },
     });
 
     /** The corner counts it; opening it shows Mona, and Mona shows the entry. */
@@ -206,7 +206,7 @@ describe('keeping a comparison for a customer', () => {
     expect(within(panel).queryByText('Omar Said')).not.toBeInTheDocument();
     await user.click(within(panel).getByRole('button', { name: /Mona Adel/ }));
     const cart = within(panel).getByRole('list', { name: /Mona Adel.*cart/ });
-    expect(within(cart).getByText('Arope Individual 1')).toBeInTheDocument();
+    expect(within(cart).getByText('Arope SME 1')).toBeInTheDocument();
     expect(within(cart).getByText('Wants a private room')).toBeInTheDocument();
     expect(within(cart).getByText(/Silver · Arope/)).toBeInTheDocument();
     /** Opening it again keeps it hers. */
@@ -221,16 +221,13 @@ describe('keeping a comparison for a customer', () => {
     const again = screen.getByRole('dialog', { name: 'Add to Mona Adel’s cart' });
     await user.click(within(again).getByRole('button', { name: 'Add' }));
     await waitFor(() =>
-      expect(store.cartItems.map((item) => item.name)).toEqual([
-        'Arope Individual 1',
-        'Arope Individual 2',
-      ]),
+      expect(store.cartItems.map((item) => item.name)).toEqual(['Arope SME 1', 'Arope SME 2']),
     );
   });
 
   it('writes a new caller down on the form, and compares for them', async () => {
     const user = userEvent.setup();
-    givenAropeSilverOnSale();
+    givenAropeSilverOnSale('SME');
 
     renderApp(ROUTES.comparison.new);
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
@@ -242,7 +239,7 @@ describe('keeping a comparison for a customer', () => {
     expect(screen.getByText('Nour Hassan')).toBeInTheDocument();
     expect(store.customers.map((customer) => customer.name)).toEqual(['Nour Hassan']);
 
-    await user.click(screen.getByRole('radio', { name: /Individual/i }));
+    await user.click(screen.getByRole('radio', { name: /SME/i }));
     await user.click(screen.getByRole('button', { name: /Work it out for me/i }));
     await screen.findByText(/1 matching plan/);
     await user.click(await screen.findByRole('button', { name: 'Add to Nour Hassan’s cart' }));

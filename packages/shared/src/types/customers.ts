@@ -12,6 +12,7 @@
 
 import type { CustomerTypeId } from '../config/customer-types.js';
 import type { ComparisonRequestInput } from './comparison-results.js';
+import type { LeadDto } from './leads.js';
 
 /** Who wrote the customer down: an employee, or the customer on the website. */
 export type CustomerSource = 'STAFF' | 'WEBSITE';
@@ -67,9 +68,11 @@ export interface CustomerCartItemDto {
   createdAt: string;
 }
 
-/** A customer read with their cart. */
+/** A customer read with their cart, and everything they did on the website. */
 export interface CustomerWithCartDto extends CustomerDto {
   items: CustomerCartItemDto[];
+  /** Their leads, newest activity first. Empty for a caller an employee wrote down. */
+  leads: LeadDto[];
 }
 
 /**

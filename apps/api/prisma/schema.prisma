@@ -72,6 +72,28 @@ enum GeographicalCoverage {
   OTHER
 }
 
+/// HOW FAR A VISITOR TO THE CUSTOMER SITE GOT — see `Lead`.
+/// SYSTEM CONFIGURATION, mirrored by `LEAD_STAGE_IDS` in @aggregator/shared;
+/// `src/lib/enum-parity.ts` fails the build if the two diverge.
+enum LeadStage {
+  /// Gave their details and saw the results.
+  COMPARED
+  /// Opened at least one plan in full.
+  VIEWED
+  /// Chose a plan: it is in their cart as their choice.
+  CHOSEN
+}
+
+/// Whether a plan's PDF reached a visitor's inbox. Mirrored by
+/// `LEAD_EMAIL_STATUS_IDS` in @aggregator/shared.
+enum LeadEmailStatus {
+  PENDING
+  SENT
+  FAILED
+  /// The server has no mail settings: nothing was sent, and the lead says so.
+  NOT_CONFIGURED
+}
+
 // ============================================================================
 //  COMPANIES
 // ============================================================================
@@ -641,6 +663,12 @@ model PlanOptionValue {
 /// on one. Not insurance data: no plan, price or benefit lives here, and
 /// nothing about a customer takes part in a comparison.
 ///
+/// Or they come from the WEBSITE: a visitor who compared and left their
+/// details becomes a customer here too (`source = "WEBSITE"`), matched by
+/// email to a record the broker already has, and what they did is in `Lead`.
+/// There are no customer accounts and no passwords: the site asks for a
+/// name and a way to reach them, nothing more.
+///
 /// Only the name is required. A caller may leave no number and no address,
 /// and refusing to write them down until they do would lose the call.
 model Customer {
@@ -652,16 +680,13 @@ model Customer {
   source String @default("STAFF") @db.VarChar(16)
   /** The company they buy for, when they gave one. */
   companyName String?
-  /**
-   * Set once they have an account on the website: scrypt, salted, never the
-   * password itself. Null for a caller the broker wrote down who never signed up.
-   */
-  passwordHash String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   cartItems CustomerCartItem[]
+  /// What they did on the website, one lead per comparison. See `Lead`.
+  leads Lead[]
 
   @@index([name])
   @@map("customers")
@@ -709,10 +734,112 @@ model CustomerCartItem {
   /// `customers.service.ts` clears the others when it is set.
   chosenAt DateTime?
 
+  /// The website lead that put it here as its choice, if one did.
+  chosenByLead Lead?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([customerId, createdAt])
   @@index([planConfigurationId])
   @@map("customer_cart_items")
+}
+
+// ============================================================================
+//  LEADS: WHAT A VISITOR TO THE CUSTOMER SITE DID
+// ============================================================================
+
+/// ONE VISIT THAT LEFT A NAME.
+///
+/// The customer site has no sign-in. A visitor fills in the compare card,
+/// then gives their name, mobile, email and company before the results —
+/// and that is a lead: the `Customer` it was written down as (matched by
+/// email to a record the broker already has, or created), the comparison it
+/// was made from, and how far they went: `COMPARED`, then `VIEWED` once they
+/// open a plan in full, then `CHOSEN` once they pick one.
+///
+/// ONE LEAD IS ONE NOTIFICATION. It is not three rows for three steps: the
+/// same row advances, `lastActivityAt` moves on and `seenAt` is cleared, so
+/// the employee's bell shows the LAST thing the visitor did, once.
+///
+/// The choice is a real cart entry (`chosenCartItemId`) so the customer's
+/// cart and "Offers requested" show it like any plan an employee kept; the
+/// snapshot beside it survives the entry being removed.
+model Lead {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  /// What was typed on the site, kept as typed even if the record is later edited.
+  firstName   String
+  lastName    String
+  email       String
+  phone       String
+  companyName String?
+
+  /// The comparison request, as the engine validated it.
+  criteria Json
+
+  stage LeadStage @default(COMPARED)
+
+  /// THE CHOICE. The cart entry it became, and a snapshot of what it was.
+  chosenCartItemId          String?           @unique
+  chosenCartItem            CustomerCartItem? @relation(fields: [chosenCartItemId], references: [id], onDelete: SetNull)
+  chosenPlanConfigurationId String?
+  chosenCompanyName         String?
+  chosenPlanName            String?
+  chosenAnnualPrice         Decimal?          @db.Decimal(14, 2)
+  chosenCurrency            String?           @db.VarChar(3)
+  chosenAt                  DateTime?
+  choiceEmailStatus         LeadEmailStatus?
+  choiceEmailedAt           DateTime?
+  choiceEmailError          String?
+
+  /// The last step the visitor took. The bell orders on it.
+  lastActivityAt DateTime  @default(now())
+  /// When an employee saw the lead AT ITS CURRENT STAGE. Cleared as it advances.
+  seenAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Every plan opened in full, once each.
+  views LeadPlanView[]
+
+  @@index([lastActivityAt])
+  @@index([seenAt])
+  @@index([customerId, createdAt])
+  @@map("leads")
+}
+
+/// ONE PLAN A VISITOR OPENED IN FULL, and whether its PDF reached them.
+///
+/// Once per plan per lead: opening the same plan twice is one row, and the
+/// PDF is emailed once. The snapshot names the plan as it was priced for
+/// this visitor, so the employee reads "Arope · Gold, EGP 12,000" without a
+/// lookup that might no longer find it.
+model LeadPlanView {
+  id     String @id @default(cuid())
+  leadId String
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  planConfigurationId String
+  planId              String?
+  companyId           String?
+  companyName         String
+  planName            String
+  customerType        CustomerType
+  annualPrice         Decimal?     @db.Decimal(14, 2)
+  currency            String?      @db.VarChar(3)
+
+  emailStatus LeadEmailStatus @default(PENDING)
+  emailedAt   DateTime?
+  emailError  String?
+
+  viewedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([leadId, planConfigurationId])
+  @@index([leadId, viewedAt])
+  @@map("lead_plan_views")
 }

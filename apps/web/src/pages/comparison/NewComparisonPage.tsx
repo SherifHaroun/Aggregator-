@@ -7,6 +7,7 @@ import {
   MIN_INSURABLE_AGE,
   describeSmeDistributionProblem,
   emptySmeEmployeeCounts,
+  listAllOptions,
   listEnabledOptions,
   optionLabel,
   resolveAverageAgeForCustomerType,
@@ -297,14 +298,19 @@ export function NewComparisonPage() {
             <CustomerPicker value={customerId} onChange={setCustomerId} error={customerError} />
           </div>
 
-          {/* THE ONE REQUIRED ANSWER ABOUT THE COVER, on its own and next. */}
+          {/*
+            THE ONE REQUIRED ANSWER ABOUT THE COVER, on its own and next. A
+            line not on sale is drawn greyed and marked, exactly as the
+            customer sees it, so the employee is never asked why it is missing.
+          */}
           <div ref={whoSection} className="mt-7 scroll-mt-24">
             <ComparisonSegmented
               name="customerType"
               legend="Who do you want to insure?"
-              options={listEnabledOptions(CUSTOMER_TYPES).map((option) => ({
+              options={listAllOptions(CUSTOMER_TYPES).map((option) => ({
                 id: option.id,
                 label: option.label,
+                disabled: !option.enabled,
               }))}
               value={customerTypeId}
               onChange={(id) => setCustomerTypeId(id as CustomerTypeId)}

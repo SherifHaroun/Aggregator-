@@ -551,8 +551,12 @@ Vercel                  Railway
 ```
 
 Railway injects `DATABASE_URL` into the API service from the Postgres service,
-so it is never set by hand there. `CORS_ORIGINS` on the API names the Vercel
-origin; `VITE_API_BASE_URL` on the web build names the API.
+so it is never set by hand there. `CORS_ORIGINS` on the API names every web
+origin — the customer site's and, when the admin is deployed on a URL of its
+own (`VITE_SITE_MODE=admin`, see §5), the admin's too; `VITE_API_BASE_URL` on
+each web build names the API. `API_PUBLIC_URL` on the API is its own outside
+address, written into the PDFs it emails; the SMTP variables are how those
+emails go out.
 
 **The production database has no public endpoint.** `postgres.railway.internal`
 resolves only inside Railway's network, which is why a development machine
@@ -758,52 +762,144 @@ the page scrolls to that customer.
 
 ---
 
-### The customer site, and who is signed in
+### The customer site, the admin, and who is signed in
 
-The site now has TWO FRONT DOORS ON ONE HOUSE. `/` is the customer site:
-a home page with the compare card, the results, sign-in, a plan in full and
-the customer's cart. `/admin` is the employee area described above. Both are
-one React app (`apps/web`) reading one API and one database, so a plan or a
-company an employee publishes is on the customer site the moment it is saved.
+The site has TWO FRONT DOORS ON ONE HOUSE. `/` is the customer site: a
+home page with the compare card, ONE FINAL STEP where the visitor leaves
+their details, the results, a plan in full, and the page that says the PDF
+is on its way. `/admin` is the employee area described above, behind the
+broker's own sign-in at `/admin/login`. Both are one React app (`apps/web`)
+reading one API and one database, so a plan an employee publishes is on the
+customer site the moment it is saved — and a visitor who leaves their
+details is on the employee's Customers page, and their bell, the moment
+they do.
+
+**Nobody signs in on the customer site.** There are no customer accounts,
+no passwords and no cart page there. A visitor is identified by the LEAD
+they leave (below), whose id travels in the URL beside the comparison
+(`?lead=`) and is remembered in the tab's session storage so a second
+comparison in the same visit does not ask for their name again.
+
+**Deploying the two apart** (`apps/web/src/config/site.ts`). The one build
+serves both by default. `VITE_SITE_MODE=customer` serves only the customer
+site (`/admin` does not exist on that deployment); `VITE_SITE_MODE=admin`
+serves only the employee area (`/` leads to `/admin`). So the customer site
+can live on the public domain and the admin on a URL of its own, from the
+same code, against the same API and database. `VITE_CUSTOMER_SITE_URL`
+tells an admin-only build where the customer site is, for its one link.
+Every mode calls the same `VITE_API_BASE_URL`, and the API's `CORS_ORIGINS`
+lists every origin that does.
+
+**Only SME is on sale.** `CUSTOMER_TYPES` in `@aggregator/shared` has
+`enabled: false` on `INDIVIDUAL` and `FAMILY`. They are hidden, not
+removed: their plans stay in the database and remain valid for every
+record that names them; the company page still shows all three books (the
+ones not on sale tagged "Soon") so those plans can be managed; and the
+comparison — the customer's card and the employee's form alike — draws the
+two as greyed "Coming soon" pills that cannot be picked. The customer
+site's "Insurance solutions" and footer say "coming soon" for Individual,
+Family and Motor. Turning a line back on is that one flag.
 
 **Signing in** (`apps/api/src/modules/auth/`, `apps/web/src/features/auth/`).
-ONE DOOR: everybody gives an email and a password to `POST /auth/login`,
-and the server says who they turned out to be. A session is a signed token —
-the kind of session, the subject, an expiry, HMAC-SHA256 under
-`SESSION_SECRET` — carried as `Authorization: Bearer` on every request and
-kept in `localStorage` (`lib/session-store.ts`). Nothing is stored
-server-side. `readSession` reads it on every request into `req.auth`.
-
-- If the email is `ADMIN_EMAIL` from the API's environment, the password is
-  checked against `ADMIN_PASSWORD` — never from the database, never from
-  the code — and the session is the employee's. Both must be set on Railway
-  as well as locally.
-- Otherwise the email is looked up among the customers and the password
-  checked against the scrypt hash on their record (`passwordHash`, salted,
-  never the password itself). A customer without one — a caller the broker
-  wrote down, or a record from before passwords — cannot log in until they
-  sign up.
-- A newcomer signs up (`POST /auth/signup`) with their name, email, a
-  password and the company they buy for (`companyName`). A record already
-  on file under that email is not written twice: it simply gains the
-  password. A new one is written down with `source = "WEBSITE"`, which the
-  admin's Customers page shows as "From website". Either way it is the same
-  `Customer` row and the same cart the employees see.
-- `GET /auth/session` says who the token belongs to; the web client asks on
-  every page load (`useSession`) and drops a token the API rejects.
+The broker's account only: an email and a password to `POST /auth/login`,
+checked against `ADMIN_EMAIL` and `ADMIN_PASSWORD` from the API's
+environment — never the database, never the code — and the session is the
+employee's. A session is a signed token — the kind, the subject, an expiry,
+HMAC-SHA256 under `SESSION_SECRET` — carried as `Authorization: Bearer` on
+every request and kept in `localStorage` (`lib/session-store.ts`). Nothing
+is stored server-side. `readSession` reads it on every request into
+`req.auth`; `GET /auth/session` says who it belongs to. A token of any
+other kind — one from the days of customer accounts — is nobody.
+`RequireAdmin` wraps the whole `/admin` tree and sends a stranger to
+`/admin/login` with `next=` the page they wanted; a token whose check merely
+failed (the API not answering) is let through so the page shows its own
+error.
 
 **Who may do what** (`middleware/access.ts`). Insurance-data reads stay open.
 Insurance-data writes pass `requireWriteAccess`: a signed-in employee, or the
 legacy `ADMIN_API_TOKEN` when one is set; with neither a staff login nor a
 token configured, writes stay open as on the old internal-only deployment.
-Customers have their own rule in `customers.routes.ts`: every route needs an
-employee, except that a signed-in customer may address exactly one record —
-their own — as `/customers/me`, for reading, updating, and their cart.
-Deleting a customer is always the broker's. The web guards mirror this:
-`RequireAdmin` wraps the whole `/admin` tree and `RequireCustomer` wraps a
-plan in full and the cart; either sends a stranger to `/login` with `next=`
-the page they wanted, and a token whose check merely failed (the API not
-answering) is let through so the page shows its own error.
+Customers, their carts and the bell (`/customers`, `/notifications`) are the
+broker's records: staff only, every route. The customer site's only writes
+are `/leads` (below), which need no session, are rate-limited per address,
+and reach exactly the lead they name.
+
+### Leads: what a visitor did, and the employee's bell
+
+`apps/api/src/modules/leads/`, `apps/web/src/features/leads/`,
+`apps/web/src/features/notifications/`, Prisma `Lead` and `LeadPlanView`.
+
+**The one final step** (`pages/public/LeadDetailsPage.tsx`). The compare
+card (`features/public/QuickCompareForm.tsx`) no longer leads to the results.
+It leads to `/compare/details?…` with the comparison in the query string,
+where the visitor gives their first name, last name, mobile, email and
+company. `POST /leads` takes those and the comparison (validated exactly as
+the engine validates a run) and does two things: it writes the visitor down
+as a `Customer` — matched by email, case-insensitively, to a record the
+broker already has, whose name, phone and company are brought up to date,
+or created with `source = "WEBSITE"` — and it creates a `Lead` at stage
+`COMPARED`. The page then goes to `/compare?…&lead=<id>`. The results and
+the plan page both redirect to the details step when the lead is missing.
+
+**Three steps, one row.** A lead ADVANCES rather than multiplying:
+
+- `COMPARED` — they gave their details and saw the results.
+- `VIEWED` — `POST /leads/:id/views` when a plan is opened in full
+  (`PublicPlanPage` fires it once per plan on mount). The comparison is run
+  again on the server and the plan read out of it — the premium noted is
+  the engine's for this visitor, never the screen's — a `LeadPlanView` row
+  is written (unique per lead and plan, so opening a plan twice is one row
+  and one email), and the plan's PDF is emailed to the visitor.
+- `CHOSEN` — `POST /leads/:id/choice`. The plan goes into the customer's
+  cart through the same `addCartItem` an employee uses (named "Arope SME 1"
+  like any other, with the note "Chosen on the website.") and is marked the
+  choice, which clears any other; the lead keeps `chosenCartItemId` and a
+  snapshot of the plan; the PDF is emailed again under "Your chosen plan";
+  and the site shows `/compare/chosen` — the PDF is on its way and a
+  Hadbrok adviser will call within 24 hours (or, honestly, that the PDF
+  could not be sent and the adviser will bring it). Choosing the same plan
+  twice changes nothing and sends nothing; choosing a different one moves
+  the choice.
+
+Every step sets `lastActivityAt` and clears `seenAt`, so the bell shows the
+LAST thing the visitor did, once. `LeadStage` and `LeadEmailStatus` are
+Prisma enums mirrored by `LEAD_STAGE_IDS` and `LEAD_EMAIL_STATUS_IDS`, held
+in step by `lib/enum-parity.ts` like the others.
+
+**The PDF is the same file everywhere.** The writer (`rules/pdf-writer.ts`)
+and the renderer (`rules/plan-document.ts`, `rules/plan-document-source.ts`)
+now live in `@aggregator/shared`, DOM-free, handing back bytes. The browser
+wraps them in a Blob to download (`apps/web/src/lib/pdf.ts`,
+`features/comparison/plan-document.ts`); the API (`modules/leads/plan-pdf.ts`)
+attaches them to the email. The provider-list button's absolute address is
+handed in by the caller: the web resolves it against its API base, the API
+against `API_PUBLIC_URL`.
+
+**Email** (`modules/leads/email.ts`). Plain SMTP through nodemailer, from
+`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`,
+`MAIL_FROM` and `MAIL_REPLY_TO`, so any provider the broker uses works.
+A send never throws: it returns `SENT`, `FAILED` (with the reason kept on
+the row) or `NOT_CONFIGURED` when `SMTP_HOST` is unset — and the lead
+records which, so the employee reads "PDF sent" or "PDF not sent (email
+not set up)" rather than assuming. Tests swap the transport with
+`useEmailTransport`.
+
+**The bell** (`features/notifications/NotificationBell.tsx`,
+`GET /notifications`, `POST /notifications/:id/seen`,
+`POST /notifications/seen`). A notification IS a lead. The bell, top right
+of every admin screen beside the cart, shows how many leads are unseen at
+their current stage and polls every thirty seconds. Pressing it slides a
+narrow panel in from the right — a column, never the whole page — listing
+recent visits newest activity first: who, what they last did
+(`describeLeadActivity` in `rules/lead-activity.ts`: "Mona Adel chose Arope
+· Gold"), the price, whether the PDF reached them, the stage, and when.
+Opening a row marks it seen and goes to the customer's page, whose new
+"Website activity" card (`features/customers/LeadActivityList.tsx`) tells
+the whole visit. When the admin is opened and there is something new, the
+panel slides in on its own — once per tab (session storage), and only
+unless the employee has turned "Open this panel when I arrive" off in the
+panel's own settings (the gear; the preference is this browser's, in
+localStorage — `notification-preferences.ts`).
 
 **The broker's own pages** (`pages/public/CompanyPages.tsx`). About us,
 Services, Regional capabilities, Affiliated companies and Contact us ·
@@ -814,19 +910,17 @@ are constants in that one file, and the footer reads them from there.
 
 **The customer's comparison** (`features/public/QuickCompareForm.tsx`,
 `pages/public/PublicResultsPage.tsx`). The compare card asks who is being
-insured, the age (or the workforce, or the youngest and eldest — the same
-shared rules decide) and where the cover applies, and sends the same
-`ComparisonRequestInput` the admin's form sends. The results are the engine's
-ranked list read through `topPlansByTier` (`packages/shared/src/rules/
-tiered-results.ts`): up to three plans per tier — Basic, Standard, Premium,
-read off the annual limit as everywhere else — in the engine's order, the
-first in each tier flagged as its best value. Opening a plan requires a
-customer to be logged in; the plan page (`PublicPlanPage`) shares `PlanBody` with the
-employee's page, so the figures, the bands, the benefits and the PDF (named
-for the customer) are identical, and "Save to my cart" writes to
-`/customers/me/cart`. `MyCartPage` is `CartItemList` with
-`audience="customer"`: the same list, worded for its owner — "Choose this
-plan" is what the admin sees as the plan linked to the customer.
+insured (SME; the rest coming soon), the workforce and where the cover
+applies, and sends the same `ComparisonRequestInput` the admin's form
+sends. The results are the engine's ranked list read through
+`topPlansByTier` (`packages/shared/src/rules/tiered-results.ts`): up to
+three plans per tier — Basic, Standard, Premium, read off the annual limit
+as everywhere else — in the engine's order, the first in each tier flagged
+as its best value, a plan already opened tagged "PDF sent to you", the
+chosen one "Your choice". The plan page (`PublicPlanPage`) shares
+`PlanBody` with the employee's page, so the figures, the bands, the
+benefits and the PDF (named for the visitor) are identical; its one button
+is "Choose this plan".
 
 ## 6. Preparing for a public aggregator
 
@@ -885,9 +979,8 @@ Doing these now would be speculative; none is blocked by the current design.
 
 Deliberately absent, to be built in later steps:
 
-employee authentication · permissions · reports · settings · the comparison
-engine · comparison results · the recommendation algorithm · audit logs · the
-age input for Individual and Family
+permissions · reports · audit logs · Individual and Family on sale (hidden
+behind one flag, not removed) · Motor insurance
 
 The database and API behind the management screens exist; only the UI is
 missing. A `SELECT` field type (dropdown with employee-defined choices) was

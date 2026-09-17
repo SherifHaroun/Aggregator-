@@ -14,10 +14,7 @@ import {
   useToast,
 } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
-import {
-  comparisonRequestParams,
-  comparisonResultsUrl,
-} from '@/features/comparison/comparison-request';
+import { comparisonResultsUrl } from '@/features/comparison/comparison-request';
 import { cn } from '@/lib/cn';
 import { useRemoveCartItem, useUpdateCartItem } from './customers.api';
 
@@ -34,43 +31,19 @@ export function formatCartDate(iso: string): string {
   });
 }
 
-/** Who is looking: an employee at a customer's cart, or the customer at their own. */
-export type CartAudience = 'staff' | 'customer';
-
 /** The results, exactly as they were when this entry was kept — still this customer's. */
-export function cartItemResultsUrl(item: CustomerCartItemDto, audience: CartAudience = 'staff') {
-  if (audience === 'customer') {
-    return `${ROUTES.public.results}?${comparisonRequestParams(item.criteria).toString()}`;
-  }
+export function cartItemResultsUrl(item: CustomerCartItemDto) {
   return comparisonResultsUrl(ROUTES.comparison.results, item.criteria, item.customerId);
 }
 
-/** The words each audience reads on the same controls. */
-const WORDING: Record<
-  CartAudience,
-  {
-    link: string;
-    linked: string;
-    unlink: string;
-    empty: string;
-    linkedToast: (n: string) => string;
-  }
-> = {
-  staff: {
-    link: 'Link to customer',
-    linked: 'Linked to customer',
-    unlink: 'Unlink',
-    empty: 'Nothing kept yet. Run a comparison for this customer and press “Add to cart”.',
-    linkedToast: (name) => `${name} is now linked to the customer.`,
-  },
-  customer: {
-    link: 'Choose this plan',
-    linked: 'My choice',
-    unlink: 'Undo choice',
-    empty: 'Nothing saved yet. Compare plans and keep the ones you like — they will be here.',
-    linkedToast: (name) => `${name} is now your choice. We will be in touch.`,
-  },
-};
+/** The words on the controls. The cart is the employee's screen only. */
+const WORDING = {
+  link: 'Link to customer',
+  linked: 'Linked to customer',
+  unlink: 'Unlink',
+  empty: 'Nothing kept yet. Run a comparison for this customer and press “Add to cart”.',
+  linkedToast: (name: string) => `${name} is now linked to the customer.`,
+} as const;
 
 /**
  * A CUSTOMER'S CART: the comparisons kept for them, first to last.
@@ -79,7 +52,8 @@ const WORDING: Record<
  * "Arope SME 1" — with the date it was kept, the plan and premium it was
  * kept with, and whatever the employee wrote underneath. The green button
  * marks the one the customer settled on; there is only ever one, so
- * choosing another moves the tick.
+ * choosing another moves the tick. A plan the customer chose on the
+ * website arrives here already ticked, with its note saying so.
  *
  * `compact` is the cart button's dropdown: the same list, less room.
  */
@@ -88,18 +62,16 @@ export function CartItemList({
   customerName,
   items,
   compact = false,
-  audience = 'staff',
 }: {
   customerId: string;
   customerName: string;
   items: CustomerCartItemDto[];
   compact?: boolean;
-  audience?: CartAudience;
 }) {
   if (items.length === 0) {
     return (
       <p className="text-content-subtle border-border-subtle rounded-(--radius-control) border border-dashed px-3 py-6 text-center text-sm">
-        {WORDING[audience].empty}
+        {WORDING.empty}
       </p>
     );
   }
@@ -113,7 +85,6 @@ export function CartItemList({
           item={item}
           position={index + 1}
           compact={compact}
-          audience={audience}
         />
       ))}
     </ol>
@@ -125,15 +96,13 @@ function CartItemRow({
   item,
   position,
   compact,
-  audience,
 }: {
   customerId: string;
   item: CustomerCartItemDto;
   position: number;
   compact: boolean;
-  audience: CartAudience;
 }) {
-  const words = WORDING[audience];
+  const words = WORDING;
   const update = useUpdateCartItem();
   const remove = useRemoveCartItem();
   const { notify } = useToast();
@@ -279,17 +248,8 @@ function CartItemRow({
               {item.note ? 'Edit note' : 'Add note'}
             </Button>
           ) : null}
-          {audience === 'customer' && item.planConfigurationId ? (
-            <Link
-              to={`${ROUTES.public.plan(item.planConfigurationId)}?${comparisonRequestParams(item.criteria).toString()}`}
-              className="text-brand-strong inline-flex h-9 items-center gap-1 px-2 text-sm font-semibold hover:underline"
-            >
-              View plan
-              <IconChevronRight className="size-4" />
-            </Link>
-          ) : null}
           <Link
-            to={cartItemResultsUrl(item, audience)}
+            to={cartItemResultsUrl(item)}
             className="text-brand-strong inline-flex h-9 items-center gap-1 px-2 text-sm font-semibold hover:underline"
           >
             Open comparison

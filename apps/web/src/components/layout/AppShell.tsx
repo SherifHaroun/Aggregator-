@@ -4,15 +4,19 @@ import { HadbrokLogo } from '@/components/ui/HadbrokLogo';
 import { IconClose, IconMenu } from '@/components/ui/icons';
 import { APP_NAME, APP_TAGLINE } from '@/config/navigation';
 import { ROUTES } from '@/config/routes';
+import { CUSTOMER_SITE_IS_EXTERNAL, CUSTOMER_SITE_URL } from '@/config/site';
 import { useSession, useSignOut } from '@/features/auth/auth.api';
 import { CartButton } from '@/features/customers/CartButton';
 import { HelpWalkthrough } from '@/features/help';
+import { NotificationBell, NotificationPanel } from '@/features/notifications/NotificationBell';
 import { cn } from '@/lib/cn';
 import { SidebarNav } from './SidebarNav';
 
 /**
  * Application frame: a fixed white sidebar on desktop, a slide-over drawer on
  * mobile, and a content column that stays comfortably readable at any width.
+ * Top right on every screen: the bell — what visitors to the website did —
+ * and the cart.
  */
 export function AppShell() {
   const [navOpen, setNavOpen] = useState(false);
@@ -29,10 +33,10 @@ export function AppShell() {
   const navigate = useNavigate();
   const staffEmail = session.data?.kind === 'admin' ? session.data.email : null;
 
-  /* Signing out lands on the customer site, which is where the door is. */
+  /* Signing out lands on the door, which is the admin's own. */
   function leave() {
     signOut();
-    navigate(ROUTES.home);
+    navigate(ROUTES.login);
   }
 
   // Close the drawer whenever navigation happens, so a tap never leaves it open.
@@ -58,7 +62,10 @@ export function AppShell() {
           <IconMenu />
         </button>
         <BrandMark compact />
-        <CartButton className="ml-auto" />
+        <div className="ml-auto flex items-center gap-2">
+          <NotificationBell />
+          <CartButton />
+        </div>
       </header>
 
       {/* Desktop sidebar */}
@@ -99,11 +106,12 @@ export function AppShell() {
 
       <main className="lg:pl-[16.5rem]">
         {/*
-          The cart, top right on every screen. On desktop there is no bar to
-          hold it, so it sits above the page in its own row; on mobile it is
-          in the top bar and this row is not drawn.
+          The bell and the cart, top right on every screen. On desktop there
+          is no bar to hold them, so they sit above the page in their own
+          row; on mobile they are in the top bar and this row is not drawn.
         */}
-        <div className="mx-auto hidden w-full max-w-[76rem] justify-end px-4 pt-5 sm:px-6 lg:flex lg:px-10">
+        <div className="mx-auto hidden w-full max-w-[76rem] items-center justify-end gap-3 px-4 pt-5 sm:px-6 lg:flex lg:px-10">
+          <NotificationBell />
           <CartButton />
         </div>
         <div className="mx-auto w-full max-w-[76rem] px-4 py-6 sm:px-6 lg:px-10 lg:pt-4 lg:pb-10">
@@ -112,21 +120,31 @@ export function AppShell() {
       </main>
 
       <HelpWalkthrough open={helpOpen} onClose={() => setHelpOpen(false)} />
+      {/* Once, whichever bell was pressed: see `NotificationBell.tsx`. */}
+      <NotificationPanel />
     </div>
   );
 }
 
 /** Who is signed in, and the way out — pinned to the foot of the sidebar. */
 function SignedInAs({ email, onSignOut }: { email: string | null; onSignOut: () => void }) {
+  const linkClass = 'text-brand-strong text-xs font-semibold hover:underline';
   return (
     <div className="border-border-subtle bg-sidebar absolute inset-x-0 bottom-0 border-t px-5 py-3">
       <p className="text-content-subtle truncate text-xs">
         Signed in as <span className="text-content font-medium">{email ?? 'staff'}</span>
       </p>
       <div className="mt-1.5 flex items-center gap-3">
-        <Link to={ROUTES.home} className="text-brand-strong text-xs font-semibold hover:underline">
-          Customer site
-        </Link>
+        {/* Where the customers are: this deployment's root, or the site's own URL. */}
+        {CUSTOMER_SITE_IS_EXTERNAL ? (
+          <a href={CUSTOMER_SITE_URL} target="_blank" rel="noreferrer" className={linkClass}>
+            Customer site ↗
+          </a>
+        ) : (
+          <Link to={CUSTOMER_SITE_URL} className={linkClass}>
+            Customer site
+          </Link>
+        )}
         <button
           type="button"
           onClick={onSignOut}

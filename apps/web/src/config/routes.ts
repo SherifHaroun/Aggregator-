@@ -1,11 +1,16 @@
 /**
  * Every application path in one place. Never hardcode a URL in a component.
  *
- * TWO FRONT DOORS, ONE HOUSE. The site opens on the CUSTOMER pages at `/`:
- * compare, sign in, read a plan, keep it. Everything an employee does lives
- * under `/admin` and needs a staff sign-in. Both read and write the same
- * API and the same database, so a plan an employee publishes is on the
- * customer site the moment it is saved.
+ * TWO SITES, ONE HOUSE. The CUSTOMER site opens at `/`: compare, leave your
+ * details, read the results, open a plan, choose it. Nobody signs in there.
+ * Everything an employee does lives under `/admin` behind the broker's own
+ * sign-in at `/admin/login`. Both read and write the same API and the same
+ * database, so a plan an employee publishes is on the customer site the
+ * moment it is saved, and a visitor who leaves their details is on the
+ * employee's Customers page — and their bell — the moment they do.
+ *
+ * The two can be DEPLOYED APART, on different URLs, from this one build:
+ * see `config/site.ts`. The paths below do not change either way.
  *
  * The management experience is a single drill-down:
  *   Companies -> Company -> Plan -> Variant
@@ -26,14 +31,18 @@ export const ROUTES = {
   /** The customer site. */
   home: '/',
   public: {
-    /** The top three in each tier for what the customer asked. */
+    /**
+     * ONE FINAL STEP before the results: who the visitor is and how to reach
+     * them. The comparison travels in the query string, exactly as it does
+     * to the results.
+     */
+    details: '/compare/details',
+    /** The top three in each tier for what the visitor asked. */
     results: '/compare',
-    /** One plan in full, for a signed-in customer. */
+    /** One plan in full, for a visitor who has left their details. */
     plan: (configurationId: string) => `/plans/${configurationId}`,
-    /** What the signed-in customer has kept. */
-    cart: '/my-cart',
-    /** One door for customers and staff alike. */
-    login: '/login',
+    /** The visitor chose: the PDF is on its way, and so is a call. */
+    chosen: '/compare/chosen',
     /** The broker's own pages: who they are and how to reach them. */
     about: '/about',
     services: '/services',
@@ -44,6 +53,8 @@ export const ROUTES = {
 
   /** The employee area. */
   dashboard: ADMIN,
+  /** The broker's own door. The only sign-in there is. */
+  login: `${ADMIN}/login`,
   companies: {
     list: `${ADMIN}/companies`,
     new: `${ADMIN}/companies/new`,
@@ -82,18 +93,19 @@ export const ROUTES = {
   },
   customers: {
     /**
-     * Who rang in, and the comparisons kept for each of them until they
-     * choose. A customer's page is their cart.
+     * Who rang in or came through the website, and the comparisons kept for
+     * each of them until they choose. A customer's page is their cart and
+     * their visits.
      */
     list: `${ADMIN}/customers`,
     detail: (customerId: string) => `${ADMIN}/customers/${customerId}`,
   },
   offers: {
     /**
-     * OFFERS REQUESTED: every customer with a plan in their cart — kept by
-     * the customer on the website or by an employee on a call — each spread
-     * out in full: who they are, how to reach them, the notes, the plans, and
-     * the one they linked. The dashboard's card leads here.
+     * OFFERS REQUESTED: every customer with a plan in their cart — chosen by
+     * the customer on the website or kept by an employee on a call — each
+     * spread out in full: who they are, how to reach them, the notes, the
+     * plans, and the one they linked. The dashboard's card leads here.
      */
     list: `${ADMIN}/offers`,
   },

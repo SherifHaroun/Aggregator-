@@ -230,24 +230,17 @@ describe('asking an SME who it insures', () => {
     expect(requested.at(-1)!.smeEmployees).toEqual({ '65+': 3 });
   });
 
-  it('asks an individual for an age and sends no workforce', async () => {
-    const user = userEvent.setup();
+  it('keeps an individual off the form while only SME is on sale', async () => {
     givenAnSmePlanOnSale();
-    store.plans[0]!.customerType = 'INDIVIDUAL';
 
     renderApp(newComparisonFor(givenAnyCustomer(store)));
     await screen.findByRole('heading', { name: 'Insurance plan', level: 1 });
-    await user.click(screen.getByRole('radio', { name: /Individual/i }));
-    await user.click(screen.getByRole('radio', { name: /^Local$/i }));
 
-    // One person has one age, and no business to describe.
-    expect(screen.queryByText('Employee ages')).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText(/^Age/), '32');
-    await user.click(screen.getByRole('button', { name: /Compare Plans/i }));
-
-    await waitFor(() => expect(requested).not.toHaveLength(0));
-    expect(requested.at(-1)!.smeEmployees).toBeUndefined();
-    expect(requested.at(-1)!.ageFrom).toBe(32);
+    // The line is coming, and says so; it cannot be chosen.
+    const individual = screen.getByRole('radio', { name: /Individual/i });
+    expect(individual).toBeDisabled();
+    expect(individual.closest('label')).toHaveTextContent('Coming soon');
+    expect(requested).toHaveLength(0);
   });
 
   it('carries the workforce in the link, so a comparison can be sent on', async () => {
