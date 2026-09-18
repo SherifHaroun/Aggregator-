@@ -178,6 +178,7 @@ export function PublicPlanPage() {
               document={document}
               ages={ages}
               customerName={lead.data?.name ?? null}
+              showDownload={false}
             />
           ) : null
         }

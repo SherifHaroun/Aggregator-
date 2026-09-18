@@ -223,7 +223,8 @@ describe('comparing as a visitor', () => {
     );
     expect(store.leads[0]!.stage).toBe('VIEWED');
     expect(await screen.findByText(/The PDF of this plan is in your inbox/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /Download PDF/ })).toBeInTheDocument();
+    /** The PDF is in their inbox; there is no second copy to download here. */
+    expect(screen.queryByRole('button', { name: /Download PDF/ })).not.toBeInTheDocument();
 
     /** Choosing it: into the cart as the choice, the PDF sent, and the page says so. */
     await user.click(screen.getByRole('button', { name: /Choose this plan/ }));

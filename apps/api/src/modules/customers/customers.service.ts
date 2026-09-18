@@ -21,6 +21,7 @@ import {
   cartItemName,
   nextCartNameSequence,
   type CartSummaryDto,
+  type ComparisonPlanResult,
   type ComparisonRequestInput,
   type CustomerCartItemDto,
   type CustomerDto,
@@ -222,13 +223,6 @@ export async function addCartItem(
   customerId: string,
   input: AddCartItemPayload,
 ): Promise<CustomerCartItemDto> {
-  const prisma = getPrisma();
-  const customer = await prisma.customer.findUnique({
-    where: { id: customerId },
-    include: { cartItems: { select: { companyId: true, customerType: true, nameSequence: true } } },
-  });
-  if (!customer) throw notFound('Customer');
-
   const result = await runComparison(input.criteria);
   const plan = [...result.plans, ...result.overBudgetPlans].find(
     (candidate) => candidate.configurationId === input.planConfigurationId,
@@ -238,6 +232,28 @@ export async function addCartItem(
       planConfigurationId: ['Not in this comparison.'],
     });
   }
+  return addPricedCartItem(customerId, plan, input.criteria, input.note ?? null);
+}
+
+/**
+ * Keep a plan the engine has ALREADY priced for this customer — the website
+ * prices once when a visitor chooses, and hands the result here rather than
+ * running the comparison a second time. The plan must come out of
+ * `runComparison` for these criteria; nothing else may call this with a
+ * figure of its own.
+ */
+export async function addPricedCartItem(
+  customerId: string,
+  plan: ComparisonPlanResult,
+  criteria: ComparisonRequestInput,
+  note: string | null,
+): Promise<CustomerCartItemDto> {
+  const prisma = getPrisma();
+  const customer = await prisma.customer.findUnique({
+    where: { id: customerId },
+    include: { cartItems: { select: { companyId: true, customerType: true, nameSequence: true } } },
+  });
+  if (!customer) throw notFound('Customer');
 
   const sequence = nextCartNameSequence(
     customer.cartItems.map((item) => ({
@@ -246,24 +262,24 @@ export async function addCartItem(
       nameSequence: item.nameSequence,
     })),
     plan.companyId,
-    result.criteria.customerTypeId,
+    criteria.customerTypeId,
   );
 
   const item = await prisma.customerCartItem.create({
     data: {
       customerId,
-      name: cartItemName(plan.companyName, result.criteria.customerTypeId, sequence),
+      name: cartItemName(plan.companyName, criteria.customerTypeId, sequence),
       nameSequence: sequence,
-      note: input.note ?? null,
+      note,
       planConfigurationId: plan.configurationId,
       planId: plan.planId,
       companyId: plan.companyId,
       companyName: plan.companyName,
       planName: plan.planName,
-      customerType: result.criteria.customerTypeId,
+      customerType: criteria.customerTypeId,
       annualPrice: plan.annualPrice,
       currency: plan.currency,
-      criteria: input.criteria as unknown as Prisma.InputJsonValue,
+      criteria: criteria as unknown as Prisma.InputJsonValue,
     },
   });
   return toCartItemDto(item);

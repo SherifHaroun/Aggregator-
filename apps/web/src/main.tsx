@@ -3,7 +3,17 @@ import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router-dom';
 import { AppProviders } from './app/providers';
 import { router } from './app/router';
+import { SITE_MODE, SITE_MODE_SOURCE } from './config/site';
 import './styles/index.css';
+
+/**
+ * Which site this deployment is, said once where it can be checked: the
+ * browser console, and `data-site-mode` on the root element. A deployment
+ * that should be the admin and says "all (default)" was built without
+ * `VITE_SITE_MODE` — add it on the host and redeploy.
+ */
+document.documentElement.dataset.siteMode = SITE_MODE;
+console.info(`[hadbrok] site mode: ${SITE_MODE} (from ${SITE_MODE_SOURCE})`);
 
 const container = document.getElementById('root');
 if (!container) {

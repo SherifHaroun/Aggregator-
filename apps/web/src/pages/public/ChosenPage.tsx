@@ -20,6 +20,8 @@ export function ChosenPage() {
   const lead = useLead(leadId);
   const choice = lead.data?.choice ?? null;
   const emailSent = choice?.emailStatus === 'SENT';
+  /* The API answers before the email goes; the lead is polled until it settles. */
+  const emailPending = !lead.data || !choice || choice.emailStatus === 'PENDING';
   const backToResults = `${ROUTES.public.results}?${params.toString()}`;
 
   return (
@@ -40,14 +42,14 @@ export function ChosenPage() {
           Step 3 of 3 · Done
         </p>
         <h1 className="mt-4 text-4xl leading-[1.05] font-extrabold tracking-tight sm:text-5xl">
-          {emailSent || !lead.data ? 'Your plan is on its way.' : 'Your plan is chosen.'}
+          {emailSent || emailPending ? 'Your plan is on its way.' : 'Your plan is chosen.'}
         </h1>
         <p className="mt-5 max-w-xl text-base leading-relaxed text-white/85 sm:text-lg">
           {emailSent
             ? 'The plan PDF has been sent to your email, and one of our team will contact you within 24 hours.'
-            : lead.data
-              ? 'We could not send the PDF to your email just now, so one of our team will bring the full plan when they contact you within 24 hours.'
-              : 'One of our team will contact you within 24 hours.'}
+            : emailPending
+              ? 'We are sending the plan PDF to your email now, and one of our team will contact you within 24 hours.'
+              : 'We could not send the PDF to your email just now, so one of our team will bring the full plan when they contact you within 24 hours.'}
         </p>
 
         {choice ? (
@@ -61,7 +63,9 @@ export function ChosenPage() {
             <p className="text-sm text-white/80">
               {formatMoney(choice.annualPrice, choice.currency)}
               {choice.annualPrice !== null ? ' per year' : ''}
-              {lead.data?.email ? ` · ${emailSent ? 'sent to' : 'for'} ${lead.data.email}` : ''}
+              {lead.data?.email
+                ? ` · ${emailSent ? 'sent to' : emailPending ? 'sending to' : 'for'} ${lead.data.email}`
+                : ''}
             </p>
           </div>
         ) : null}

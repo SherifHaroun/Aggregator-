@@ -16,12 +16,30 @@ export const leadKeys = {
   detail: (id: string) => ['leads', 'detail', id] as const,
 };
 
+/** Whether a PDF is still on its way for this lead — a view's, or the choice's. */
+export function hasEmailPending(lead: LeadDto | undefined): boolean {
+  if (!lead) return false;
+  return (
+    lead.views.some((view) => view.emailStatus === 'PENDING') ||
+    lead.choice?.emailStatus === 'PENDING'
+  );
+}
+
+/** How often to ask again while an email is on its way. */
+const EMAIL_POLL_MS = 2_000;
+
 export function useLead(id: string | null) {
   return useQuery({
     queryKey: leadKeys.detail(id ?? ''),
     queryFn: () => api.get<LeadDto>(`/leads/${id}`),
     enabled: id !== null,
     staleTime: 60_000,
+    /**
+     * The API answers before the PDF is drawn and sent, so the lead comes
+     * back with the email PENDING. Ask again every couple of seconds until
+     * it settles, then stop — the page can then say what really happened.
+     */
+    refetchInterval: (query) => (hasEmailPending(query.state.data) ? EMAIL_POLL_MS : false),
   });
 }
 

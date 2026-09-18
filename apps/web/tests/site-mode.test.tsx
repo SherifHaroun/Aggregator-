@@ -10,7 +10,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, useRoutes } from 'react-router-dom';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildRoutes } from '@/app/router';
 import { ToastProvider } from '@/components/ui';
 import { ROUTES } from '@/config/routes';
@@ -45,6 +45,34 @@ function mount(path: string, mode: { customer: boolean; admin: boolean }) {
     </QueryClientProvider>,
   );
 }
+
+describe('reading the mode', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('takes it from the build, forgiving quotes and case, and serves both when given none', async () => {
+    /** Pasted into a host's settings with quotes and a capital: still the admin. */
+    vi.stubEnv('VITE_SITE_MODE', '"Admin"');
+    vi.resetModules();
+    const quoted = await import('@/config/site');
+    expect(quoted.SITE_MODE).toBe('admin');
+    expect(quoted.SITE_MODE_SOURCE).toBe('VITE_SITE_MODE');
+    expect(quoted.SERVES_CUSTOMER_SITE).toBe(false);
+
+    vi.stubEnv('VITE_SITE_MODE', 'customer');
+    vi.resetModules();
+    expect((await import('@/config/site')).SERVES_ADMIN_SITE).toBe(false);
+
+    /** Nothing given, and an address that says nothing: both, as in development. */
+    vi.stubEnv('VITE_SITE_MODE', '');
+    vi.resetModules();
+    const unset = await import('@/config/site');
+    expect(unset.SITE_MODE).toBe('all');
+    expect(unset.SITE_MODE_SOURCE).toBe('default');
+  });
+});
 
 describe('site modes', () => {
   it('serves both trees by default', async () => {

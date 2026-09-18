@@ -22,6 +22,8 @@ import { useEmailTransport } from '../src/modules/leads/email.js';
 import {
   choosePlan,
   createLead,
+  flushPlanEmails,
+  getLead,
   listNotifications,
   markAllNotificationsSeen,
   markNotificationSeen,
@@ -91,7 +93,8 @@ async function cleanup(): Promise<void> {
   await prisma.company.deleteMany({ where: { name: { startsWith: PREFIX } } });
 }
 
-describe.skipIf(!url)('leads from the customer site', () => {
+/* Every step prices the plan and draws a PDF against a remote database: give it room. */
+describe.skipIf(!url)('leads from the customer site', { timeout: 120_000 }, () => {
   beforeEach(async () => {
     await cleanup();
     outbox.length = 0;
@@ -145,7 +148,7 @@ describe.skipIf(!url)('leads from the customer site', () => {
     const lead = await createLead(details);
     await markNotificationSeen(lead.id);
 
-    /** Opening a plan: noted once, the PDF sent, the lead new again. */
+    /** Opening a plan: noted once, answered at once, the lead new again. */
     const viewed = await recordPlanView(lead.id, { planConfigurationId: variant.id });
     expect(viewed.stage).toBe('VIEWED');
     expect(viewed.seenAt).toBeNull();
@@ -156,9 +159,13 @@ describe.skipIf(!url)('leads from the customer site', () => {
       planName: plan.name,
       customerTypeId: 'SME',
       currency: 'EGP',
-      emailStatus: 'SENT',
+      emailStatus: 'PENDING',
     });
     expect(viewed.views[0]!.annualPrice).toBeGreaterThan(0);
+
+    /** The PDF goes out AFTER the answer, and the row then says so. */
+    await flushPlanEmails();
+    expect((await getLead(lead.id)).views[0]!.emailStatus).toBe('SENT');
     expect(outbox).toHaveLength(1);
     expect(outbox[0]!.subject).toContain(plan.name);
     expect(outbox[0]!.to).toMatchObject({ address: details.email });
@@ -168,6 +175,7 @@ describe.skipIf(!url)('leads from the customer site', () => {
     /** Opening it again is not news: nothing sent, nothing changed. */
     const again = await recordPlanView(lead.id, { planConfigurationId: variant.id });
     expect(again.views).toHaveLength(1);
+    await flushPlanEmails();
     expect(outbox).toHaveLength(1);
 
     /** Choosing it: into the cart as the choice, sent again, and the last stage. */
@@ -177,8 +185,10 @@ describe.skipIf(!url)('leads from the customer site', () => {
       planConfigurationId: variant.id,
       companyName: company.name,
       planName: plan.name,
-      emailStatus: 'SENT',
+      emailStatus: 'PENDING',
     });
+    await flushPlanEmails();
+    expect((await getLead(lead.id)).choice?.emailStatus).toBe('SENT');
     expect(outbox).toHaveLength(2);
     expect(outbox[1]!.subject).toMatch(/^Your chosen plan/);
 
@@ -202,6 +212,7 @@ describe.skipIf(!url)('leads from the customer site', () => {
 
     /** Choosing the same plan twice sends nothing more. */
     await choosePlan(lead.id, { planConfigurationId: variant.id });
+    await flushPlanEmails();
     expect(outbox).toHaveLength(2);
     expect((await getCustomer(lead.customerId)).items).toHaveLength(1);
 
@@ -217,6 +228,7 @@ describe.skipIf(!url)('leads from the customer site', () => {
     await expect(
       choosePlan(lead.id, { planConfigurationId: 'no-such-variant' }),
     ).rejects.toMatchObject({ status: 400 });
+    await flushPlanEmails();
     expect(outbox).toHaveLength(0);
   });
 
@@ -225,8 +237,10 @@ describe.skipIf(!url)('leads from the customer site', () => {
     const lead = await createLead(details);
     /* Back to whatever the environment says — which, for the test run, is nothing. */
     useEmailTransport(null);
-    const viewed = await recordPlanView(lead.id, { planConfigurationId: variant.id });
-    expect(viewed.views[0]!.emailStatus).toBe(process.env['SMTP_HOST'] ? 'SENT' : 'NOT_CONFIGURED');
+    await recordPlanView(lead.id, { planConfigurationId: variant.id });
+    await flushPlanEmails();
+    const after = await getLead(lead.id);
+    expect(after.views[0]!.emailStatus).toBe(process.env['SMTP_HOST'] ? 'SENT' : 'NOT_CONFIGURED');
     expect(outbox).toHaveLength(0);
   });
 });

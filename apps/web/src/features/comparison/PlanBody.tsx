@@ -24,11 +24,18 @@ export function PlanBody({
   document,
   ages,
   customerName,
+  showDownload = true,
 }: {
   plan: ComparisonPlanResult;
   document: ReturnType<typeof usePlanDocumentSource>;
   ages: DocumentAges | null;
   customerName: string | null;
+  /**
+   * The "Download PDF" button. The employee's page has it; the customer's
+   * does not — a visitor is EMAILED the PDF the moment they open the plan,
+   * and a second copy to save is one thing too many on that page.
+   */
+  showDownload?: boolean;
 }) {
   const benefits = presentCoreBenefits(plan);
   // A business priced by its workforce was priced across several bands.
@@ -104,14 +111,6 @@ export function PlanBody({
                 <span className="text-content text-sm font-medium">{benefit.name}</span>
                 <span className={cnValue(benefit.stated)}>{benefit.display}</span>
               </div>
-              {benefit.fraction === null ? null : (
-                <div className="bg-surface-muted mt-1.5 h-2 overflow-hidden rounded-full">
-                  <div
-                    className="bg-brand h-full rounded-full"
-                    style={{ width: `${Math.round(benefit.fraction * 100)}%` }}
-                  />
-                </div>
-              )}
               {benefit.limitations.length > 0 ? (
                 <ul className="mt-1.5 flex flex-wrap gap-1">
                   {benefit.limitations.map((limitation) => (
@@ -212,14 +211,18 @@ export function PlanBody({
         </Section>
       ) : null}
 
-      <div className="flex justify-end">
-        <Button
-          onClick={() => downloadPlanDocument({ plan, ...document, ages: bandAges, customerName })}
-        >
-          <IconDownload className="size-4" />
-          Download PDF
-        </Button>
-      </div>
+      {showDownload ? (
+        <div className="flex justify-end">
+          <Button
+            onClick={() =>
+              downloadPlanDocument({ plan, ...document, ages: bandAges, customerName })
+            }
+          >
+            <IconDownload className="size-4" />
+            Download PDF
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { HadbrokLogo } from '@/components/ui/HadbrokLogo';
 import { IconClose, IconMenu } from '@/components/ui/icons';
 import { APP_NAME, APP_TAGLINE } from '@/config/navigation';
 import { ROUTES } from '@/config/routes';
-import { CUSTOMER_SITE_IS_EXTERNAL, CUSTOMER_SITE_URL } from '@/config/site';
+import { CUSTOMER_SITE_IS_EXTERNAL, CUSTOMER_SITE_URL, SERVES_CUSTOMER_SITE } from '@/config/site';
 import { useSession, useSignOut } from '@/features/auth/auth.api';
 import { CartButton } from '@/features/customers/CartButton';
 import { HelpWalkthrough } from '@/features/help';
@@ -136,15 +136,17 @@ function SignedInAs({ email, onSignOut }: { email: string | null; onSignOut: () 
       </p>
       <div className="mt-1.5 flex items-center gap-3">
         {/* Where the customers are: this deployment's root, or the site's own URL. */}
-        {CUSTOMER_SITE_IS_EXTERNAL ? (
-          <a href={CUSTOMER_SITE_URL} target="_blank" rel="noreferrer" className={linkClass}>
-            Customer site ↗
-          </a>
-        ) : (
-          <Link to={CUSTOMER_SITE_URL} className={linkClass}>
-            Customer site
-          </Link>
-        )}
+        {
+          CUSTOMER_SITE_IS_EXTERNAL ? (
+            <a href={CUSTOMER_SITE_URL} target="_blank" rel="noreferrer" className={linkClass}>
+              Customer site ↗
+            </a>
+          ) : SERVES_CUSTOMER_SITE ? (
+            <Link to={CUSTOMER_SITE_URL} className={linkClass}>
+              Customer site
+            </Link>
+          ) : null /* An admin-only deployment with no address for the other site: no link. */
+        }
         <button
           type="button"
           onClick={onSignOut}
