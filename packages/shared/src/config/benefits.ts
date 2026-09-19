@@ -132,9 +132,23 @@ export function alternativeValueField(kind: BenefitValueKind): BenefitValueField
 
 /**
  * The longest remark that can be attached to a benefit on a configuration.
- * Long enough for the qualifications insurance documents actually print.
+ *
+ * A remark is every detail line of the benefit joined together, and an
+ * imported document writes them all: "Private room. Includes surgeon,
+ * anaesthesia, ICU", "In-network only", "Waiting period: 10 months". Three
+ * hundred characters held one typed line and refused a real in-patient cell,
+ * so the ceiling is the description's.
  */
-export const BENEFIT_NOTE_MAX_LENGTH = 300;
+export const BENEFIT_NOTE_MAX_LENGTH = 2000;
+
+/** The longest name a benefit may have in the catalogue. */
+export const BENEFIT_NAME_MAX_LENGTH = 150;
+
+/** The longest room wording a variant may carry. */
+export const ROOM_TYPE_MAX_LENGTH = 120;
+
+/** The most age bands one rate table may hold. */
+export const PRICE_BANDS_MAX = 40;
 
 // ---------------------------------------------------------------------------
 //  THE ANSWERS A BENEFIT OFFERS

@@ -3,6 +3,8 @@ import {
   ENABLED_GEOGRAPHICAL_COVERAGE_IDS,
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
+  PRICE_BANDS_MAX,
+  ROOM_TYPE_MAX_LENGTH,
 } from '@aggregator/shared';
 import { z } from 'zod';
 
@@ -61,7 +63,7 @@ const orderedAgeBand = <TSchema extends z.ZodTypeAny>(schema: TSchema) =>
  */
 const variantFields = {
   /** Free text: insurers name accommodation differently. Never compared. */
-  roomType: z.string().trim().min(1).max(120).nullable().optional(),
+  roomType: z.string().trim().min(1).max(ROOM_TYPE_MAX_LENGTH).nullable().optional(),
 };
 
 /**
@@ -83,7 +85,7 @@ export const priceBandSchema = orderedAgeBand(
  * removed without inventing a delete endpoint for it.
  */
 const priceBandsField = {
-  priceBands: z.array(priceBandSchema).max(40).optional(),
+  priceBands: z.array(priceBandSchema).max(PRICE_BANDS_MAX).optional(),
 };
 
 const pricingFields = {

@@ -1,5 +1,6 @@
 import {
   BENEFIT_CHOICE_LABEL_MAX_LENGTH,
+  BENEFIT_NAME_MAX_LENGTH,
   BENEFIT_VALUE_KIND_IDS,
   CUSTOMER_TYPE_IDS,
   OPTION_FIELD_DATA_TYPES_IDS,
@@ -54,7 +55,7 @@ export const updateOptionFieldSchema = optionFieldInputSchema.partial();
 
 export const createInsuranceOptionSchema = z.object({
   /** Unique across the whole catalogue — a benefit is global. */
-  name: z.string().trim().min(1).max(150),
+  name: z.string().trim().min(1).max(BENEFIT_NAME_MAX_LENGTH),
   description: z.string().trim().max(2000).nullable().optional(),
   isActive: z.boolean().optional(),
   /**

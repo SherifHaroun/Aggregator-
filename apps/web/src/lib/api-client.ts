@@ -23,6 +23,21 @@ export class ApiError extends Error {
 }
 
 /**
+ * What a refused request got wrong, field by field: "note: String must
+ * contain at most 300 character(s)". For a screen with no field to put the
+ * message beside — a save made of many requests — so that it can still say
+ * which value the server turned down. '' when the error names no field.
+ */
+export function validationSummary(error: unknown): string {
+  if (!(error instanceof ApiError) || !error.details) return '';
+  return Object.entries(error.details)
+    .flatMap(([path, messages]) =>
+      messages[0] ? [path === '_' ? messages[0] : `${path}: ${messages[0]}`] : [],
+    )
+    .join('; ');
+}
+
+/**
  * Read a response body once and turn it into the shared `ApiResponse` envelope.
  *
  * Anything that is not the envelope — a proxy error page, an HTML 404, an empty

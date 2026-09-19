@@ -399,6 +399,118 @@ describe('importing a document into a company section', () => {
     expect(await screen.findByRole('heading', { name: 'Arope Insurance' })).toBeInTheDocument();
   });
 
+  /** A review of one finished job, already on the screen. */
+  async function givenReview(answer: ImportedDocument, id: string) {
+    const companyId = givenCompany();
+    givenCoreCatalogue();
+    store.planImports.push({
+      polls: 5,
+      job: {
+        id,
+        companyId,
+        customerType: 'SME',
+        fileName: 'Arope SME plans.docx',
+        status: 'DONE',
+        percent: 100,
+        planNames: answer.planNames,
+        plansCompleted: answer.plans.length,
+        result: answer,
+        error: null,
+        createdAt: timestamps.createdAt,
+      },
+    });
+    renderApp(ROUTES.imports.detail(companyId, id));
+    await screen.findByRole('heading', { name: 'Review the imported plans' });
+  }
+
+  it('never lists a benefit the plan does not cover, and flags one that points at another plan', async () => {
+    const answer = eliteAnswer();
+    const extra = (name: string, value: string) => ({
+      name,
+      matchedExisting: '',
+      value,
+      details: '',
+      source: '',
+    });
+    answer.planNames = ['Silver', 'Elite'];
+    answer.plans[0]!.variants[0]!.additionalBenefits.push(
+      extra('Home Care', 'NOT COVERED - not mentioned'),
+      extra('Personal Accident', 'Not stated in offer - medical policy only'),
+      extra('Ambulance', 'Not covered'),
+      extra('Cancer Treatment', 'As Silver, pre-inception cap 35,000'),
+    );
+    const silver = structuredClone(answer.plans[0]!);
+    silver.name = 'Silver';
+    answer.plans.unshift(silver);
+
+    await givenReview(answer, 'import_3');
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('tab', { name: /Elite/ }));
+
+    /** Ticking a benefit says the plan covers it, so these three are not ticked. */
+    expect(await screen.findByLabelText('Congenital Defects detail')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Home Care detail')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Personal Accident detail')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Ambulance detail')).not.toBeInTheDocument();
+    /** What the document DECLINES is kept — as an exclusion. What it never mentioned is not. */
+    expect(screen.getByLabelText('Exclusions')).toHaveValue('Ambulance: Not covered');
+
+    /** "As Silver…" reached the screen, so the employee is told which benefit to write out. */
+    const flagged = screen.getByText('Still refers to another plan').closest('div')!.parentElement!;
+    expect(flagged).toHaveTextContent(/Cancer Treatment is written as “same as” another plan/);
+  });
+
+  it('says which benefit the server refused, and takes the half-written plan back', async () => {
+    const answer = eliteAnswer();
+    answer.plans[0]!.variants[0]!.coreBenefits[3]!.value = 2000; // Dental stated: nothing to confirm
+    await givenReview(answer, 'import_4');
+    const user = userEvent.setup();
+
+    store.failNext = {
+      method: 'PATCH',
+      path: /^\/plan-options\/[^/]+\/note$/,
+      status: 400,
+      body: {
+        ok: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'The request payload is invalid.',
+          details: { note: ['String must contain at most 2000 character(s)'] },
+        },
+      },
+    };
+    await user.click(await screen.findByRole('button', { name: 'Publish' }));
+
+    /** Not "check the highlighted fields": there are none on this screen. */
+    expect(
+      await screen.findByText(
+        /Elite Local, In-patient — note: String must contain at most 2000 character\(s\)\./,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/highlighted fields/)).not.toBeInTheDocument();
+    /** Nothing is left behind to collide with the retry. */
+    expect(store.plans).toHaveLength(0);
+    expect(store.configurations).toHaveLength(0);
+
+    /** And the retry goes through. */
+    await user.click(screen.getByRole('button', { name: 'Publish' }));
+    await waitFor(() => expect(store.plans.map((plan) => plan.name)).toEqual(['Elite']));
+  });
+
+  it('stops a note the server would refuse before anything is written', async () => {
+    const answer = eliteAnswer();
+    answer.plans[0]!.variants[0]!.coreBenefits[3]!.value = 2000;
+    answer.plans[0]!.variants[0]!.coreBenefits[0]!.details = 'Includes surgeon. '.repeat(120);
+    await givenReview(answer, 'import_5');
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole('button', { name: 'Publish' }));
+    expect(
+      await screen.findByText(/the details under In-patient come to \d+ characters/),
+    ).toBeInTheDocument();
+    expect(store.plans).toHaveLength(0);
+  });
+
   it('says why when the document could not be read', async () => {
     const companyId = givenCompany();
     store.planImports.push({

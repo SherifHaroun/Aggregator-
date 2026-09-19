@@ -134,6 +134,30 @@ BENEFIT NAMES
   congenital defects", "80% reimbursement based on Misr International
   Hospital prices"). If it states a figure, put the figure in `value` and the
   wording in `details`.
+- List an additional benefit ONLY when the document says this plan covers
+  it. The catalogue below is for spelling the names of benefits the document
+  states; it is NOT a checklist. A catalogue benefit the document never
+  mentions for this plan is left out altogether — never returned as "Not
+  covered", "Not mentioned", "Not stated in offer" or the like.
+- A benefit the document itself declines ("Home care: not covered",
+  "Excluded", "Nil") is not an additional benefit either: listing it would
+  show the customer a benefit the plan does not have. Write it as one line
+  in `exclusions` instead ("Home Care: not covered"). The seven core areas
+  are the only exception — they are always returned, with value 0 when
+  declined.
+
+EVERY PLAN STANDS ALONE
+A customer reads one plan without the others beside it, so no field may point
+at another plan. When the document says "Same as Silver", "As Gold plus…",
+"As above" or "Ditto", look up what the named plan states for that benefit
+and write it out in full on this plan — figure, wording, limitations — then
+apply whatever the document changes: "As Silver but chronic limit 35,000" on
+Gold is Silver's full wording with 35,000 in place of Silver's chronic limit.
+Copying what the document tells you to copy is not inferring. Never write
+"same as", "as Silver", "see above" or another plan's name in `value`,
+`details` or `limitations`. If the plan referred to is not in the document,
+or does not state that benefit, keep the document's words and say so in
+`warnings`.
 
 LIMITATIONS
 A limitation is a condition that narrows the cover: "In-network only",
@@ -156,7 +180,9 @@ The medical network is the NAME of the provider network the plan is sold on
 document attaches ("Tier003N") in `tierCode`, never in the name.
 
 WHAT NOT TO DO
-- Do not infer a figure for one plan from another plan's column.
+- Do not infer a figure for one plan from another plan's column. The one
+  exception is the document sending you there itself ("Same as Silver"):
+  see EVERY PLAN STANDS ALONE.
 - Do not classify plans as basic/standard/premium; the broker derives that
   from the annual limit. Put any tier wording the document uses in
   `description`.
@@ -169,7 +195,9 @@ SELF-CHECK BEFORE ANSWERING
 For every plan: count the price bands against the document; confirm all seven
 core areas are present; confirm every "Note", "Waiting Period", "Co-payment"
 and bracketed qualifier in the document landed in details, waitingPeriods,
-coPayment or limitations. Put anything odd in `warnings`: a tier label that
+coPayment or limitations; confirm no field says "same as" or names another
+plan; confirm every additional benefit is one the plan covers, and that
+nothing the document declines or never mentions is among them. Put anything odd in `warnings`: a tier label that
 disagrees with the annual limit, a currency you had to assume, an age band
 the document skips, a benefit you were unsure how to place.
 

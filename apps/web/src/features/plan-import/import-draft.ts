@@ -12,6 +12,7 @@
  *   additional benefits     → optional benefits, catalogue name where matched
  *   room type               → the variant's room, and the Room Type benefit
  *   conditions, exclusions  → lines kept with the plan, saved into its description
+ *   a benefit it declines   → an exclusion line, NEVER an optional benefit
  *
  * A blank ceiling is left blank: the comparison reads it as the annual limit
  * and the review screen holds the plan until a person has confirmed that.
@@ -92,10 +93,38 @@ function pushUnique(lines: string[], line: string): void {
   if (text !== '' && !lines.some((existing) => fold(existing) === fold(text))) lines.push(text);
 }
 
+/** Wording that opens by saying the plan does NOT have the benefit. */
+const DECLINED =
+  /^\W*(not\s+(covered|included|available|applicable|offered)|no\s+cover(age)?|excluded|nil|none|n\s*\/\s*a)\b/i;
+/** Wording that says the document never spoke of the benefit at all. */
+const UNMENTIONED = /\bnot\s+(mentioned|stated|specified|listed)\b/i;
+
+/**
+ * WHETHER AN ADDITIONAL BENEFIT IS ONE THE PLAN HAS.
+ *
+ * An optional benefit on a variant IS the statement that the variant covers
+ * it: the customer sees "Home Care" in the plan's list and reads it as cover.
+ * The reader is told to leave out what a plan does not cover, and this holds
+ * the line if it does not — "NOT COVERED - not mentioned" must never become a
+ * benefit of the plan.
+ *
+ *   SILENT    the document never mentioned it: nothing to record
+ *   DECLINED  the document says the plan lacks it: that is an exclusion
+ *   COVERED   anything else, wording included
+ */
+export function additionalBenefitStanding(value: string): 'COVERED' | 'DECLINED' | 'SILENT' {
+  const declined = DECLINED.test(value);
+  if (/^\W*not\s+(mentioned|stated|specified|listed)\b/i.test(value)) return 'SILENT';
+  if (declined && UNMENTIONED.test(value)) return 'SILENT';
+  return declined ? 'DECLINED' : 'COVERED';
+}
+
 /** One imported variant as the editor holds it. */
 export function toVariantDraft(variant: ImportedVariant): {
   draft: VariantDraft;
   unplacedWaitingPeriods: string[];
+  /** Benefits the document says the plan does not have, as exclusion lines. */
+  declined: string[];
 } {
   sequence += 1;
   const entries: Record<string, BenefitEntry> = {};
@@ -123,6 +152,7 @@ export function toVariantDraft(variant: ImportedVariant): {
   }
 
   const extras: string[] = [];
+  const declined: string[] = [];
   for (const benefit of variant.additionalBenefits) {
     const name = (benefit.matchedExisting.trim() || benefit.name).trim();
     if (name === '' || fold(name) === NETWORK_AS_BENEFIT) continue;
@@ -137,6 +167,12 @@ export function toVariantDraft(variant: ImportedVariant): {
     }
 
     const label = spec?.name ?? name;
+    const standing = additionalBenefitStanding(benefit.value);
+    if (standing === 'SILENT') continue;
+    if (standing === 'DECLINED') {
+      declined.push(`${label}: ${benefit.value.trim()}`);
+      continue;
+    }
     if (!extras.includes(label)) extras.push(label);
     const entry = entries[label] ?? emptyEntry();
     if (entry.coverage.trim() === '') entry.coverage = benefit.value.trim();
@@ -177,6 +213,7 @@ export function toVariantDraft(variant: ImportedVariant): {
       coPayment: stringOf(variant.coPayment),
     },
     unplacedWaitingPeriods,
+    declined,
   };
 }
 
@@ -200,6 +237,7 @@ export function toPlanDraft(
     for (const line of variants[index]!.unplacedWaitingPeriods) pushUnique(waitingPeriods, line);
     for (const line of variant.conditions) pushUnique(conditions, line);
     for (const line of variant.exclusions) pushUnique(exclusions, line);
+    for (const line of variants[index]!.declined) pushUnique(exclusions, line);
   }
 
   return {
@@ -223,6 +261,40 @@ export function toPlanDrafts(
   networks: readonly MedicalNetworkDto[],
 ): ImportPlanDraft[] {
   return document.plans.map((plan) => toPlanDraft(plan, networks));
+}
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * BENEFITS THAT STILL POINT AT ANOTHER PLAN — "Same as Silver", "As Gold but…".
+ *
+ * A customer reads one plan with the others nowhere in sight, so every plan
+ * has to state its own cover. The reader is told to write such references out
+ * in full; this names any that slipped through, by benefit, so the employee
+ * can write them out before publishing.
+ */
+export function crossReferences(draft: ImportPlanDraft, planNames: readonly string[]): string[] {
+  const others = planNames
+    .map((name) => name.trim())
+    .filter((name) => name !== '' && fold(name) !== fold(draft.name))
+    .map(escapeRegExp);
+  const patterns = [/\b(same\s+as|as\s+above|see\s+above|ditto|idem)\b/i];
+  if (others.length > 0) {
+    patterns.push(new RegExp(`\\b(as|like|see|per|of)\\s+(the\\s+)?(${others.join('|')})\\b`, 'i'));
+  }
+
+  const found: string[] = [];
+  for (const variant of draft.variants) {
+    for (const name of [...CORE_MEDICAL_BENEFITS.map((spec) => spec.name), ...variant.extras]) {
+      const entry = variant.entries[name];
+      if (!entry) continue;
+      const texts = [entry.coverage, ...entry.details];
+      if (texts.some((text) => patterns.some((pattern) => pattern.test(text)))) {
+        if (!found.includes(name)) found.push(name);
+      }
+    }
+  }
+  return found;
 }
 
 /** The figure typed in a core box, as the review rule reads it. */

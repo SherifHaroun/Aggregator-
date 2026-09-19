@@ -18,10 +18,14 @@ import {
   ALTERNATIVE_VALUE_KEY,
   BENEFIT_DETAIL_SEPARATOR,
   BENEFIT_INCLUDED_LABEL,
+  BENEFIT_NAME_MAX_LENGTH,
+  BENEFIT_NOTE_MAX_LENGTH,
   CO_PAYMENT_FIELD,
   CORE_MEDICAL_BENEFITS,
   MAX_INSURABLE_AGE,
   MIN_INSURABLE_AGE,
+  PRICE_BANDS_MAX,
+  ROOM_TYPE_MAX_LENGTH,
   derivePlanCode,
   medicalBenefitLookupNames,
   resolveBenefitSpec,
@@ -35,7 +39,7 @@ import {
   type PlanDto,
   type PlanOptionDto,
 } from '@aggregator/shared';
-import { api, query } from '@/lib/api-client';
+import { api, query, validationSummary } from '@/lib/api-client';
 import { emptyEntry, type VariantDraft } from './variant-draft';
 
 /** Currency for a plan entered by hand. Egypt is the only market so far. */
@@ -105,6 +109,8 @@ export function validatePlanDraft(input: PlanDraftInput): string | null {
         return `${label}: check the ${band.from}–${band.to} band — ages run from ${MIN_INSURABLE_AGE} to ${MAX_INSURABLE_AGE}, lowest first.`;
       }
     }
+    const limits = variantLimitIssue(variant);
+    if (limits) return `${label}: ${limits}`;
   }
 
   // Two variants covering the same scope at the same ceiling are one
@@ -119,6 +125,75 @@ export function validatePlanDraft(input: PlanDraftInput): string | null {
     seen.add(identity);
   }
   return null;
+}
+
+const numberOrUndefined = (typed: string | undefined) => {
+  const text = (typed ?? '').trim().replace(/,/g, '');
+  if (text === '') return undefined;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : undefined;
+};
+
+const outsidePercentage = (typed: string | undefined) => {
+  const share = numberOrUndefined(typed);
+  return share !== undefined && (share < 0 || share > 100);
+};
+
+/**
+ * WHAT THE SERVER WOULD REFUSE, said before anything is written.
+ *
+ * A typed plan rarely meets these ceilings; a plan read from a document does,
+ * because a document's cell is copied whole. Each is the API's own rule, from
+ * the same constant, named here by the box it concerns — the API can only
+ * answer "note: too long", and by then the plan already exists.
+ */
+function variantLimitIssue(variant: VariantDraft): string | null {
+  const room = (variant.roomType ?? '').trim();
+  if (room.length > ROOM_TYPE_MAX_LENGTH) {
+    return `the room type is ${room.length} characters long and ${ROOM_TYPE_MAX_LENGTH} is the most it can be. Shorten it.`;
+  }
+  const currency = (variant.currency ?? '').trim();
+  if (currency !== '' && !/^[A-Za-z]{3}$/.test(currency)) {
+    return `"${currency}" is not a currency code. Use three letters, such as ${DEFAULT_CURRENCY}.`;
+  }
+  if (pricedBands(variant).length > PRICE_BANDS_MAX) {
+    return `a rate table holds at most ${PRICE_BANDS_MAX} age bands. Remove some.`;
+  }
+  if (outsidePercentage(variant.coPayment)) {
+    return 'the co-payment is a percentage, from 0 to 100.';
+  }
+
+  for (const spec of statedBenefits(variant)) {
+    const entry = variant.entries[spec.name] ?? emptyEntry();
+    if (spec.name.trim().length > BENEFIT_NAME_MAX_LENGTH) {
+      return `the benefit name "${spec.name.slice(0, 40)}…" is too long. Remove it and add it under a shorter name.`;
+    }
+    const core = !variant.extras.includes(spec.name);
+    if (core && spec.valueKind === 'PERCENTAGE' && outsidePercentage(entry.coverage)) {
+      return `${spec.name} is a percentage, from 0 to 100.`;
+    }
+    if (core && outsidePercentage(entry.coPayment)) {
+      return `${spec.name} co-payment is a percentage, from 0 to 100.`;
+    }
+    const note = entry.details
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+      .join(BENEFIT_DETAIL_SEPARATOR);
+    if (note.length > BENEFIT_NOTE_MAX_LENGTH) {
+      return `the details under ${spec.name} come to ${note.length} characters and ${BENEFIT_NOTE_MAX_LENGTH} is the most they can be. Shorten or remove a line.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * A refused request, saying WHERE in the plan it was refused. The save is
+ * dozens of requests and the screen has one line for the error, so a bare
+ * "note: too long" would leave the employee to guess which benefit.
+ */
+function inContext(cause: unknown, where: string): unknown {
+  const refused = validationSummary(cause);
+  return refused === '' ? cause : new Error(`${where} — ${refused}.`);
 }
 
 /**
@@ -192,13 +267,6 @@ export function statedBenefits(variant: VariantDraft): MedicalBenefitSpec[] {
   });
 }
 
-const numberOrUndefined = (typed: string | undefined) => {
-  const text = (typed ?? '').trim().replace(/,/g, '');
-  if (text === '') return undefined;
-  const number = Number(text);
-  return Number.isFinite(number) ? number : undefined;
-};
-
 /**
  * Write the draft: the plan once, then each variant with its benefits once
  * and its whole rate table with it. Returns the plan as created.
@@ -258,103 +326,138 @@ export async function savePlanDraft(
     isActive: true,
   });
 
-  // --- each variant: its benefits once, its whole rate table with it --------
+  /**
+   * ALL OF IT, OR NONE OF IT. The plan row exists from here on, and a request
+   * refused further down would leave it behind half-written: on the company's
+   * list, in comparisons, and in the way of the retry, which would be refused
+   * for reusing its name. So a save that fails takes back the plan it made —
+   * only ever this one, created a moment ago by this same call.
+   */
+  try {
+    await writeVariants(input, plan, definitions, onProgress);
+  } catch (cause) {
+    await api.delete(`/plans/${plan.id}`).catch(() => {});
+    throw cause;
+  }
+  return plan;
+}
+
+/** Each variant: its benefits once, its whole rate table with it. */
+async function writeVariants(
+  input: PlanDraftInput,
+  plan: PlanDto,
+  definitions: Map<string, ResolvedBenefit>,
+  onProgress: (message: string) => void,
+): Promise<void> {
+  const name = input.name.trim();
   for (const variant of input.variants) {
     const label = variantDisplayName(name, variant.geographicalCoverage);
     onProgress(`Saving ${label}…`);
 
-    const configuration = await api.post<PlanConfigurationDto>('/plan-configurations', {
-      planId: plan.id,
-      geographicalCoverage: variant.geographicalCoverage,
-      currency: (variant.currency ?? '').trim() || DEFAULT_CURRENCY,
-      annualLimit: Number(variant.annualLimit.replace(/,/g, '')),
-      ...((variant.roomType ?? '').trim() !== '' ? { roomType: variant.roomType!.trim() } : {}),
-      ...(numberOrUndefined(variant.deductible) !== undefined
-        ? { deductible: numberOrUndefined(variant.deductible) }
-        : {}),
-      ...(numberOrUndefined(variant.coPayment) !== undefined
-        ? { coPayment: numberOrUndefined(variant.coPayment) }
-        : {}),
-      /**
-       * The whole rate table in the same request. A band is a row, so the
-       * cover is entered once.
-       */
-      priceBands: pricedBands(variant).map((band) => ({
-        ageFrom: Number(band.from),
-        ageTo: Number(band.to),
-        annualPrice: Number(band.premium.replace(/,/g, '')),
-      })),
-      isActive: true,
-    });
+    const configuration = await api
+      .post<PlanConfigurationDto>('/plan-configurations', {
+        planId: plan.id,
+        geographicalCoverage: variant.geographicalCoverage,
+        currency: (variant.currency ?? '').trim() || DEFAULT_CURRENCY,
+        annualLimit: Number(variant.annualLimit.replace(/,/g, '')),
+        ...((variant.roomType ?? '').trim() !== '' ? { roomType: variant.roomType!.trim() } : {}),
+        ...(numberOrUndefined(variant.deductible) !== undefined
+          ? { deductible: numberOrUndefined(variant.deductible) }
+          : {}),
+        ...(numberOrUndefined(variant.coPayment) !== undefined
+          ? { coPayment: numberOrUndefined(variant.coPayment) }
+          : {}),
+        /**
+         * The whole rate table in the same request. A band is a row, so the
+         * cover is entered once.
+         */
+        priceBands: pricedBands(variant).map((band) => ({
+          ageFrom: Number(band.from),
+          ageTo: Number(band.to),
+          annualPrice: Number(band.premium.replace(/,/g, '')),
+        })),
+        isActive: true,
+      })
+      .catch((cause: unknown) => {
+        throw inContext(cause, label);
+      });
 
     for (const spec of statedBenefits(variant)) {
-      const definition = definitions.get(spec.name)!;
-      const attached = await api.post<PlanOptionDto[]>(
-        `/plan-configurations/${configuration.id}/options`,
-        { optionId: definition.attach.id },
-      );
-      const row = attached.find((item) => item.optionId === definition.valueOptionId);
-      if (!row) continue;
-
-      const entry = variant.entries[spec.name] ?? emptyEntry();
-      const isExtra = variant.extras.includes(spec.name);
-      const written = isExtra
-        ? entry.coverage.trim() === ''
-          ? BENEFIT_INCLUDED_LABEL
-          : entry.coverage.trim()
-        : entry.coverage.trim();
-
-      const coverageField = row.values.find((value) => value.fieldKey !== CO_PAYMENT_FIELD.key);
-      if (coverageField && written !== '') {
-        const value = coerce(written, coverageField.dataType);
-        if (value === undefined) {
-          throw new Error(
-            `${spec.name} takes a number, but "${written}" is not one. Enter a figure, or change what this benefit carries on the Benefits screen.`,
-          );
-        }
-        await api.put(`/plan-options/${row.id}/values/${coverageField.optionFieldId}`, { value });
-      }
-
-      /**
-       * THE MEMBER'S SHARE, beside the figure, for a core area. The record
-       * grows the co-payment field the first time a plan states one, on the
-       * same row that holds the figure. Blank is left unwritten: the
-       * comparison reads no co-payment.
-       */
-      const typedShare = isExtra ? '' : entry.coPayment.trim();
-      if (typedShare !== '') {
-        const share = Number(typedShare.replace(/,/g, ''));
-        if (!Number.isFinite(share)) {
-          throw new Error(
-            `${spec.name} co-payment must be a percentage, but "${typedShare}" is not one.`,
-          );
-        }
-        let shareFieldId = row.values.find(
-          (value) => value.fieldKey === CO_PAYMENT_FIELD.key,
-        )?.optionFieldId;
-        if (!shareFieldId) {
-          const created = await api.post<OptionFieldDto>(
-            `/insurance-options/${row.optionId}/fields`,
-            {
-              label: CO_PAYMENT_FIELD.label,
-              key: CO_PAYMENT_FIELD.key,
-              dataType: CO_PAYMENT_FIELD.dataType,
-              unit: CO_PAYMENT_FIELD.unit,
-            },
-          );
-          shareFieldId = created.id;
-        }
-        await api.put(`/plan-options/${row.id}/values/${shareFieldId}`, { value: share });
-      }
-
-      const details = entry.details.map((line) => line.trim()).filter((line) => line !== '');
-      if (details.length > 0) {
-        await api.patch(`/plan-options/${row.id}/note`, {
-          note: details.join(BENEFIT_DETAIL_SEPARATOR),
-        });
+      try {
+        await writeBenefit(configuration.id, variant, spec, definitions.get(spec.name)!);
+      } catch (cause) {
+        throw inContext(cause, `${label}, ${spec.name}`);
       }
     }
   }
+}
 
-  return plan;
+/** One benefit on one variant: attached, then its figure, its share, its details. */
+async function writeBenefit(
+  configurationId: string,
+  variant: VariantDraft,
+  spec: MedicalBenefitSpec,
+  definition: ResolvedBenefit,
+): Promise<void> {
+  const attached = await api.post<PlanOptionDto[]>(
+    `/plan-configurations/${configurationId}/options`,
+    { optionId: definition.attach.id },
+  );
+  const row = attached.find((item) => item.optionId === definition.valueOptionId);
+  if (!row) return;
+
+  const entry = variant.entries[spec.name] ?? emptyEntry();
+  const isExtra = variant.extras.includes(spec.name);
+  const written = isExtra
+    ? entry.coverage.trim() === ''
+      ? BENEFIT_INCLUDED_LABEL
+      : entry.coverage.trim()
+    : entry.coverage.trim();
+
+  const coverageField = row.values.find((value) => value.fieldKey !== CO_PAYMENT_FIELD.key);
+  if (coverageField && written !== '') {
+    const value = coerce(written, coverageField.dataType);
+    if (value === undefined) {
+      throw new Error(
+        `${spec.name} takes a number, but "${written}" is not one. Enter a figure, or change what this benefit carries on the Benefits screen.`,
+      );
+    }
+    await api.put(`/plan-options/${row.id}/values/${coverageField.optionFieldId}`, { value });
+  }
+
+  /**
+   * THE MEMBER'S SHARE, beside the figure, for a core area. The record
+   * grows the co-payment field the first time a plan states one, on the
+   * same row that holds the figure. Blank is left unwritten: the
+   * comparison reads no co-payment.
+   */
+  const typedShare = isExtra ? '' : entry.coPayment.trim();
+  if (typedShare !== '') {
+    const share = Number(typedShare.replace(/,/g, ''));
+    if (!Number.isFinite(share)) {
+      throw new Error(
+        `${spec.name} co-payment must be a percentage, but "${typedShare}" is not one.`,
+      );
+    }
+    let shareFieldId = row.values.find(
+      (value) => value.fieldKey === CO_PAYMENT_FIELD.key,
+    )?.optionFieldId;
+    if (!shareFieldId) {
+      const created = await api.post<OptionFieldDto>(`/insurance-options/${row.optionId}/fields`, {
+        label: CO_PAYMENT_FIELD.label,
+        key: CO_PAYMENT_FIELD.key,
+        dataType: CO_PAYMENT_FIELD.dataType,
+        unit: CO_PAYMENT_FIELD.unit,
+      });
+      shareFieldId = created.id;
+    }
+    await api.put(`/plan-options/${row.id}/values/${shareFieldId}`, { value: share });
+  }
+
+  const details = entry.details.map((line) => line.trim()).filter((line) => line !== '');
+  if (details.length > 0) {
+    await api.patch(`/plan-options/${row.id}/note`, {
+      note: details.join(BENEFIT_DETAIL_SEPARATOR),
+    });
+  }
 }

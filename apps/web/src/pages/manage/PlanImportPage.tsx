@@ -14,7 +14,7 @@ import {
   type PlanImportJobDto,
 } from '@aggregator/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Badge,
@@ -51,6 +51,7 @@ import {
 } from '@/features/insurance-data/insurance-data.api';
 import {
   CREATE_NETWORK,
+  crossReferences,
   descriptionForPublish,
   draftReady,
   draftWarnings,
@@ -276,6 +277,13 @@ function Review({
   const [error, setError] = useState<string | null>(null);
   const [published, setPublished] = useState<string[]>([]);
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  /**
+   * Networks this screen has created, by folded name, so two plans on one new
+   * network share it. Kept for the life of the screen, not of one run: a run
+   * that fails after adding the network must find it again on the retry, and
+   * the list it was loaded with does not know about it yet.
+   */
+  const createdNetworks = useRef(new Map<string, string>()).current;
 
   // The drafts are made ONCE, when the networks are known: after that they are
   // the employee's, and a refetch must not overwrite what they typed.
@@ -336,8 +344,6 @@ function Review({
   async function publishPlans(planKeys: string[]) {
     if (!drafts) return;
     setError(null);
-    /** Networks created during this run, by folded name, so two plans on one new network share it. */
-    const createdNetworks = new Map<string, string>();
     let written = 0;
 
     try {
@@ -520,6 +526,7 @@ function Review({
               draft={active}
               position={all.indexOf(active) + 1}
               total={all.length}
+              planNames={all.map((draft) => draft.name)}
               company={company}
               currency={
                 active.variants[0]?.currency || result.document.currency || DEFAULT_CURRENCY
@@ -600,6 +607,7 @@ function PlanPanel({
   draft,
   position,
   total,
+  planNames,
   company,
   currency,
   networks,
@@ -614,6 +622,8 @@ function PlanPanel({
   draft: ImportPlanDraft;
   position: number;
   total: number;
+  /** Every plan in the document, to spot a benefit that points at another one. */
+  planNames: string[];
   company: CompanyDto | undefined;
   currency: string;
   networks: MedicalNetworkDto[];
@@ -629,6 +639,7 @@ function PlanPanel({
 }) {
   const warnings = draftWarnings(draft);
   const ready = draftReady(draft);
+  const borrowed = crossReferences(draft, planNames);
   const variant = draft.variants[0];
   const annualLimit = Number((variant?.annualLimit ?? '').replace(/,/g, ''));
   const hasLimit = (variant?.annualLimit ?? '').trim() !== '' && Number.isFinite(annualLimit);
@@ -847,6 +858,14 @@ function PlanPanel({
                 })}
               </ul>
             </section>
+          ) : null}
+
+          {borrowed.length > 0 ? (
+            <Callout tone="warning" title="Still refers to another plan">
+              {borrowed.join(', ')} {borrowed.length === 1 ? 'is' : 'are'} written as “same as”
+              another plan. A customer sees this plan on its own, so write the cover out in full
+              before publishing.
+            </Callout>
           ) : null}
 
           {draft.variants.map((item, index) => (

@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ApiError } from '@/lib/api-client';
+import { ApiError, validationSummary } from '@/lib/api-client';
 import { Button } from './Button';
 import { Card } from './Card';
 import { EmptyState } from './EmptyState';
@@ -22,8 +22,14 @@ export function describeError(error: unknown, subject: string): string {
       case 'NOT_FOUND':
         // `subject` already reads as "the plan" / "the benefit": no second article.
         return `We could not find ${subject} you asked for. It may have been deleted.`;
-      case 'VALIDATION_ERROR':
-        return 'Some of the information provided is not valid. Please check the highlighted fields.';
+      case 'VALIDATION_ERROR': {
+        // Name what was refused. A screen that highlights fields has already
+        // done so; one that cannot would otherwise point at nothing.
+        const refused = validationSummary(error);
+        return refused === ''
+          ? 'Some of the information provided is not valid. Please check it and try again.'
+          : `Some of the information provided is not valid — ${refused}.`;
+      }
       case 'INTERNAL_ERROR':
         return `Unable to load ${subject}. Please try again.`;
       default:
