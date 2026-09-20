@@ -127,6 +127,23 @@ export function PublicPlanPage() {
     return <Navigate to={`${ROUTES.public.details}?${params.toString()}`} replace />;
   }
 
+  /**
+   * THE ONE THING TO DO HERE, offered twice: above the plan for the visitor
+   * who already knows, and below it for the one who read to the end — who
+   * would otherwise finish on the conditions with nothing to press.
+   */
+  const chooseAction = !plan ? null : chosenHere ? (
+    <ButtonLink variant="secondary" to={`${ROUTES.public.chosen}?${params.toString()}`}>
+      <IconCheck className="text-success size-4" />
+      Your choice · What happens next
+    </ButtonLink>
+  ) : (
+    <Button onClick={chooseThis} disabled={choose.isPending} size="lg">
+      <IconCheck className="size-4" />
+      {choose.isPending ? 'Choosing…' : 'Choose this plan'}
+    </Button>
+  );
+
   return (
     <div className="mx-auto w-full max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -137,19 +154,7 @@ export function PublicPlanPage() {
           <IconChevronRight className="size-4 rotate-180" />
           Back to results
         </Link>
-        {plan ? (
-          chosenHere ? (
-            <ButtonLink variant="secondary" to={`${ROUTES.public.chosen}?${params.toString()}`}>
-              <IconCheck className="text-success size-4" />
-              Your choice · What happens next
-            </ButtonLink>
-          ) : (
-            <Button onClick={chooseThis} disabled={choose.isPending} size="lg">
-              <IconCheck className="size-4" />
-              {choose.isPending ? 'Choosing…' : 'Choose this plan'}
-            </Button>
-          )
-        ) : null}
+        {chooseAction}
       </div>
 
       {pdfNotice && lead.data ? (
@@ -183,6 +188,25 @@ export function PublicPlanPage() {
           ) : null
         }
       </DataState>
+
+      {plan && !comparison.isLoading ? (
+        <section
+          aria-label="Choose this plan"
+          className="bg-surface border-border-subtle flex flex-wrap items-center justify-between gap-4 rounded-(--radius-card) border p-6 shadow-(--shadow-card)"
+        >
+          <div className="min-w-0">
+            <p className="text-content text-lg font-semibold">
+              {chosenHere ? `${plan.planName} is your choice` : `Happy with ${plan.planName}?`}
+            </p>
+            <p className="text-content-muted mt-0.5 text-sm">
+              {chosenHere
+                ? 'A Hadbrok adviser will contact you within 24 hours.'
+                : 'Choose it and a Hadbrok adviser will contact you within 24 hours. Nothing to pay now.'}
+            </p>
+          </div>
+          {chooseAction}
+        </section>
+      ) : null}
     </div>
   );
 }

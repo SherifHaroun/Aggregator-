@@ -4,7 +4,8 @@ import { ButtonLink, IconCheck, IconChevronRight, IconShield } from '@/component
 import { ROUTES } from '@/config/routes';
 import { leadIdOf, withoutLead } from '@/features/leads/lead-session';
 import { useLead } from '@/features/leads/leads.api';
-import { HOURS, PHONE_MOBILE, tel } from '@/pages/public/CompanyPages';
+import { LocationChip } from '@/features/public/LocationChip';
+import { ADDRESS, HOURS, PHONE_MOBILE, tel } from '@/pages/public/CompanyPages';
 
 /**
  * THE VISITOR CHOSE. The PDF is in their inbox and a Hadbrok adviser will
@@ -90,6 +91,9 @@ export function ChosenPage() {
           ) : null}
         </div>
         <p className="mt-6 text-xs text-white/60">{HOURS}</p>
+        <div className="mt-4 flex justify-center">
+          <LocationChip address={ADDRESS} />
+        </div>
 
         <p className="mt-10 text-sm text-white/70">
           Want to compare something else?{' '}

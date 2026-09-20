@@ -139,6 +139,56 @@ describe('the front door', () => {
     );
     expect(await screen.findByRole('heading', { name: 'Careers' })).toBeInTheDocument();
   });
+
+  it('takes "Compare plans" to the compare card, from the foot of the page and from another page', async () => {
+    const user = userEvent.setup();
+    /** jsdom has no layout, so what is scrolled to is recorded instead. */
+    const scrolledTo: string[] = [];
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function scrollIntoView(this: Element) {
+      scrolledTo.push(this.id);
+    };
+    try {
+      renderApp(ROUTES.home, 'anonymous');
+      await screen.findByRole('heading', { level: 1, name: /Confused\?/ });
+      const site = within(screen.getByRole('navigation', { name: 'Site' }));
+
+      await user.click(site.getByRole('link', { name: 'Compare plans' }));
+      await waitFor(() => expect(scrolledTo).toEqual(['compare']));
+      /** Pressed again after scrolling away, it goes there again. */
+      await user.click(site.getByRole('link', { name: 'Compare plans' }));
+      await waitFor(() => expect(scrolledTo).toEqual(['compare', 'compare']));
+
+      /** From another page: the home page is drawn first, then scrolled. */
+      await user.click(site.getByRole('link', { name: 'About us' }));
+      await screen.findByRole('heading', { level: 1, name: /insurance broker since 1982/ });
+      await user.click(site.getByRole('link', { name: 'Compare plans' }));
+      await waitFor(() => expect(scrolledTo).toHaveLength(3));
+    } finally {
+      Element.prototype.scrollIntoView = original;
+    }
+  });
+
+  it('gives the way to the office wherever it gives the hours', async () => {
+    const user = userEvent.setup();
+    renderApp(ROUTES.home, 'anonymous');
+    await screen.findByRole('heading', { level: 1, name: /Confused\?/ });
+
+    const map = 'https://maps.app.goo.gl/2xSib6voNepJgjyaA';
+    const footer = within(screen.getByRole('contentinfo'));
+    const inFooter = footer.getByRole('link', { name: /Open our office in Google Maps/ });
+    expect(inFooter).toHaveAttribute('href', map);
+    expect(inFooter).toHaveAttribute('target', '_blank');
+    /** Footer, and under "Find an agent now". */
+    expect(screen.getAllByRole('link', { name: /Open our office in Google Maps/ })).toHaveLength(2);
+
+    /** On the contact page, the "Visit us" card carries it too. */
+    await user.click(footer.getByRole('link', { name: 'Contact us' }));
+    const visit = (await screen.findByRole('heading', { name: 'Visit us' })).closest(
+      'div',
+    )!.parentElement!;
+    expect(within(visit).getByRole('link', { name: /Google Maps/ })).toHaveAttribute('href', map);
+  });
 });
 
 describe('comparing as a visitor', () => {
@@ -226,8 +276,19 @@ describe('comparing as a visitor', () => {
     /** The PDF is in their inbox; there is no second copy to download here. */
     expect(screen.queryByRole('button', { name: /Download PDF/ })).not.toBeInTheDocument();
 
-    /** Choosing it: into the cart as the choice, the PDF sent, and the page says so. */
-    await user.click(screen.getByRole('button', { name: /Choose this plan/ }));
+    /**
+     * Choosing it: into the cart as the choice, the PDF sent, and the page says
+     * so. The button is offered twice — above the plan, and again below it for
+     * the visitor who read to the end — and the lower one is pressed here.
+     */
+    const chooseButtons = screen.getAllByRole('button', { name: /Choose this plan/ });
+    expect(chooseButtons).toHaveLength(2);
+    expect(
+      within(screen.getByRole('region', { name: 'Choose this plan' })).getByText(
+        /Happy with Gold\?/,
+      ),
+    ).toBeInTheDocument();
+    await user.click(chooseButtons[1]!);
     expect(
       await screen.findByRole('heading', { level: 1, name: /Your plan is on its way/ }),
     ).toBeInTheDocument();
@@ -261,7 +322,7 @@ describe('comparing as a visitor', () => {
 
     renderApp(`${ROUTES.public.plan('cfg_gold')}?${criteria}&lead=lead_mona`, 'anonymous');
     await screen.findByRole('heading', { level: 1, name: 'Gold' });
-    await user.click(await screen.findByRole('button', { name: /Choose this plan/ }));
+    await user.click((await screen.findAllByRole('button', { name: /Choose this plan/ }))[0]!);
 
     expect(
       await screen.findByRole('heading', { level: 1, name: /Your plan is chosen/ }),

@@ -9,6 +9,7 @@ import {
   IconUsers,
 } from '@/components/ui/icons';
 import { ROUTES } from '@/config/routes';
+import { LocationChip } from '@/features/public/LocationChip';
 
 /**
  * THE BROKER'S OWN PAGES — who Hadbrok is and how to reach them.
@@ -443,7 +444,7 @@ export function ContactPage() {
           <p className="text-content-muted">We get back to you soon.</p>
         </ContactCard>
         <ContactCard icon={IconBuilding} title="Visit us">
-          <p>{ADDRESS}</p>
+          <LocationChip address={ADDRESS} tone="light" className="mt-1 mb-2" />
           <p className="text-content-muted">Post: {POST_BOX}</p>
         </ContactCard>
         <ContactCard icon={IconLayers} title="Fax">

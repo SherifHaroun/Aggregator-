@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom';
 import { IconCheck, IconGlobe, IconLayers, IconShield, IconSparkle } from '@/components/ui/icons';
 import { ROUTES } from '@/config/routes';
 import { InsuranceSolutions } from '@/features/public/InsuranceSolutions';
+import { LocationChip } from '@/features/public/LocationChip';
 import { PlanShowcase } from '@/features/public/PlanShowcase';
 import { QuickCompareForm } from '@/features/public/QuickCompareForm';
 import { TrustedLogos } from '@/features/public/TrustedLogos';
+import { ADDRESS, HOURS } from '@/pages/public/CompanyPages';
 
 /**
  * THE FRONT DOOR.
@@ -222,7 +224,7 @@ function FindAnAgent() {
           <span>
             <span className="block text-sm text-white/75">Call now</span>
             <span className="block text-2xl font-extrabold tabular-nums">+20 12 2235 2235</span>
-            <span className="block text-xs text-white/60">9am to 5pm, Sunday to Thursday</span>
+            <span className="block text-xs text-white/60">{HOURS}</span>
           </span>
         </a>
         <div className="bg-brand flex flex-col justify-center gap-3 rounded-(--radius-card) p-7 text-white shadow-(--shadow-raised)">
@@ -235,6 +237,10 @@ function FindAnAgent() {
             Compare plans
           </Link>
         </div>
+      </div>
+      {/* Under the hours, not inside the call card: that card is itself a link. */}
+      <div className="mt-5 flex justify-center">
+        <LocationChip address={ADDRESS} tone="light" />
       </div>
     </section>
   );

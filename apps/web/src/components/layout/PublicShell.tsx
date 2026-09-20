@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation, useNavigationType } from 'react-router-dom';
 import { HadbrokLogo } from '@/components/ui/HadbrokLogo';
 import { IconClose, IconMenu } from '@/components/ui/icons';
 import { ROUTES } from '@/config/routes';
-import { HOURS, PHONE_MOBILE, PHONE_OFFICE, tel } from '@/pages/public/CompanyPages';
+import { LocationChip } from '@/features/public/LocationChip';
+import { ADDRESS, HOURS, PHONE_MOBILE, PHONE_OFFICE, tel } from '@/pages/public/CompanyPages';
 
 /**
  * THE CUSTOMER SITE'S FRAME.
@@ -20,6 +21,7 @@ export function PublicShell() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => setMenuOpen(false), [pathname]);
+  useScrollOnNavigate();
 
   const links = [
     { label: 'Compare plans', to: `${ROUTES.home}#compare` },
@@ -103,6 +105,49 @@ export function PublicShell() {
   );
 }
 
+/**
+ * WHERE THE PAGE SITS AFTER A LINK IS FOLLOWED.
+ *
+ * The router changes the address and nothing else: "Compare plans" pointed at
+ * `/#compare` and left the visitor wherever they already were — at the foot
+ * of the home page, usually, looking at the link they had just pressed. So a
+ * link with a `#target` is taken to it, including one pressed twice and one
+ * whose page is still being drawn; and a link to another page starts at its
+ * top. Back and forward are left alone, so the browser can put a visitor
+ * back where they were.
+ */
+function useScrollOnNavigate() {
+  const { pathname, hash, key } = useLocation();
+  const navigationType = useNavigationType();
+
+  // A new PAGE starts at its top. Only the path counts: a link that changes
+  // nothing but the query leaves the visitor where they are reading.
+  useEffect(() => {
+    if (hash === '' && navigationType === 'PUSH') document.documentElement.scrollTo?.({ top: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  useEffect(() => {
+    if (hash === '') return;
+
+    const id = decodeURIComponent(hash.slice(1));
+    let frame = 0;
+    let tries = 0;
+    const seek = () => {
+      const target = document.getElementById(id);
+      if (target) {
+        target.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+      } else if (tries < 30) {
+        tries += 1;
+        frame = requestAnimationFrame(seek);
+      }
+    };
+    seek();
+    return () => cancelAnimationFrame(frame);
+    // `key` changes on every navigation, so the same link pressed again scrolls again.
+  }, [hash, key]);
+}
+
 /** How to reach the broker: the same details the company site carries. */
 function SiteFooter() {
   return (
@@ -144,6 +189,9 @@ function SiteFooter() {
             </a>
           </li>
           <li className="text-sm text-white/80">{HOURS}</li>
+          <li className="py-2">
+            <LocationChip address={ADDRESS} />
+          </li>
           <li className="flex gap-4 pt-1">
             <a href="https://www.facebook.com/hadbrok" className={footerLinkClass}>
               Facebook
